@@ -33,9 +33,13 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Prepare build files & debug keystore
+      - name: Prepare build files & keystores
         run: |
           touch .env
+          if [ -f my-upload-key.jks.base64 ]; then
+            echo "Decoding permanent release keystore..."
+            base64 -d my-upload-key.jks.base64 > my-upload-key.jks
+          fi
           if [ -f debug.keystore.base64 ]; then
             echo "Decoding persistent debug keystore..."
             base64 -d debug.keystore.base64 > debug.keystore
@@ -43,17 +47,24 @@ jobs:
             keytool -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
           fi
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: "1.0.${{ github.run_number }}"
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: "ARIFALAM786683"
+          KEY_PASSWORD: "ARIFALAM786683"
 
       - name: Prepare APK
         run: |
           mkdir -p release-artifacts
-          cp app/build/outputs/apk/debug/*.apk release-artifacts/StockManager.apk
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk release-artifacts/StockManager.apk
+          else
+            cp app/build/outputs/apk/release/*.apk release-artifacts/StockManager.apk
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
