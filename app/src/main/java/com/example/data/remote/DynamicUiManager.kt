@@ -40,7 +40,7 @@ class DynamicUiManager(private val context: Context) {
 
     companion object {
         private const val TAG = "DynamicUiManager"
-        private const val CONFIG_URL = "https://raw.githubusercontent.com/ARIF683/Hardware/main/ui_config.json"
+        private const val CONFIG_URL = "https://raw.githubusercontent.com/ARIF683/Hardware_new/main/ui_config.json"
         private const val PREF_KEY_CONFIG = "cached_ui_config"
     }
 

@@ -50,7 +50,7 @@ class AppUpdateManager(private val context: Context) {
 
     companion object {
         private const val TAG = "AppUpdateManager"
-        private const val GITHUB_RELEASE_API = "https://api.github.com/repos/ARIF683/Hardware/releases/latest"
+        private const val GITHUB_RELEASE_API = "https://api.github.com/repos/ARIF683/Hardware_new/releases/latest"
         val CURRENT_VERSION_TAG = "v${BuildConfig.VERSION_NAME}"
         val CURRENT_VERSION_DISPLAY = "v${BuildConfig.VERSION_NAME} (b${BuildConfig.VERSION_CODE})"
     }
