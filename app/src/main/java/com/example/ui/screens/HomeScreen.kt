@@ -867,6 +867,7 @@ fun TransactionRowItem(
     val dateFormatted = remember(tx.createdAt) {
         try {
             val sdfIn = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+            sdfIn.timeZone = java.util.TimeZone.getTimeZone("UTC")
             val date = sdfIn.parse(tx.createdAt.take(19))
             val sdfOut = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
             date?.let { sdfOut.format(it) } ?: tx.createdAt
