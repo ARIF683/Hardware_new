@@ -116,6 +116,7 @@ fun ItemsScreen(
     val selectedIds by viewModel.selectedItemIds.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
+    val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
 
     var showSortDialog by remember { mutableStateOf(false) }
     var showGroupByDialog by remember { mutableStateOf(false) }
@@ -247,39 +248,57 @@ fun ItemsScreen(
                     maxLines = 1
                 )
 
-                Box {
-                    var showMenu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreHoriz, contentDescription = "More options", tint = MaterialTheme.colorScheme.onSurface)
-                    }
-                    androidx.compose.material3.DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Quick + Add Button matching reference UI
+                    IconButton(
+                        onClick = { onOpenItemForm(null) },
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(32.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
                     ) {
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Add item") },
-                            onClick = {
-                                showMenu = false
-                                onOpenItemForm(null)
-                            },
-                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add Item",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
                         )
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Color tint import") },
-                            onClick = {
-                                showMenu = false
-                                showColorMachineDialog = true
-                            },
-                            leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                        )
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Camera / Scan Bill") },
-                            onClick = {
-                                showMenu = false
-                                viewModel.openBillFlow()
-                            },
-                            leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                        )
+                    }
+
+                    Box {
+                        var showMenu by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreHoriz, contentDescription = "More options", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(if (itemsViewLayout == "list") "Switch to 2-Column Grid" else "Switch to List View") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.setItemsViewLayout(if (itemsViewLayout == "list") "grid" else "list")
+                                },
+                                leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Color tint import") },
+                                onClick = {
+                                    showMenu = false
+                                    showColorMachineDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Camera / Scan Bill") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.openBillFlow()
+                                },
+                                leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                        }
                     }
                 }
             }
@@ -443,6 +462,38 @@ fun ItemsScreen(
                         }
                     }
                     item { Spacer(modifier = Modifier.height(80.dp)) }
+                }
+            } else if (itemsViewLayout == "list") {
+                // Single-Column Showcase List matching user reference image
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    if (items.isEmpty()) {
+                        item {
+                            EmptyStateNotice("No items found")
+                        }
+                    } else {
+                        items(items, key = { it.id }) { item ->
+                            ItemShowcaseListCard(
+                                item = item,
+                                isSelectionMode = isSelectionMode,
+                                isSelected = selectedIds.contains(item.id),
+                                onToggleSelect = { viewModel.toggleItemSelection(item.id) },
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        viewModel.toggleItemSelection(item.id)
+                                    } else {
+                                        viewModel.openItemDetail(item.id)
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(120.dp)) }
                 }
             } else {
                 // 2-Column Grid Item list
@@ -741,6 +792,198 @@ fun ItemsScreen(
     }
 
 
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ItemShowcaseListCard(
+    item: Item,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
+    onClick: () -> Unit
+) {
+    val isLow = item.qty < 0 || (item.low > 0 && item.qty <= item.low)
+    val isInStock = item.qty > 0 && !isLow
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelect()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    onToggleSelect()
+                }
+            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left: Thumbnail image with selection checkbox overlay
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!item.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageModelHelper.rememberImageModel(item.imageUrl),
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "ITEM").take(6).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 10.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+
+                if (isSelectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onToggleSelect() },
+                            colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Center: Title, Brand/Category subtitle, and Price & Stock metrics row
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                // Top row with Item Name and Status Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+
+                // Subtitle: Brand • Category • Size
+                val subtitleParts = listOfNotNull(
+                    item.type.takeIf { it.isNotBlank() },
+                    item.brand.takeIf { it.isNotBlank() },
+                    item.size.takeIf { it.isNotBlank() }
+                )
+                val subtitleText = if (subtitleParts.isNotEmpty()) subtitleParts.joinToString(" • ") else "General hardware"
+
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bottom metrics: Cost, Selling Price, and Quantity
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (item.cost > 0.0) {
+                            Column {
+                                Text(
+                                    text = "Cost",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = StockViewModel.formatRupees(item.cost),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Column {
+                            Text(
+                                text = "Selling",
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = StockViewModel.formatRupees(item.price),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Stock Quantity counter
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                    ) {
+                        val qtyStr = if (item.qty % 1.0 == 0.0) item.qty.toLong().toString() else "%.1f".format(item.qty)
+                        val unitStr = if (item.unit != "pcs" && item.unit.isNotBlank()) " ${item.unit}" else ""
+                        Text(
+                            text = "Stock: $qtyStr$unitStr",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

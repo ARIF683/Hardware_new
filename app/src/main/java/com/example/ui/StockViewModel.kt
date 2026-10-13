@@ -57,6 +57,14 @@ data class GroupStat(
     val percentage: Int
 )
 
+data class StockFlowDayPoint(
+    val dayLabel: String,
+    val dateKey: String,
+    val netQuantity: Double,
+    val inQty: Double,
+    val outQty: Double
+)
+
 class StockViewModel(application: Application) : AndroidViewModel(application) {
     val authManager = AuthManager(application)
     val repository = StockRepository(application)
@@ -74,6 +82,16 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         _customThemeColor.value = hexColor
         themePrefs.edit().putString("theme_color", hexColor).apply()
         showToast("Theme changed successfully")
+    }
+
+    private val layoutPrefs = application.getSharedPreferences("layout_prefs", android.content.Context.MODE_PRIVATE)
+    private val _itemsViewLayout = MutableStateFlow(layoutPrefs.getString("items_layout", "list") ?: "list")
+    val itemsViewLayout: StateFlow<String> = _itemsViewLayout.asStateFlow()
+
+    fun setItemsViewLayout(layout: String) {
+        _itemsViewLayout.value = layout
+        layoutPrefs.edit().putString("items_layout", layout).apply()
+        showToast(if (layout == "list") "Switched to List View (Showcase)" else "Switched to 2-Column Grid")
     }
 
     val selectedLogo: StateFlow<AppLogoStyle> = logoPreferenceManager.selectedLogo
@@ -142,6 +160,43 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     val recentTransactions: StateFlow<List<TransactionRecord>> = repository.recentTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val stockFlow7Days: StateFlow<List<StockFlowDayPoint>> = allTransactions.combine(repository.allItems) { txs, _ ->
+        val calendar = java.util.Calendar.getInstance()
+        val dayFormat = java.text.SimpleDateFormat("EEE", java.util.Locale.ENGLISH)
+        val isoDayFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        
+        // Generate last 7 days in chronological order
+        val days = (6 downTo 0).map { daysAgo ->
+            val cal = java.util.Calendar.getInstance()
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
+            val dateKey = isoDayFormat.format(cal.time)
+            val dayLabel = if (daysAgo == 0) "Today" else dayFormat.format(cal.time)
+            Triple(dateKey, dayLabel, daysAgo)
+        }
+
+        days.map { (dateKey, dayLabel, _) ->
+            val dayTxs = txs.filter { it.createdAt.startsWith(dateKey) }
+            val inQty = dayTxs.filter { it.action == "in" }.sumOf { it.qty }
+            val outQty = dayTxs.filter { it.action == "out" }.sumOf { it.qty }
+            StockFlowDayPoint(
+                dayLabel = dayLabel,
+                dateKey = dateKey,
+                netQuantity = inQty - outQty,
+                inQty = inQty,
+                outQty = outQty
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todayQtyDelta: StateFlow<Double> = allTransactions.combine(repository.allItems) { txs, _ ->
+        val isoDayFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val todayKey = isoDayFormat.format(java.util.Date())
+        val todayTxs = txs.filter { it.createdAt.startsWith(todayKey) }
+        val inQty = todayTxs.filter { it.action == "in" }.sumOf { it.qty }
+        val outQty = todayTxs.filter { it.action == "out" }.sumOf { it.qty }
+        inQty - outQty
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     val allQuotations: StateFlow<List<QuotationRecord>> = repository.allQuotations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -224,6 +279,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         _currentTab.value = tab
         _currentScreen.value = CurrentScreen.Main
         selectedGroup.value = null
+        groupBy.value = "none"
         selectedItemIds.value = emptySet()
         isSelectionMode.value = false
     }

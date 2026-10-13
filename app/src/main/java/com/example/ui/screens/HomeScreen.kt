@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -69,6 +70,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -123,6 +135,8 @@ fun HomeScreen(viewModel: StockViewModel) {
     val bannerUrl by viewModel.bannerUrl.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
+    val stockFlowPoints by viewModel.stockFlow7Days.collectAsState()
+    val todayDelta by viewModel.todayQtyDelta.collectAsState()
 
     var isUploadingBanner by remember { mutableStateOf(false) }
     var isUploadingLogo by remember { mutableStateOf(false) }
@@ -714,57 +728,208 @@ fun HomeScreen(viewModel: StockViewModel) {
         }
 
         item {
-            // Stats Grid 2 columns
+            // Hero Card: Total Stock Value (Showcase Reference Design)
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF5B4FFF)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF6B58F6),
+                                    Color(0xFF4C36ED),
+                                    Color(0xFF3724B8)
+                                )
+                            )
+                        )
+                        .padding(20.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Inventory2,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Total Stock Value",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            // Dynamic growth indicator badge
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.22f)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (todayDelta >= 0) Icons.Default.TrendingUp else Icons.Default.ArrowDownward,
+                                        contentDescription = null,
+                                        tint = Color(0xFF98FFB3),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    val deltaFormatted = if (todayDelta >= 0) "+%.0f".format(todayDelta) else "%.0f".format(todayDelta)
+                                    Text(
+                                        text = "$deltaFormatted today",
+                                        color = Color(0xFF98FFB3),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Big Value (Price valuation)
+                        Text(
+                            text = StockViewModel.formatRupees(priceVal),
+                            color = Color.White,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-0.5).sp
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Sub stats footer inside hero card (Purchase Cost & Potential Profit)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Cost Valuation",
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.75f)
+                                )
+                                Text(
+                                    text = StockViewModel.formatRupees(costVal),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "Potential Profit",
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.75f)
+                                )
+                                Text(
+                                    text = StockViewModel.formatRupees(profit),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF98FFB3)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2x2 Metric Cards Grid (Total Items, Total Quantity, Potential Profit, Low Stock)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                StatCard(
-                    title = "Items",
+                MetricBoxCard(
+                    title = "Total Items",
                     value = "$totalItems",
+                    icon = Icons.Default.Category,
+                    iconBg = Color(0xFFE8F0FE),
+                    iconTint = Color(0xFF1A73E8),
+                    subtext = "Active products",
                     modifier = Modifier.weight(1f)
                 )
-                StatCard(
-                    title = "Total quantity",
+
+                MetricBoxCard(
+                    title = "Total Quantity",
                     value = if (totalQty % 1.0 == 0.0) totalQty.toLong().toString() else "%.1f".format(totalQty),
+                    icon = Icons.Default.Inventory2,
+                    iconBg = Color(0xFFE6F4EA),
+                    iconTint = Color(0xFF137333),
+                    subtext = "Units in stock",
                     modifier = Modifier.weight(1f)
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                StatCard(
-                    title = "Stock value (cost)",
-                    value = StockViewModel.formatRupees(costVal),
+                MetricBoxCard(
+                    title = "Estimated Margin",
+                    value = if (priceVal > 0) "${((profit / priceVal) * 100).toInt()}%" else "0%",
+                    icon = Icons.Default.ShowChart,
+                    iconBg = Color(0xFFFEF7E0),
+                    iconTint = Color(0xFFEA8600),
+                    subtext = StockViewModel.formatRupees(profit),
                     modifier = Modifier.weight(1f)
                 )
-                StatCard(
-                    title = "Stock value (price)",
-                    value = StockViewModel.formatRupees(priceVal),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StatCard(
-                    title = "Potential profit",
-                    value = StockViewModel.formatRupees(profit),
-                    valueColor = if (profit >= 0) SuccessGreen else DangerRed,
-                    modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    title = "Low / negative stock",
+
+                MetricBoxCard(
+                    title = "Low Stock",
                     value = "$lowStockCount",
+                    icon = Icons.Default.Warning,
+                    iconBg = if (lowStockCount > 0) Color(0xFFFCE8E6) else Color(0xFFF1F3F4),
+                    iconTint = if (lowStockCount > 0) DangerRed else Color(0xFF5F6368),
+                    subtext = if (lowStockCount > 0) "Needs restock" else "All healthy",
                     valueColor = if (lowStockCount > 0) DangerRed else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
             }
-            Spacer(modifier = Modifier.height(24.dp))
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Stock Flow Smooth Bézier Line Chart Card
+            StockFlowChartCard(
+                points = stockFlowPoints,
+                totalTransactionsCount = recentTx.size
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
         }
 
         item {
@@ -854,6 +1019,312 @@ fun StatCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+fun MetricBoxCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconBg: Color,
+    iconTint: Color,
+    subtext: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = value,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Black,
+                color = valueColor,
+                maxLines = 1
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = subtext,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun StockFlowChartCard(
+    points: List<com.example.ui.StockFlowDayPoint>,
+    totalTransactionsCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header Row: Title & Subtitle + 7D badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Stock Flow",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.ShowChart,
+                            contentDescription = null,
+                            tint = Color(0xFF5B4FFF),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Text(
+                        text = "Net stock movement over 7 days",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = "Past 7 Days",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Custom Smooth Canvas Line Chart
+            val safePoints = remember(points) {
+                if (points.isNotEmpty()) points else {
+                    listOf(
+                        com.example.ui.StockFlowDayPoint("Mon", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Tue", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Wed", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Thu", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Fri", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Sat", "", 0.0, 0.0, 0.0),
+                        com.example.ui.StockFlowDayPoint("Today", "", 0.0, 0.0, 0.0)
+                    )
+                }
+            }
+
+            val primaryChartColor = Color(0xFF5B4FFF)
+            val chartFillBrush = Brush.verticalGradient(
+                colors = listOf(
+                    primaryChartColor.copy(alpha = 0.35f),
+                    primaryChartColor.copy(alpha = 0.02f)
+                )
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val canvasWidth = size.width
+                    val canvasHeight = size.height
+                    val bottomPadding = 24.dp.toPx()
+                    val graphHeight = canvasHeight - bottomPadding
+
+                    val values = safePoints.map { it.netQuantity.toFloat() }
+                    val minVal = minOf(values.minOrNull() ?: 0f, 0f)
+                    val maxVal = maxOf(values.maxOrNull() ?: 0f, 10f)
+                    val range = if (maxVal - minVal > 0f) (maxVal - minVal) else 1f
+
+                    val stepX = if (safePoints.size > 1) canvasWidth / (safePoints.size - 1) else canvasWidth
+
+                    // Draw subtle horizontal grid lines (3 guidelines)
+                    val gridLines = 3
+                    for (i in 0..gridLines) {
+                        val y = graphHeight * (i.toFloat() / gridLines)
+                        drawLine(
+                            color = Color.LightGray.copy(alpha = 0.3f),
+                            start = androidx.compose.ui.geometry.Offset(0f, y),
+                            end = androidx.compose.ui.geometry.Offset(canvasWidth, y),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+
+                    // Build path coordinates
+                    val coords = safePoints.mapIndexed { index, pt ->
+                        val x = index * stepX
+                        val normalized = (pt.netQuantity.toFloat() - minVal) / range
+                        val y = graphHeight - (normalized * (graphHeight - 20.dp.toPx())) - 10.dp.toPx()
+                        androidx.compose.ui.geometry.Offset(x, y)
+                    }
+
+                    if (coords.isNotEmpty()) {
+                        // Smooth cubic curve path
+                        val strokePath = Path().apply {
+                            moveTo(coords[0].x, coords[0].y)
+                            for (i in 0 until coords.size - 1) {
+                                val p0 = coords[i]
+                                val p1 = coords[i + 1]
+                                val controlPoint1 = androidx.compose.ui.geometry.Offset((p0.x + p1.x) / 2f, p0.y)
+                                val controlPoint2 = androidx.compose.ui.geometry.Offset((p0.x + p1.x) / 2f, p1.y)
+                                cubicTo(controlPoint1.x, controlPoint1.y, controlPoint2.x, controlPoint2.y, p1.x, p1.y)
+                            }
+                        }
+
+                        // Fill path
+                        val fillPath = Path().apply {
+                            addPath(strokePath)
+                            lineTo(coords.last().x, graphHeight)
+                            lineTo(coords.first().x, graphHeight)
+                            close()
+                        }
+
+                        drawPath(path = fillPath, brush = chartFillBrush)
+                        drawPath(
+                            path = strokePath,
+                            color = primaryChartColor,
+                            style = Stroke(
+                                width = 3.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+
+                        // Draw point dots
+                        coords.forEachIndexed { idx, point ->
+                            drawCircle(
+                                color = Color.White,
+                                radius = 4.dp.toPx(),
+                                center = point
+                            )
+                            drawCircle(
+                                color = primaryChartColor,
+                                radius = 2.5.dp.toPx(),
+                                center = point
+                            )
+                        }
+                    }
+                }
+
+                // Day Labels at bottom
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    safePoints.forEach { pt ->
+                        Text(
+                            text = pt.dayLabel,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (pt.dayLabel == "Today") FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Dynamic flow summary footer
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val totalIn7D = safePoints.sumOf { it.inQty }
+                val totalOut7D = safePoints.sumOf { it.outQty }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = null,
+                        tint = SuccessGreen,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Added: +%.0f".format(totalIn7D),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDownward,
+                        contentDescription = null,
+                        tint = DangerRed,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Issued: -%.0f".format(totalOut7D),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
         }
     }
 }
