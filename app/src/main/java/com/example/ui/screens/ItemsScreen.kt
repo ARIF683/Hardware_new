@@ -5,14 +5,19 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +43,7 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
@@ -481,41 +487,67 @@ fun ItemsScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
+                    item { Spacer(modifier = Modifier.height(120.dp)) }
                 }
             }
         }
 
-        // Floating Selection Bar at Bottom
+        // Dedicated Bottom Selection Options Bar
         if (isSelectionMode && selectedIds.isNotEmpty()) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .navigationBarsPadding(),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 10.dp,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                shadowElevation = 16.dp,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Header Row with count and clear button
+                    // Header Row with count, select-all toggle, and clear button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${selectedIds.size} selected",
-                            fontWeight = FontWeight.ExtraBold,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        IconButton(onClick = { viewModel.selectedItemIds.value = emptySet(); viewModel.isSelectionMode.value = false }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Cancel selection")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.clearSelection() },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel selection")
+                            }
+                            Text(
+                                text = "${selectedIds.size} selected",
+                                fontWeight = FontWeight.ExtraBold,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        TextButton(
+                            onClick = {
+                                if (selectedIds.size == items.size) {
+                                    viewModel.clearSelection()
+                                } else {
+                                    viewModel.selectAllFiltered()
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (selectedIds.size == items.size) "Deselect All" else "Select All",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
 
@@ -529,13 +561,8 @@ fun ItemsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // All button
-                        OutlinedButton(onClick = { viewModel.selectAllFiltered() }) {
-                            Text("All", fontWeight = FontWeight.Bold)
-                        }
-
                         // Photo button
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = {
                                 bulkPhotoPickerLauncher.launch(
                                     androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -550,17 +577,35 @@ fun ItemsScreen(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text("Photo", fontWeight = FontWeight.Bold)
                             }
                         }
 
                         // Type button
-                        OutlinedButton(onClick = { showBulkTypeDialog = true }) {
+                        FilledTonalButton(onClick = { showBulkTypeDialog = true }) {
+                            Icon(
+                                Icons.Default.Category,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("Type", fontWeight = FontWeight.Bold)
                         }
 
                         // Unit button
-                        OutlinedButton(onClick = { showBulkUnitDialog = true }) {
+                        FilledTonalButton(onClick = { showBulkUnitDialog = true }) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("Unit", fontWeight = FontWeight.Bold)
                         }
 
@@ -570,6 +615,13 @@ fun ItemsScreen(
                                 onClick = { showBulkDeleteDialog = true },
                                 colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
                             ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text("Delete", fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
@@ -691,6 +743,7 @@ fun ItemsScreen(
 
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ItemGridCard(
     item: Item,
@@ -704,12 +757,19 @@ fun ItemGridCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onClick() },
-                    onLongPress = { onToggleSelect() }
-                )
-            },
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelect()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    onToggleSelect()
+                }
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface

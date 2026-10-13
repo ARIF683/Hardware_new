@@ -388,14 +388,18 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             current.add(id)
         }
         selectedItemIds.value = current
-        if (current.isEmpty()) {
-            isSelectionMode.value = false
-        }
+        isSelectionMode.value = current.isNotEmpty()
     }
 
     fun selectAllFiltered() {
         val allIds = filteredItems.value.map { it.id }.toSet()
         selectedItemIds.value = allIds
+        isSelectionMode.value = allIds.isNotEmpty()
+    }
+
+    fun clearSelection() {
+        selectedItemIds.value = emptySet()
+        isSelectionMode.value = false
     }
 
     fun updateItem(item: Item) {

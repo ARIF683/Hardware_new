@@ -136,6 +136,9 @@ fun MainAppRoot(viewModel: StockViewModel) {
     val isAdmin by viewModel.isAdmin.collectAsState()
     val incomingTintReport by viewModel.incomingTintReport.collectAsState()
 
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val selectedItemIds by viewModel.selectedItemIds.collectAsState()
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Dialog states
@@ -193,11 +196,13 @@ fun MainAppRoot(viewModel: StockViewModel) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (currentScreen is CurrentScreen.Main) {
-                NavigationBar(
-                    modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
-                ) {
+                val inSelectionMode = currentTab == NavigationTab.ITEMS && isSelectionMode && selectedItemIds.isNotEmpty()
+                if (!inSelectionMode) {
+                    NavigationBar(
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp
+                    ) {
                     val tabs = listOf(
                         Triple(NavigationTab.HOME, "Home", Icons.Default.Home),
                         Triple(NavigationTab.ITEMS, "Stock", Icons.Default.Inventory2),
@@ -257,6 +262,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
                     }
                 }
             }
+        }
         }
     ) { innerPadding ->
         Box(
