@@ -256,13 +256,13 @@ fun ItemFormDialog(
                                     Icon(
                                         Icons.Default.Image,
                                         contentDescription = "No photo",
-                                        tint = BrandBlue.copy(alpha = 0.6f),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Text(
                                         text = "NO IMAGE",
                                         fontSize = 9.sp,
-                                        color = BrandBlue,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -489,7 +489,10 @@ fun ItemFormDialog(
                             )
                             onDismiss()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
                         Text("Save")
                     }

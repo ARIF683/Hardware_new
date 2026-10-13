@@ -40,6 +40,9 @@ import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+
 @Composable
 fun StockTransactionDialog(
     item: Item,
@@ -59,7 +62,11 @@ fun StockTransactionDialog(
                 .fillMaxWidth()
                 .padding(vertical = 16.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text(
                     text = item.name,
                     style = MaterialTheme.typography.titleLarge,

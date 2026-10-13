@@ -70,6 +70,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
+import com.example.ui.theme.SuccessGreen
 import com.example.util.ImageModelHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -163,7 +164,7 @@ fun ItemDetailScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B1120))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
@@ -174,11 +175,12 @@ fun ItemDetailScreen(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Main Product Card (Exact matching design from screenshot)
+            // Main Product Card
             Card(
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp)
@@ -204,7 +206,10 @@ fun ItemDetailScreen(
                                     .fillMaxSize()
                                     .background(
                                         Brush.linearGradient(
-                                            listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                                            listOf(
+                                                MaterialTheme.colorScheme.surfaceVariant,
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                            )
                                         )
                                     ),
                                 contentAlignment = Alignment.Center
@@ -213,7 +218,7 @@ fun ItemDetailScreen(
                                     Icon(
                                         Icons.Default.CameraAlt,
                                         contentDescription = null,
-                                        tint = Color(0xFF64748B),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                         modifier = Modifier.size(44.dp)
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
@@ -221,14 +226,14 @@ fun ItemDetailScreen(
                                         text = "NO IMAGE",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color(0xFF94A3B8),
+                                        color = MaterialTheme.colorScheme.primary,
                                         letterSpacing = 1.sp
                                     )
                                 }
                             }
                         }
 
-                        // Circular Close Button Top Right (Matching screenshot)
+                        // Circular Close Button Top Right
                         IconButton(
                             onClick = { viewModel.navigateBack() },
                             modifier = Modifier
@@ -236,12 +241,12 @@ fun ItemDetailScreen(
                                 .padding(12.dp)
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.55f))
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -283,7 +288,7 @@ fun ItemDetailScreen(
                             text = item.name,
                             fontSize = 21.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -295,7 +300,7 @@ fun ItemDetailScreen(
                             text = "SKU: $skuStr · Category: $categoryStr",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF94A3B8)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(18.dp))
@@ -305,8 +310,8 @@ fun ItemDetailScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF1E293B).copy(alpha = 0.75f))
-                                .border(1.dp, Color(0xFF334155).copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                                 .padding(16.dp)
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
@@ -320,14 +325,14 @@ fun ItemDetailScreen(
                                             text = "Purchase Cost",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF94A3B8)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Spacer(modifier = Modifier.height(3.dp))
                                         Text(
                                             text = StockViewModel.formatRupees(item.cost),
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
 
@@ -336,14 +341,14 @@ fun ItemDetailScreen(
                                             text = "Selling Price",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF94A3B8)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Spacer(modifier = Modifier.height(3.dp))
                                         Text(
                                             text = StockViewModel.formatRupees(item.price),
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF22C55E) // Bright emerald green
+                                            color = SuccessGreen
                                         )
                                     }
                                 }
@@ -360,7 +365,7 @@ fun ItemDetailScreen(
                                             text = "Quantity In Stock",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF94A3B8)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Spacer(modifier = Modifier.height(3.dp))
                                         val qtyStr = if (item.qty % 1.0 == 0.0) item.qty.toLong().toString() else "%.1f".format(item.qty)
@@ -369,7 +374,7 @@ fun ItemDetailScreen(
                                             text = "$qtyStr$unitStr",
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF60A5FA) // Indigo/blue accent
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
 
@@ -378,14 +383,14 @@ fun ItemDetailScreen(
                                             text = "Profit Margin",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF94A3B8)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Spacer(modifier = Modifier.height(3.dp))
                                         Text(
                                             text = margin,
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }
@@ -408,7 +413,8 @@ fun ItemDetailScreen(
                                 },
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF4F46E5) // Indigo 600
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
                                 ),
                                 modifier = Modifier
                                     .weight(1f)
@@ -418,14 +424,14 @@ fun ItemDetailScreen(
                                     Icons.Default.CameraAlt,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
-                                    tint = Color.White
+                                    tint = MaterialTheme.colorScheme.onPrimary
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = if (item.imageUrl.isNullOrBlank()) "Attach Photo" else "Change Photo",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
 
@@ -433,9 +439,10 @@ fun ItemDetailScreen(
                                 onClick = { viewModel.navigateBack() },
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF1E293B)
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 ),
-                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                 modifier = Modifier
                                     .height(48.dp)
                                     .padding(horizontal = 4.dp)
@@ -444,7 +451,7 @@ fun ItemDetailScreen(
                                     text = "Close",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -457,8 +464,8 @@ fun ItemDetailScreen(
             // Secondary Specifications & Actions Card
             Card(
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp)
@@ -472,20 +479,20 @@ fun ItemDetailScreen(
                         text = "Item Specifications",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    DarkDetailKeyValueRow("Barcode", item.barcode.ifEmpty { "—" })
-                    DarkDetailKeyValueRow("Brand", item.brand.ifEmpty { "—" })
-                    DarkDetailKeyValueRow("Size", item.size.ifEmpty { "—" })
-                    DarkDetailKeyValueRow("Unit", item.unit.ifEmpty { "pcs" })
-                    DarkDetailKeyValueRow("MRP", item.mrp?.let { StockViewModel.formatRupees(it) } ?: "—")
-                    DarkDetailKeyValueRow("Total Stock Value", StockViewModel.formatRupees(stockValue))
+                    DetailKeyValueRow("Barcode", item.barcode.ifEmpty { "—" })
+                    DetailKeyValueRow("Brand", item.brand.ifEmpty { "—" })
+                    DetailKeyValueRow("Size", item.size.ifEmpty { "—" })
+                    DetailKeyValueRow("Unit", item.unit.ifEmpty { "pcs" })
+                    DetailKeyValueRow("MRP", item.mrp?.let { StockViewModel.formatRupees(it) } ?: "—")
+                    DetailKeyValueRow("Total Stock Value", StockViewModel.formatRupees(stockValue))
 
                     if (item.aliases.isNotBlank()) {
-                        DarkDetailKeyValueRow(
+                        DetailKeyValueRow(
                             "Aliases",
                             item.aliases.split("|").filter { it.isNotBlank() }.joinToString(", ")
                         )
@@ -501,7 +508,10 @@ fun ItemDetailScreen(
                         Button(
                             onClick = { onOpenTransactionDialog(item) },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
@@ -512,8 +522,8 @@ fun ItemDetailScreen(
                         OutlinedButton(
                             onClick = { onEditItem(item) },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = BorderStroke(1.dp, Color(0xFF475569)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             modifier = Modifier.height(44.dp)
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -554,7 +564,7 @@ fun ItemDetailScreen(
 }
 
 @Composable
-fun DarkDetailKeyValueRow(label: String, value: String) {
+fun DetailKeyValueRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -565,14 +575,14 @@ fun DarkDetailKeyValueRow(label: String, value: String) {
         Text(
             text = label,
             fontSize = 13.sp,
-            color = Color(0xFF94A3B8)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = value,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.White
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
-    HorizontalDivider(color = Color(0xFF1E293B))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }

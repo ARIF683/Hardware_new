@@ -62,6 +62,9 @@ fun StockManagerTheme(
         Color(0xFF4C6FFF)
     }
 
+    val isLightPrimary = (baseColor.red * 0.299f + baseColor.green * 0.587f + baseColor.blue * 0.114f) > 0.65f
+    val onPrimaryColor = if (isLightPrimary) Color(0xFF0F172A) else Color.White
+
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
@@ -69,14 +72,19 @@ fun StockManagerTheme(
         }
         darkTheme -> DarkColorScheme.copy(
             primary = baseColor,
+            onPrimary = onPrimaryColor,
             secondary = baseColor,
-            primaryContainer = baseColor.copy(alpha = 0.22f),
-            onPrimaryContainer = Color.White
+            onSecondary = onPrimaryColor,
+            primaryContainer = if (isLightPrimary) Color(0xFF334155) else baseColor.copy(alpha = 0.22f),
+            onPrimaryContainer = if (isLightPrimary) Color.White else Color.White
         )
         else -> LightColorScheme.copy(
             primary = baseColor,
+            onPrimary = onPrimaryColor,
             secondary = baseColor,
-            primaryContainer = baseColor.copy(alpha = 0.15f)
+            onSecondary = onPrimaryColor,
+            primaryContainer = if (isLightPrimary) Color(0xFFE2E8F0) else baseColor.copy(alpha = 0.15f),
+            onPrimaryContainer = if (isLightPrimary) Color(0xFF0F172A) else StaticBrandBlueDark
         )
     }
 

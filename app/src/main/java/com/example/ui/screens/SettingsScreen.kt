@@ -268,6 +268,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
         item {
             val customThemeColor by viewModel.customThemeColor.collectAsState()
             val presetColors = listOf(
+                Pair("White", "#FFFFFF"),
                 Pair("Blue", "#3B82F6"),
                 Pair("Indigo", "#4F46E5"),
                 Pair("Emerald", "#10B981"),
@@ -310,14 +311,16 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     ) {
                         presetColors.forEach { (name, hex) ->
                             val color = Color(android.graphics.Color.parseColor(hex))
+                            val isWhitePreset = hex.equals("#FFFFFF", ignoreCase = true)
+                            val isSelected = customThemeColor.uppercase() == hex.uppercase()
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
                                     .background(color)
                                     .border(
-                                        width = if (customThemeColor.uppercase() == hex.uppercase()) 3.dp else 1.dp,
-                                        color = if (customThemeColor.uppercase() == hex.uppercase()) MaterialTheme.colorScheme.onSurface else Color.Black.copy(alpha = 0.15f),
+                                        width = if (isSelected) 3.dp else 1.5.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else if (isWhitePreset) Color.Gray.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.15f),
                                         shape = CircleShape
                                     )
                                     .clickable {
@@ -325,11 +328,11 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (customThemeColor.uppercase() == hex.uppercase()) {
+                                if (isSelected) {
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Selected",
-                                        tint = Color.White,
+                                        tint = if (isWhitePreset) Color(0xFF0F172A) else Color.White,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
