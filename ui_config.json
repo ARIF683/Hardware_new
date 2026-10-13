@@ -6,8 +6,8 @@
     "tagline": "Real-time Inventory & Smart Billing"
   },
   "announcement": {
-    "enabled": true,
-    "message": "Shop will be closed for 2hr during 8 October 2026 between 12:00PM to 2:00PM.",
+    "enabled": false,
+    "message": "",
     "severity": "info",
     "dismissible": true
   },
