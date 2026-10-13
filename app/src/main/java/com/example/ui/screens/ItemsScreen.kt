@@ -589,6 +589,7 @@ fun ItemsScreen(
             Pair("n", "Name A–Z"),
             Pair("nz", "Name Z–A"),
             Pair("q", "Quantity (high to low)"),
+            Pair("p", "Selling Price (high to low)"),
             Pair("c", "Cost (high to low)")
         )
         ValuePickerDialog(
@@ -609,12 +610,12 @@ fun ItemsScreen(
         val gbOptions = listOf(
             Pair("none", "None"),
             Pair("name", "Name"),
+            Pair("price", "Selling Price"),
             Pair("cost", "Cost"),
-            Pair("price", "Price"),
             Pair("type", "Type"),
             Pair("brand", "Brand"),
             Pair("size", "Size"),
-            Pair("mrp", "Mrp"),
+            Pair("mrp", "MRP"),
             Pair("unit", "Unit")
         )
         ValuePickerDialog(
@@ -798,14 +799,51 @@ fun ItemGridCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Text(
-                    text = StockViewModel.formatRupees(item.price),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                // Selling Price & Cost Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = "Selling Price",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(1.dp))
+                        Text(
+                            text = StockViewModel.formatRupees(item.price),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (item.cost > 0.0) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(start = 4.dp)
+                        ) {
+                            Text(
+                                text = "Cost",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(1.dp))
+                            Text(
+                                text = StockViewModel.formatRupees(item.cost),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 

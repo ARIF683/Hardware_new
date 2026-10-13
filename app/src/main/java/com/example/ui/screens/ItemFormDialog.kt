@@ -403,7 +403,7 @@ fun ItemFormDialog(
                 OutlinedTextField(
                     value = cost,
                     onValueChange = { cost = it },
-                    label = { Text("Cost (₹)") },
+                    label = { Text("Purchase Cost (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -414,7 +414,7 @@ fun ItemFormDialog(
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("Price (₹)") },
+                    label = { Text("Selling Price (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()

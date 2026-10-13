@@ -317,6 +317,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             "n" -> list.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
             "nz" -> list.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.name })
             "q" -> list.sortedByDescending { it.qty }
+            "p" -> list.sortedByDescending { it.price }
             "c" -> list.sortedByDescending { it.cost }
             else -> list.sortedBy { it.o }
         }
