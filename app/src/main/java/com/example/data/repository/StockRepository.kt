@@ -323,7 +323,24 @@ class StockRepository(
 
             val pendingQueue = database.syncQueueDao().getAll()
 
-            if (remoteItems != null && remoteItems.isNotEmpty()) database.itemDao().insertAll(remoteItems)
+            // Reconcile Items (Purge records deleted remotely)
+            if (remoteItems != null) {
+                if (remoteItems.isNotEmpty()) {
+                    database.itemDao().insertAll(remoteItems)
+                }
+                val remoteItemIds = remoteItems.map { it.id }.toSet()
+                val pendingItemIds = pendingQueue
+                    .filter { it.type.contains("Item", ignoreCase = true) || it.type.contains("upsert", ignoreCase = true) }
+                    .flatMap { parsePendingIds(it.payloadJson) }
+                    .toSet()
+
+                val localItems = database.itemDao().getAllItemsList()
+                for (local in localItems) {
+                    if (!remoteItemIds.contains(local.id) && !pendingItemIds.contains(local.id)) {
+                        database.itemDao().deleteById(local.id)
+                    }
+                }
+            }
             if (remoteTx != null && remoteTx.isNotEmpty()) database.transactionDao().insertAll(remoteTx)
 
             // Reconcile Cashflow (Purge records deleted remotely)
