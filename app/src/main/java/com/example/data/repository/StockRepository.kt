@@ -351,15 +351,15 @@ class StockRepository(
                     database.quotationDao().insertAll(remoteQuotations)
                 }
                 val remoteIds = remoteQuotations.map { it.id }.toSet()
-                val pendingQuotationIds = pendingQueue
-                    .filter { it.type.contains("Quotation", ignoreCase = true) }
-                    .flatMap { parsePendingIds(it.payloadJson) }
-                    .toSet()
-
+                // Never delete local quotations when remote doesn't have them;
+                // instead upload any missing local records to Supabase so they are preserved
                 val localQuotations = database.quotationDao().getAllQuotationsList()
-                for (local in localQuotations) {
-                    if (!remoteIds.contains(local.id) && !pendingQuotationIds.contains(local.id)) {
-                        database.quotationDao().deleteById(local.id)
+                val missingFromRemote = localQuotations.filter { !remoteIds.contains(it.id) }
+                if (missingFromRemote.isNotEmpty()) {
+                    try {
+                        supabaseClient.upsertQuotations(missingFromRemote)
+                    } catch (e: Exception) {
+                        Log.w(tag, "Auto-sync local quotations to Supabase failed", e)
                     }
                 }
             }
@@ -1001,12 +1001,22 @@ class StockRepository(
     suspend fun saveQuotation(quotation: com.example.data.model.QuotationRecord) = withContext(Dispatchers.IO) {
         database.quotationDao().insert(quotation)
         enqueueOp("upsertQuotations", quotationListAdapter.toJson(listOf(quotation)))
+        try {
+            supabaseClient.upsertQuotations(listOf(quotation))
+        } catch (e: Exception) {
+            Log.w(tag, "Immediate upsert to Supabase failed, queued for sync: ${e.message}")
+        }
         flushQueue()
     }
 
     suspend fun deleteQuotation(id: String) = withContext(Dispatchers.IO) {
         database.quotationDao().deleteById(id)
         enqueueOp("deleteQuotation", id)
+        try {
+            supabaseClient.deleteQuotations(listOf(id))
+        } catch (e: Exception) {
+            Log.w(tag, "Immediate delete from Supabase failed, queued for sync: ${e.message}")
+        }
         flushQueue()
     }
 
@@ -1021,6 +1031,12 @@ class StockRepository(
             val items = com.example.util.InvoicePrintManager.parseLineItems(quotation.itemsJson)
             val updatedQuot = quotation.copy(status = "Converted")
             database.quotationDao().insert(updatedQuot)
+            enqueueOp("upsertQuotations", quotationListAdapter.toJson(listOf(updatedQuot)))
+            try {
+                supabaseClient.upsertQuotations(listOf(updatedQuot))
+            } catch (e: Exception) {
+                Log.w(tag, "Immediate sync of converted quotation failed: ${e.message}")
+            }
 
             val now = nowIso()
             val txList = mutableListOf<TransactionRecord>()

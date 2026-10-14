@@ -92,7 +92,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val grandTotal = taxableTotal + totalTaxAmount
     val isEWayBillRequired = grandTotal > 50000.0
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .windowInsetsPadding(WindowInsets.ime)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
         // Top Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -114,6 +121,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Header Info Card
@@ -493,14 +501,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
             // Summary Breakdown Footer Card inside LazyColumn
             item {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Card(
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = BrandBlue.copy(alpha = 0.1f)),
+                    colors = CardDefaults.cardColors(containerColor = BrandBlue.copy(alpha = 0.12f)),
                     border = BorderStroke(1.5.dp, BrandBlue),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Taxable Amount:", fontSize = 13.sp)
                             Text("₹%.2f".format(taxableTotal), fontWeight = FontWeight.Bold)
@@ -520,10 +528,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 Text("₹%.2f".format(totalTaxAmount / 2), fontWeight = FontWeight.Bold)
                             }
                         }
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text("Grand Total:", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
-                            Text("₹%.2f".format(grandTotal), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                            Text("₹%.2f".format(grandTotal), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = BrandBlue)
                         }
                     }
                 }
@@ -695,11 +707,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 480.dp),
+                            .heightIn(max = 520.dp),
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surface
                     ) {
-                        LazyColumn(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(bottom = 20.dp)
+                        ) {
                             // Invoice Header
                             item {
                                 Surface(
@@ -876,6 +891,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         }
                                     }
                                 }
+                            }
+                            item {
+                                Spacer(modifier = Modifier.height(20.dp))
                             }
                         }
                     }

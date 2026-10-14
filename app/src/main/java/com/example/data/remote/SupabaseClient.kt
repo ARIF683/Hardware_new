@@ -474,13 +474,13 @@ class SupabaseClient(
     }
 
     // ==================== QUOTATIONS SYNC ====================
-    suspend fun fetchAllQuotations(): List<QuotationRecord> = withContext(Dispatchers.IO) {
+    suspend fun fetchAllQuotations(): List<QuotationRecord>? = withContext(Dispatchers.IO) {
         try {
             val req = newRequestBuilder("quotations?select=*&order=created_at.desc&limit=1000")
                 .get()
                 .build()
             val resp = okHttpClient.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext emptyList()
+            if (!resp.isSuccessful) return@withContext null
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
             val list = mutableListOf<QuotationRecord>()
@@ -491,7 +491,7 @@ class SupabaseClient(
             list
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch quotations", e)
-            emptyList()
+            null
         }
     }
 
@@ -504,10 +504,21 @@ class SupabaseClient(
                     put("id", q.id)
                     put("quotation_no", q.quotationNo)
                     put("customer_name", q.customerName)
-                    put("customer_phone", q.customerPhone)
-                    put("customer_address", q.customerAddress)
-                    put("date", q.date)
-                    put("valid_until", q.validUntil)
+                    if (q.customerPhone.isNotBlank()) put("customer_phone", q.customerPhone.trim()) else put("customer_phone", JSONObject.NULL)
+                    if (q.customerAddress.isNotBlank()) put("customer_address", q.customerAddress.trim()) else put("customer_address", JSONObject.NULL)
+
+                    val safeDate = when {
+                        q.date.isNotBlank() && q.date.matches(Regex("""\d{4}-\d{2}-\d{2}""")) -> q.date.trim()
+                        else -> SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    }
+                    put("date", safeDate)
+
+                    if (q.validUntil.isNotBlank() && q.validUntil.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) {
+                        put("valid_until", q.validUntil.trim())
+                    } else {
+                        put("valid_until", JSONObject.NULL)
+                    }
+
                     val itemsArray = try { JSONArray(q.itemsJson) } catch (e: Exception) { JSONArray() }
                     put("items", itemsArray)
                     put("subtotal", q.subtotal)
@@ -515,23 +526,44 @@ class SupabaseClient(
                     put("tax_percent", q.taxPercent)
                     put("tax_amount", q.taxAmount)
                     put("grand_total", q.grandTotal)
-                    put("status", q.status)
-                    put("notes", q.notes)
-                    put("created_at", q.createdAt)
+                    put("status", q.status.ifBlank { "Draft" })
+                    if (q.notes.isNotBlank()) put("notes", q.notes.trim()) else put("notes", JSONObject.NULL)
+
+                    val safeCreatedAt = when {
+                        q.createdAt.isNotBlank() -> q.createdAt.trim()
+                        else -> SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                    }
+                    put("created_at", safeCreatedAt)
                 }
                 jsonArray.put(obj)
             }
+
             val req = newRequestBuilder("quotations?on_conflict=id")
-                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
             val resp = okHttpClient.newCall(req).execute()
             if (!resp.isSuccessful) {
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to upsert quotations: $err")
+                Log.e(tag, "Failed bulk upsert quotations: $err, trying per-record fallback")
+
+                for (i in 0 until jsonArray.length()) {
+                    val singleObj = jsonArray.getJSONObject(i)
+                    val singleReq = newRequestBuilder("quotations?on_conflict=id")
+                        .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                        .post(JSONArray().put(singleObj).toString().toRequestBody(jsonMediaType))
+                        .build()
+                    val singleResp = okHttpClient.newCall(singleReq).execute()
+                    if (!singleResp.isSuccessful) {
+                        val sErr = singleResp.body?.string() ?: "HTTP ${singleResp.code}"
+                        Log.e(tag, "Failed single quotation upsert: $sErr")
+                        throw Exception("Failed to upsert quotation: $sErr")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to upsert quotations", e)
+            throw e
         }
     }
 
@@ -794,23 +826,28 @@ class SupabaseClient(
             obj.has("items_json") && !obj.isNull("items_json") -> obj.get("items_json").toString()
             else -> "[]"
         }
+        fun optSafe(key: String, fallback: String = ""): String {
+            if (obj.isNull(key) || !obj.has(key)) return fallback
+            val v = obj.optString(key, fallback)
+            return if (v == "null") fallback else v
+        }
         return QuotationRecord(
-            id = obj.optString("id"),
-            quotationNo = obj.optString("quotation_no", obj.optString("quotationNo", "")),
-            customerName = obj.optString("customer_name", obj.optString("customerName", "")),
-            customerPhone = obj.optString("customer_phone", obj.optString("customerPhone", "")),
-            customerAddress = obj.optString("customer_address", obj.optString("customerAddress", "")),
-            date = obj.optString("date", ""),
-            validUntil = obj.optString("valid_until", obj.optString("validUntil", "")),
+            id = optSafe("id"),
+            quotationNo = optSafe("quotation_no").ifEmpty { optSafe("quotationNo") },
+            customerName = optSafe("customer_name").ifEmpty { optSafe("customerName") },
+            customerPhone = optSafe("customer_phone").ifEmpty { optSafe("customerPhone") },
+            customerAddress = optSafe("customer_address").ifEmpty { optSafe("customerAddress") },
+            date = optSafe("date"),
+            validUntil = optSafe("valid_until").ifEmpty { optSafe("validUntil") },
             itemsJson = itemsArray,
             subtotal = obj.optDouble("subtotal", 0.0),
             discount = obj.optDouble("discount", 0.0),
             taxPercent = obj.optDouble("tax_percent", obj.optDouble("taxPercent", 0.0)),
             taxAmount = obj.optDouble("tax_amount", obj.optDouble("taxAmount", 0.0)),
             grandTotal = obj.optDouble("grand_total", obj.optDouble("grandTotal", 0.0)),
-            status = obj.optString("status", "Draft"),
-            notes = obj.optString("notes", ""),
-            createdAt = obj.optString("created_at", obj.optString("createdAt", ""))
+            status = optSafe("status", "Draft"),
+            notes = optSafe("notes"),
+            createdAt = optSafe("created_at").ifEmpty { optSafe("createdAt") }
         )
     }
 

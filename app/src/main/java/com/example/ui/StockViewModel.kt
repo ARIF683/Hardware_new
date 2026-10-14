@@ -678,6 +678,14 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateQuotationStatus(quotation: QuotationRecord, newStatus: String) {
+        viewModelScope.launch {
+            val updated = quotation.copy(status = newStatus)
+            repository.saveQuotation(updated)
+            showToast("Estimate #${quotation.quotationNo} marked as $newStatus")
+        }
+    }
+
     fun deleteQuotation(id: String) {
         viewModelScope.launch {
             repository.deleteQuotation(id)

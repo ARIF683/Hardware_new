@@ -12,18 +12,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,6 +38,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -47,6 +56,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -227,6 +238,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered, key = { it.id }) { quote ->
@@ -238,6 +250,9 @@ fun QuotationScreen(viewModel: StockViewModel) {
                             },
                             onDelete = { quotationToDelete = quote },
                             onConvertToSale = { quotationToConvert = quote },
+                            onStatusChange = { newStatus ->
+                                viewModel.updateQuotationStatus(quote, newStatus)
+                            },
                             onPrintPdf = {
                                 val pdf = InvoicePrintManager.createQuotationPdf(context, quote)
                                 InvoicePrintManager.printPdf(context, pdf, "Quote_${quote.quotationNo}")
@@ -345,11 +360,13 @@ fun QuotationCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onConvertToSale: () -> Unit,
+    onStatusChange: (String) -> Unit,
     onPrintPdf: () -> Unit,
     onSharePdf: () -> Unit,
     onThermalPrint: () -> Unit
 ) {
     val items = remember(quotation.itemsJson) { InvoicePrintManager.parseLineItems(quotation.itemsJson) }
+    var showStatusDropdown by remember { mutableStateOf(false) }
 
     val statusColor = when (quotation.status) {
         "Converted" -> Color(0xFF9333EA)
@@ -364,7 +381,7 @@ fun QuotationCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Quote # & Status
+            // Header: Quote # & Top Status Pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -391,23 +408,96 @@ fun QuotationCard(
                     )
                 }
 
-                Surface(
-                    color = statusColor.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = quotation.status,
-                        color = statusColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
+                Box {
+                    Surface(
+                        color = statusColor.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.45f)),
+                        modifier = Modifier.clickable { showStatusDropdown = true }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(statusColor, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = quotation.status,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Change Status",
+                                tint = statusColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showStatusDropdown,
+                        onDismissRequest = { showStatusDropdown = false }
+                    ) {
+                        listOf("Draft", "Sent", "Accepted", "Converted").forEach { s ->
+                            val sColor = when (s) {
+                                "Converted" -> Color(0xFF9333EA)
+                                "Accepted" -> Color(0xFF16A34A)
+                                "Sent" -> BrandBlue
+                                else -> BrandAmber
+                            }
+                            val isCurrent = quotation.status.equals(s, ignoreCase = true)
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .background(sColor, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = if (s == "Converted") "Converted (Sale)" else s,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isCurrent) sColor else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isCurrent) {
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = sColor,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                },
+                                onClick = {
+                                    showStatusDropdown = false
+                                    if (s == "Converted" && quotation.status != "Converted") {
+                                        onConvertToSale()
+                                    } else if (!quotation.status.equals(s, ignoreCase = true)) {
+                                        onStatusChange(s)
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Customer Info & Amount
+            // Customer Info & Grand Total
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -430,28 +520,40 @@ fun QuotationCard(
                         )
                     }
                     Text(
-                        text = "${items.size} items",
+                        text = "${items.size} item(s)",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Grand Total",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = String.format(Locale.US, "₹%.2f", quotation.grandTotal),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Grand Total",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = String.format(Locale.US, "₹%.2f", quotation.grandTotal),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Action Buttons Row
             Row(
@@ -486,7 +588,22 @@ fun QuotationCard(
                     ) {
                         Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Convert", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Convert to Sale", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Surface(
+                        color = Color(0xFF9333EA).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFF9333EA).copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Converted to Sale", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
+                        }
                     }
                 }
             }
@@ -566,14 +683,17 @@ fun QuotationFormDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .windowInsetsPadding(WindowInsets.ime)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(14.dp)
+                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 12.dp)
             ) {
                 // Dialog Header
                 Row(
@@ -597,6 +717,7 @@ fun QuotationFormDialog(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
+                    contentPadding = PaddingValues(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Customer info
@@ -636,6 +757,47 @@ fun QuotationFormDialog(
                                 modifier = Modifier.weight(1f),
                                 singleLine = true
                             )
+                        }
+                    }
+
+                    item {
+                        Column {
+                            Text("STATUS", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf("Draft", "Sent", "Accepted", "Converted").forEach { s ->
+                                    val isSelected = status.equals(s, ignoreCase = true)
+                                    val chipColor = when (s) {
+                                        "Converted" -> Color(0xFF9333EA)
+                                        "Accepted" -> Color(0xFF16A34A)
+                                        "Sent" -> BrandBlue
+                                        else -> BrandAmber
+                                    }
+                                    Surface(
+                                        color = if (isSelected) chipColor else chipColor.copy(alpha = 0.08f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.3f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { status = s }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = s,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.White else chipColor
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -993,24 +1155,24 @@ fun QuotationFormDialog(
 
                 // Summary & Save Footer with proper generous padding
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(14.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 8.dp, bottom = 6.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Subtotal: ₹${String.format(Locale.US, "%.2f", subtotal)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (taxAmount > 0) Text("Tax ($taxPercent%): +₹${String.format(Locale.US, "%.2f", taxAmount)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Grand Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Grand Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                         }
 
                         Button(
@@ -1019,13 +1181,15 @@ fun QuotationFormDialog(
                                 val validItems = lineItems.filter { it.name.isNotBlank() }
                                 if (validItems.isEmpty()) return@Button
 
+                                val safeDate = date.trim().ifBlank { todayStr }
                                 val record = QuotationRecord(
                                     id = existingQuotation?.id ?: UUID.randomUUID().toString(),
                                     quotationNo = quoteNo.ifEmpty { nextQuoteNo },
                                     customerName = customerName.trim(),
                                     customerPhone = customerPhone.trim(),
-                                    date = date,
-                                    validUntil = validUntil,
+                                    customerAddress = "",
+                                    date = safeDate,
+                                    validUntil = validUntil.trim(),
                                     itemsJson = InvoicePrintManager.toJson(validItems),
                                     subtotal = subtotal,
                                     discount = discount,
@@ -1034,7 +1198,8 @@ fun QuotationFormDialog(
                                     grandTotal = grandTotal,
                                     status = status,
                                     notes = notes.trim(),
-                                    createdAt = existingQuotation?.createdAt ?: SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date())
+                                    createdAt = existingQuotation?.createdAt?.ifBlank { null }
+                                        ?: SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
                                 )
                                 onSave(record)
                             },
