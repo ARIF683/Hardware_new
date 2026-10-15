@@ -153,11 +153,13 @@ class StockRepository(
             onItemChanged = { type, item, oldId ->
                 repositoryScope.launch {
                     try {
-                        val targetId = item?.id ?: oldId ?: ""
-                        val pending = database.syncQueueDao().getAll()
-                        val hasPending = pending.any { q ->
-                            q.payloadJson.contains(targetId)
+                        val targetId = (item?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
                         }
+                        val pending = database.syncQueueDao().getAll()
+                        val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
                         if (hasPending) return@launch
 
                         when (type) {
@@ -170,9 +172,8 @@ class StockRepository(
                                 }
                             }
                             "DELETE" -> {
-                                if (oldId != null) {
-                                    database.itemDao().deleteById(oldId)
-                                }
+                                database.itemDao().deleteById(targetId)
+                                Log.d(tag, "Realtime removed item $targetId locally")
                             }
                         }
                     } catch (e: Exception) {
@@ -183,11 +184,13 @@ class StockRepository(
             onCashflowChanged = { type, cashflow, oldId ->
                 repositoryScope.launch {
                     try {
-                        val targetId = cashflow?.id ?: oldId ?: ""
-                        val pending = database.syncQueueDao().getAll()
-                        val hasPending = pending.any { q ->
-                            q.payloadJson.contains(targetId)
+                        val targetId = (cashflow?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
                         }
+                        val pending = database.syncQueueDao().getAll()
+                        val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
                         if (hasPending) return@launch
 
                         when (type) {
@@ -197,9 +200,7 @@ class StockRepository(
                                 }
                             }
                             "DELETE" -> {
-                                if (oldId != null) {
-                                    database.dailyCashflowDao().deleteById(oldId)
-                                }
+                                database.dailyCashflowDao().deleteById(targetId)
                             }
                         }
                     } catch (e: Exception) {
@@ -210,13 +211,17 @@ class StockRepository(
             onQuotationChanged = { type, quotation, oldId ->
                 repositoryScope.launch {
                     try {
-                        val targetId = quotation?.id ?: oldId ?: ""
+                        val targetId = (quotation?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
+                        }
                         val pending = database.syncQueueDao().getAll()
                         val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
                         if (hasPending) return@launch
                         when (type) {
                             "INSERT", "UPDATE" -> if (quotation != null) database.quotationDao().insert(quotation)
-                            "DELETE" -> if (oldId != null) database.quotationDao().deleteById(oldId)
+                            "DELETE" -> database.quotationDao().deleteById(targetId)
                         }
                     } catch (e: Exception) { Log.e(tag, "Error handling realtime quotation", e) }
                 }
@@ -224,13 +229,17 @@ class StockRepository(
             onLedgerAccountChanged = { type, account, oldId ->
                 repositoryScope.launch {
                     try {
-                        val targetId = account?.id ?: oldId ?: ""
+                        val targetId = (account?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
+                        }
                         val pending = database.syncQueueDao().getAll()
                         val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
                         if (hasPending) return@launch
                         when (type) {
                             "INSERT", "UPDATE" -> if (account != null) database.ledgerDao().insertAccount(account)
-                            "DELETE" -> if (oldId != null) database.ledgerDao().deleteAccountById(oldId)
+                            "DELETE" -> database.ledgerDao().deleteAccountById(targetId)
                         }
                     } catch (e: Exception) { Log.e(tag, "Error handling realtime ledger account", e) }
                 }
@@ -238,13 +247,17 @@ class StockRepository(
             onLedgerEntryChanged = { type, entry, oldId ->
                 repositoryScope.launch {
                     try {
-                        val targetId = entry?.id ?: oldId ?: ""
+                        val targetId = (entry?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
+                        }
                         val pending = database.syncQueueDao().getAll()
                         val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
                         if (hasPending) return@launch
                         when (type) {
                             "INSERT", "UPDATE" -> if (entry != null) database.ledgerDao().insertEntry(entry)
-                            "DELETE" -> if (oldId != null) database.ledgerDao().deleteEntryById(oldId)
+                            "DELETE" -> database.ledgerDao().deleteEntryById(targetId)
                         }
                     } catch (e: Exception) { Log.e(tag, "Error handling realtime ledger entry", e) }
                 }

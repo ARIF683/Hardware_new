@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Delete
@@ -219,595 +220,619 @@ fun SettingsScreen(viewModel: StockViewModel) {
         }
 
         if (selectedSettingsTab == 0) {
-        // Status rows
-        item {
-            SettingRow(
-                title = "Sync status",
-                trailingContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = syncStatus,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (pendingCount > 0) {
-                            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                            BadgePill("$pendingCount pending", WarningAmber, Color.White)
+            // 1. Cloud Sync & Realtime Status Card
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(BrandBlue.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Cloud Sync & Realtime", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Supabase database synchronization", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            if (isRealtimeLive) {
+                                BadgePill("Live ✓", SuccessGreen, Color.White)
+                            } else {
+                                BadgePill("Offline", WarningAmber, Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Database Status", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(syncStatus, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                if (pendingCount > 0) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    BadgePill("$pendingCount pending", WarningAmber, Color.White)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Primary Database Actions
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { viewModel.reloadFromDatabase() },
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Sync from DB", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = { viewModel.uploadAllToDatabase() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Upload All to DB", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.reconnectRealtime() },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Reconnect Live", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.retrySync() },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Retry Queue", fontSize = 12.sp)
+                            }
+
+                            if (pendingCount > 0 || isAdmin) {
+                                OutlinedButton(
+                                    onClick = { viewModel.clearSyncQueue() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Clear Queue", fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { viewModel.reconnectRealtime() }
-                    .padding(vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Realtime",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = if (isRealtimeLive) "Connected to Supabase live channel" else "Tap to reconnect now",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (isRealtimeLive) {
-                    BadgePill("Live ✓", SuccessGreen, Color.White)
-                } else {
-                    BadgePill("Off", WarningAmber, Color.White)
-                }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-        }
 
-        // App Custom Color Theme Picker Card
-        item {
-            val customThemeColor by viewModel.customThemeColor.collectAsState()
-            val presetColors = listOf(
-                Pair("White", "#FFFFFF"),
-                Pair("Blue", "#3B82F6"),
-                Pair("Indigo", "#4F46E5"),
-                Pair("Emerald", "#10B981"),
-                Pair("Rose", "#F43F5E"),
-                Pair("Amber", "#F59E0B"),
-                Pair("Violet", "#8B5CF6"),
-                Pair("Teal", "#0EA5E9"),
-                Pair("Slate", "#475569")
-            )
+            // 2. Appearance & Store Theme Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                val customThemeColor by viewModel.customThemeColor.collectAsState()
+                val presetColors = listOf(
+                    Pair("White", "#FFFFFF"),
+                    Pair("Blue", "#3B82F6"),
+                    Pair("Indigo", "#4F46E5"),
+                    Pair("Emerald", "#10B981"),
+                    Pair("Rose", "#F43F5E"),
+                    Pair("Amber", "#F59E0B"),
+                    Pair("Violet", "#8B5CF6"),
+                    Pair("Teal", "#0EA5E9"),
+                    Pair("Slate", "#475569")
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "App Theme Color",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Select a custom color theme for your application",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Row of preset colors
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        presetColors.forEach { (name, hex) ->
-                            val color = Color(android.graphics.Color.parseColor(hex))
-                            val isWhitePreset = hex.equals("#FFFFFF", ignoreCase = true)
-                            val isSelected = customThemeColor.uppercase() == hex.uppercase()
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(
-                                        width = if (isSelected) 3.dp else 1.5.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else if (isWhitePreset) Color.Gray.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.15f),
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        viewModel.setCustomThemeColor(hex)
-                                    },
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = if (isWhitePreset) Color(0xFF0F172A) else Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Hex color input field
-                    var hexInput by remember(customThemeColor) { mutableStateOf(customThemeColor) }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = hexInput,
-                            onValueChange = {
-                                hexInput = it
-                                if (it.startsWith("#") && it.length == 7) {
-                                    try {
-                                        android.graphics.Color.parseColor(it)
-                                        viewModel.setCustomThemeColor(it)
-                                    } catch (e: Exception) {
-                                        // Ignore invalid color inputs while typing
-                                    }
-                                }
-                            },
-                            label = { Text("Custom Hex Color", style = MaterialTheme.typography.bodySmall) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(try { Color(android.graphics.Color.parseColor(customThemeColor)) } catch (e: Exception) { MaterialTheme.colorScheme.primary })
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                        )
-                    }
-                }
-            }
-        }
-
-        // View & Layout Preference Card (User selectable Items layout)
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "Items Screen View & Layout",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Choose how your products are displayed in the Items tab.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Option 1: List View (Showcase)
-                        val isList = itemsViewLayout == "list"
-                        Card(
-                            onClick = { viewModel.setItemsViewLayout("list") },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isList) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                            ),
-                            border = if (isList) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Description,
-                                    contentDescription = null,
-                                    tint = if (isList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "List View",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = if (isList) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Showcase rows",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Option 2: 2-Column Grid
-                        val isGrid = itemsViewLayout == "grid"
-                        Card(
-                            onClick = { viewModel.setItemsViewLayout("grid") },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isGrid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                            ),
-                            border = if (isGrid) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Layers,
-                                    contentDescription = null,
-                                    tint = if (isGrid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "2-Column Grid",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = if (isGrid) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Classic cards",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Over-The-Air UI & App Updates
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "Instant UI & Updates",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = BrandBlue
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Server-Driven UI Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Palette, contentDescription = null, tint = BrandBlue)
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Dynamic UI (No download)", fontWeight = FontWeight.SemiBold)
+                                Text("Theme & Layout", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Accent color and product view layout", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text("ACCENT COLOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Row of preset colors
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            presetColors.forEach { (name, hex) ->
+                                val color = Color(android.graphics.Color.parseColor(hex))
+                                val isWhitePreset = hex.equals("#FFFFFF", ignoreCase = true)
+                                val isSelected = customThemeColor.uppercase() == hex.uppercase()
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.5.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onSurface else if (isWhitePreset) Color.Gray.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.15f),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { viewModel.setCustomThemeColor(hex) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = if (isWhitePreset) Color(0xFF0F172A) else Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("ITEMS SCREEN LAYOUT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            val isList = itemsViewLayout == "list"
+                            Card(
+                                onClick = { viewModel.setItemsViewLayout("list") },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isList) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (isList) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = if (isList) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("List View", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Showcase rows", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            val isGrid = itemsViewLayout == "grid"
+                            Card(
+                                onClick = { viewModel.setItemsViewLayout("grid") },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isGrid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (isGrid) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Layers,
+                                        contentDescription = null,
+                                        tint = if (isGrid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("2-Column Grid", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Classic cards", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Data Management & Backup Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(BrandAmber.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Layers, contentDescription = null, tint = BrandAmber, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Data Management & Backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Import, export, and color tint logs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showExportDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Export CSV", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showImportDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import File", fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { showColorMachineDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Palette, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Color Machine Tint Import (.CSC / .CSV)")
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { viewModel.uploadAllToDatabase() },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Upload All to Database (Cloud Backup)")
+                        }
+                    }
+                }
+            }
+
+            // 4. Over-The-Air UI & App Updates Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(BrandBlue.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Updates & GitHub Sync", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Dynamic UI Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Dynamic UI Configuration", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                 Text(
-                                    if (lastUiSyncedTime > 0) "Synced with GitHub ✓" else "Synced with ui_config.json on GitHub",
+                                    if (lastUiSyncedTime > 0) "Synced with GitHub ✓" else "Store: \"${uiConfig.theme.storeTitle}\"",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (lastUiSyncedTime > 0) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        }
-                        if (isUiConfigRefreshing) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            OutlinedButton(
-                                onClick = { viewModel.refreshUiConfig() },
-                                modifier = Modifier.height(36.dp),
-                                colors = if (lastUiSyncedTime > 0) {
-                                    ButtonDefaults.outlinedButtonColors(contentColor = SuccessGreen)
-                                } else {
-                                    ButtonDefaults.outlinedButtonColors()
+                            if (isUiConfigRefreshing) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.refreshUiConfig() },
+                                    modifier = Modifier.height(34.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Sync", fontSize = 11.sp)
                                 }
-                            ) {
-                                Icon(
-                                    imageVector = if (lastUiSyncedTime > 0) Icons.Default.Check else Icons.Default.Refresh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (lastUiSyncedTime > 0) "Synced ✓" else "Sync", style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Store: \"${uiConfig.theme.storeTitle}\"",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // In-App Updates Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = BrandBlue)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text("In-App APK Updates", fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = { viewModel.checkForUpdates() },
-                            modifier = Modifier.height(36.dp)
+                        // App APK Updates Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Check", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-
-                    if (updateStatus is UpdateStatus.UpToDate) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("App is up to date", color = SuccessGreen, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-
-                    when (val s = updateStatus) {
-                        is UpdateStatus.Available -> {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Button(
-                                onClick = { viewModel.startDownloadAndInstall(s.info.apkDownloadUrl) },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("App APK Release", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text("Check GitHub for newer versions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.checkForUpdates() },
+                                modifier = Modifier.height(34.dp),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Install ${s.info.tagName} (1-Tap)")
+                                Text("Check", fontSize = 11.sp)
                             }
                         }
-                        is UpdateStatus.Downloading -> {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth())
-                            Text(
-                                "Downloading update: ${(s.progress * 100).toInt()}%",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+
+                        when (val s = updateStatus) {
+                            is UpdateStatus.Available -> {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { viewModel.startDownloadAndInstall(s.info.apkDownloadUrl) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Install ${s.info.tagName} (1-Tap)", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            is UpdateStatus.Downloading -> {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth())
+                                Text("Downloading: ${(s.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                            }
+                            is UpdateStatus.UpToDate -> {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("App is up to date", color = SuccessGreen, fontSize = 12.sp)
+                                }
+                            }
+                            else -> {}
                         }
-                        is UpdateStatus.UpToDate -> {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                "✓ App is on the latest GitHub release.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = SuccessGreen
-                            )
-                        }
-                        else -> {}
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
 
-        // Cloud & Database Actions
-        item {
-            SettingActionRow(
-                title = "Retry sync now",
-                onClick = { viewModel.retrySync() }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Clear pending sync queue",
-                onClick = { viewModel.clearSyncQueue() }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Reload from database",
-                onClick = { viewModel.reloadFromDatabase() }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Upload all items to database",
-                onClick = { viewModel.uploadAllToDatabase() }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Export items (CSV)",
-                onClick = { showExportDialog = true }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Import from CSV",
-                onClick = { showImportDialog = true }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            SettingActionRow(
-                title = "Color Machine Tint Import (Corob / CSC)",
-                onClick = { showColorMachineDialog = true }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-
-        }
-
-        // Color Dispensing Machine Integration Card
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Palette,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Color Tinting Machine",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Import Corob / Smart Tint .CSC logs & auto-deduct stock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { showColorMachineDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Upload Machine Report (.CSC / .CSV)")
-                    }
-                }
-            }
-        }
-
-        // Admin Section
-        item {
-            Spacer(modifier = Modifier.height(20.dp))
-            if (isAdmin) {
+            // 5. Security & Admin Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
                 Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = BrandBlue.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isAdmin) BrandBlue.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    border = BorderStroke(1.dp, if (isAdmin) BrandBlue.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.LockOpen, contentDescription = null, tint = BrandBlue)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Admin Mode Active",
-                            fontWeight = FontWeight.Bold,
-                            color = BrandBlue,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.authManager.exitAdmin()
-                                viewModel.showToast("Admin mode off")
-                            },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(36.dp)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Exit", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isAdmin) SuccessGreen.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isAdmin) Icons.Default.LockOpen else Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = if (isAdmin) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Security & Administration", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(if (isAdmin) "Admin access active" else "Protected with admin PIN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            if (isAdmin) {
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.authManager.exitAdmin()
+                                        viewModel.showToast("Admin mode off")
+                                    },
+                                    modifier = Modifier.height(34.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Lock", fontSize = 11.sp)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { showAdminPinDialog = true },
+                                    modifier = Modifier.height(34.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Unlock", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        if (isAdmin) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { showClearHistoryDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Clear History", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showDeleteAllDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Delete All Data", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. Account & Session Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(DangerRed.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = DangerRed, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Account Session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Active store terminal session", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            Button(
+                                onClick = { showLogoutDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Log Out", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                SettingActionRow(
-                    title = "Clear transaction history",
-                    titleColor = DangerRed,
-                    onClick = { showClearHistoryDialog = true }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Hardware store data is saved in local database and synced to Supabase cloud. Pending changes retry automatically when online.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-                SettingActionRow(
-                    title = "Delete all data (Delete everything)",
-                    subtitle = "Deletes items, sales/expenses, khata & quotations",
-                    titleColor = DangerRed,
-                    onClick = { showDeleteAllDialog = true }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-            } else {
-                SettingActionRow(
-                    title = "Admin access",
-                    subtitle = "Enter admin PIN to reveal restricted actions",
-                    onClick = { showAdminPinDialog = true }
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                Spacer(modifier = Modifier.height(100.dp))
+            }
+        } else {
+            item {
+                BankingAndSignatureContent(viewModel = viewModel)
             }
         }
-
-        // Logout
-        item {
-            Spacer(modifier = Modifier.height(14.dp))
-            SettingActionRow(
-                title = "Log out",
-                titleColor = DangerRed,
-                onClick = { showLogoutDialog = true }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Data is saved in local database and synced to Supabase cloud. Pending changes retry automatically when online.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(80.dp))
-        }
-    } else {
-        item {
-            BankingAndSignatureContent(viewModel = viewModel)
-        }
-    }
     }
 
     // Admin PIN Dialog

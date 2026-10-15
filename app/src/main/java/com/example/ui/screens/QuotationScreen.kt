@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -687,10 +688,8 @@ fun QuotationFormDialog(
             elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth(0.96f)
-                .fillMaxHeight(0.92f)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .windowInsetsPadding(WindowInsets.ime)
+                .fillMaxHeight(0.96f)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
             Column(
                 modifier = Modifier

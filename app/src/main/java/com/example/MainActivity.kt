@@ -169,6 +169,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isAuthed) {
                 viewModel.reconnectRealtime()
+                viewModel.reloadFromDatabase()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

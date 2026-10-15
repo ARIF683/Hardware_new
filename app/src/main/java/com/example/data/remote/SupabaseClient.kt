@@ -964,11 +964,11 @@ class SupabaseClient(
                         val oldRecord = dataObj?.optJSONObject("old_record") ?: dataObj?.optJSONObject("old")
 
                         fun extractOldId(): String? {
-                            val idFromRecord = record?.optString("id")?.ifEmpty { null }
-                            val idFromOldRecord = oldRecord?.optString("id")?.ifEmpty { null }
-                            val idFromDataObj = dataObj?.optString("id")?.ifEmpty { null }
-                            val idFromPayload = payload?.optString("id")?.ifEmpty { null }
-                            return idFromRecord ?: idFromOldRecord ?: idFromDataObj ?: idFromPayload
+                            val idFromOldRecord = oldRecord?.optString("id")?.takeIf { it.isNotBlank() }
+                            val idFromRecord = record?.optString("id")?.takeIf { it.isNotBlank() }
+                            val idFromDataObj = dataObj?.optString("id")?.takeIf { it.isNotBlank() }
+                            val idFromPayload = payload?.optString("id")?.takeIf { it.isNotBlank() }
+                            return idFromOldRecord ?: idFromRecord ?: idFromDataObj ?: idFromPayload
                         }
 
                         if (topic.contains("daily_cashflow") || table == "daily_cashflow") {
@@ -1018,7 +1018,8 @@ class SupabaseClient(
                                     onItemChanged(type, item, null)
                                 }
                             } else if (type == "DELETE") {
-                                val oldId = record?.optString("id") ?: oldRecord?.optString("id")
+                                val oldId = extractOldId()
+                                Log.d(tag, "Realtime items DELETE event received, oldId=$oldId")
                                 onItemChanged("DELETE", null, oldId)
                             }
                         } else if (topic.contains("purchases") || table == "purchases") {

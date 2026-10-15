@@ -203,11 +203,7 @@ fun BillScreen(viewModel: StockViewModel) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .windowInsetsPadding(WindowInsets.ime)
+        modifier = Modifier.fillMaxSize()
     ) {
         // Top Bar
         Row(

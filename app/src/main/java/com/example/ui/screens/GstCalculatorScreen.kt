@@ -95,9 +95,6 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .windowInsetsPadding(WindowInsets.ime)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         // Top Bar
@@ -121,7 +118,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Header Info Card
