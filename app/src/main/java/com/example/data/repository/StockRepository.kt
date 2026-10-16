@@ -8,6 +8,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
 import com.example.data.model.Item
+import com.example.data.model.LedgerAccount
 import com.example.data.model.PurchaseLine
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
@@ -45,8 +46,15 @@ data class BillRowData(
     val size: String = "",
     val unit: String = "pcs",
     val matchedItem: Item? = null,
-    val include: Boolean = true
+    val include: Boolean = true,
+    val updateCost: Boolean = true,
+    val updateStock: Boolean = true,
+    val sellingPrice: Double = 0.0,
+    val updateSellingPrice: Boolean = false,
+    val packSize: String = "",
+    val confidence: String = "auto"
 )
+
 
 class StockRepository(
     private val context: Context,
@@ -692,7 +700,8 @@ class StockRepository(
         supplier: String,
         billNo: String,
         billDate: String,
-        rows: List<BillRowData>
+        rows: List<BillRowData>,
+        paidInCash: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val included = rows.filter { it.include && it.name.trim().isNotEmpty() }
         if (included.isEmpty()) return@withContext
@@ -715,9 +724,12 @@ class StockRepository(
             val matched = row.matchedItem ?: allExistingItems.firstOrNull { it.name.trim().equals(row.name.trim(), ignoreCase = true) }
 
             if (matched != null) {
-                val newQty = matched.qty + row.qty
+                val newQty = if (row.updateStock) matched.qty + row.qty else matched.qty
+                val newCost = if (row.updateCost && row.rate > 0) row.rate else matched.cost
+                val newPrice = if (row.updateSellingPrice && row.sellingPrice > 0) row.sellingPrice else matched.price
                 val updated = matched.copy(
-                    cost = if (row.rate > 0) row.rate else matched.cost,
+                    cost = newCost,
+                    price = newPrice,
                     type = if (row.type.isNotEmpty()) row.type else matched.type,
                     brand = if (row.brand.isNotEmpty()) row.brand else matched.brand,
                     size = if (row.size.isNotEmpty()) row.size else matched.size,
@@ -737,7 +749,7 @@ class StockRepository(
                     )
                 )
 
-                if (row.qty > 0) {
+                if (row.updateStock && row.qty > 0) {
                     newTransactions.add(
                         TransactionRecord(
                             clientId = UUID.randomUUID().toString(),
@@ -762,9 +774,9 @@ class StockRepository(
                     brand = row.brand,
                     size = row.size,
                     unit = if (row.unit.isNotEmpty()) row.unit else "pcs",
-                    cost = row.rate,
-                    price = 0.0,
-                    qty = row.qty,
+                    cost = if (row.updateCost) row.rate else 0.0,
+                    price = if (row.updateSellingPrice && row.sellingPrice > 0) row.sellingPrice else 0.0,
+                    qty = if (row.updateStock) row.qty else 0.0,
                     low = 0.0,
                     updatedAt = now
                 )
@@ -780,7 +792,7 @@ class StockRepository(
                     )
                 )
 
-                if (row.qty > 0) {
+                if (row.updateStock && row.qty > 0) {
                     newTransactions.add(
                         TransactionRecord(
                             clientId = UUID.randomUUID().toString(),
@@ -809,6 +821,61 @@ class StockRepository(
         if (newTransactions.isNotEmpty()) {
             database.transactionDao().insertAll(newTransactions)
             enqueueOp("tx", txListAdapter.toJson(newTransactions))
+        }
+
+        // Automatically log purchase in Supplier Khata / Ledger
+        if (supplier.isNotBlank() && totalAmount > 0.0) {
+            try {
+                val accounts = database.ledgerDao().getAllAccountsList()
+                val existingAcc = accounts.firstOrNull { it.type == "SUPPLIER" && it.name.trim().equals(supplier.trim(), ignoreCase = true) }
+                val accountId = existingAcc?.id ?: run {
+                    val newId = UUID.randomUUID().toString()
+                    val newAcc = LedgerAccount(
+                        id = newId,
+                        name = supplier.trim(),
+                        type = "SUPPLIER",
+                        netBalance = 0.0,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    database.ledgerDao().insertAccount(newAcc)
+                    enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(newAcc)))
+                    newId
+                }
+                addLedgerEntry(
+                    accountId = accountId,
+                    type = "GOT", // GOT means we owe the supplier (Payable increases)
+                    amount = totalAmount,
+                    date = billDate.ifBlank { now.substring(0, 10) },
+                    description = "Purchase Bill #${billNo.ifBlank { "N/A" }}",
+                    billRef = billNo
+                )
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to auto-log bill in supplier ledger", e)
+            }
+        }
+
+        // If paid in cash, record as expense in daily_cashflow for bill date or current date
+        if (paidInCash && totalAmount > 0.0) {
+            try {
+                val expenseId = UUID.randomUUID().toString()
+                val parsedDate = billDate.ifBlank { now.substring(0, 10) }
+                val cashflowRecord = DailyCashflowRecord(
+                    id = expenseId,
+                    type = "EXPENSE",
+                    amount = totalAmount,
+                    title = "Bill #${billNo.ifBlank { "N/A" }} (${supplier.ifBlank { "Supplier" }})",
+                    category = "Stock Purchase",
+                    paymentMode = "Cash",
+                    date = parsedDate,
+                    note = "Paid in cash for bill purchase",
+                    createdAt = now
+                )
+                database.dailyCashflowDao().insert(cashflowRecord)
+                enqueueOp("upsertCashflow", cashflowListAdapter.toJson(listOf(cashflowRecord)))
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to record cash expense for bill", e)
+            }
         }
 
         val purchaseRecord = PurchaseRecord(
@@ -1493,12 +1560,12 @@ class StockRepository(
                 val matched = row.matchedItem ?: continue
                 val target = allCurrentItems[matched.id] ?: continue
 
-                val newCost = if (row.updatePrice && row.selectedRate > 0) row.selectedRate else target.cost
-                val newQty = if (row.addStock) target.qty + row.selectedQty else target.qty
+                val newCost = if (row.rate > 0) row.rate else target.cost
+                val newQty = if (row.quantity > 0) target.qty + row.quantity else target.qty
 
                 val updatedItem = target.copy(
                     cost = newCost,
-                    price = if (row.updatePrice && row.selectedRate > 0) java.lang.Math.max(target.price, newCost * 1.2) else target.price,
+                    price = if (row.rate > 0) java.lang.Math.max(target.price, newCost * 1.2) else target.price,
                     qty = newQty,
                     updatedAt = now
                 )
@@ -1506,15 +1573,15 @@ class StockRepository(
                 allCurrentItems[updatedItem.id] = updatedItem
                 updatedItems.add(updatedItem)
 
-                if (row.addStock && row.selectedQty > 0.0) {
+                if (row.quantity > 0.0) {
                     val tx = TransactionRecord(
                         clientId = UUID.randomUUID().toString(),
                         itemId = updatedItem.id,
                         itemName = updatedItem.name,
                         action = "in",
-                        qty = row.selectedQty,
+                        qty = row.quantity,
                         balance = newQty,
-                        note = "Bill Scan: Supplier $supplierName (Bill #${billNumber.ifBlank { "N/A" }}) - Rate: ₹${row.selectedRate}",
+                        note = "Bill Scan: Supplier $supplierName (Bill #${billNumber.ifBlank { "N/A" }}) - Rate: ₹${row.rate}",
                         unit = updatedItem.unit,
                         createdAt = now
                     )

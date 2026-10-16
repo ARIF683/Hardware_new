@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -86,6 +88,29 @@ import com.example.ui.components.CalculatorDialog
 import com.example.ui.components.ValuePickerDialog
 import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.core.content.FileProvider
+import com.example.util.BillAliasManager
+import com.example.util.GeminiBillScanner
+import com.example.util.ParsedBillResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -98,6 +123,11 @@ fun BillScreen(viewModel: StockViewModel) {
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var photoBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var showFullImage by remember { mutableStateOf(false) }
+
+    var isScanning by remember { mutableStateOf(false) }
+    var scanStatusMessage by remember { mutableStateOf("Analyzing bill with Gemini Vision...") }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    var parsedBillSummary by remember { mutableStateOf<ParsedBillResult?>(null) }
 
     var supplier by remember { mutableStateOf("") }
     var billNo by remember { mutableStateOf("") }
@@ -120,38 +150,100 @@ fun BillScreen(viewModel: StockViewModel) {
 
     var showCalculator by remember { mutableStateOf(false) }
     var showSequentialScanDialog by remember { mutableStateOf(false) }
+    var showAiTrainingDialog by remember { mutableStateOf(false) }
+    var paidInCash by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Temporary URI for full-resolution camera capture
+    val cameraTargetUri = remember { mutableStateOf<Uri?>(null) }
+
+    // Helper to run Gemini Vision bill scan
+    fun startBillScan(uri: Uri?, bitmap: Bitmap?) {
+        scope.launch {
+            isScanning = true
+            scanError = null
+            scanStatusMessage = "Analyzing cash memo with Gemini AI..."
+            try {
+                val inputBitmap = bitmap ?: withContext(Dispatchers.IO) {
+                    uri?.let { u ->
+                        context.contentResolver.openInputStream(u)?.use { stream ->
+                            android.graphics.BitmapFactory.decodeStream(stream)
+                        }
+                    }
+                }
+
+                if (inputBitmap == null) {
+                    scanError = "Could not load high-resolution image."
+                    isScanning = false
+                    return@launch
+                }
+
+                scanStatusMessage = "Deciphering handwriting, paint shades & pack sizes..."
+                val result = GeminiBillScanner.parseBill(inputBitmap, allItems, context)
+                parsedBillSummary = result
+
+                if (result.supplierName.isNotBlank()) supplier = result.supplierName
+                if (result.billNumber.isNotBlank()) billNo = result.billNumber
+                if (result.date.isNotBlank()) billDate = result.date
+
+                val extractedRows = GeminiBillScanner.toBillRows(result, allItems)
+                if (extractedRows.isNotEmpty()) {
+                    rows.clear()
+                    rows.addAll(extractedRows)
+                    stage = "review"
+                    viewModel.showToast("✨ AI extracted ${extractedRows.size} items from bill!")
+                } else {
+                    scanError = "No line items could be detected. You can enter them manually."
+                }
+            } catch (e: Exception) {
+                scanError = e.message ?: "Failed to read bill with AI."
+                viewModel.showToast("AI Scan failed: ${e.message}")
+            } finally {
+                isScanning = false
+            }
+        }
+    }
 
     // Pick image from gallery
     val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
             imageUri = uri
             photoBitmap = null
+            startBillScan(uri = uri, bitmap = null)
         }
     }
 
-    // Take photo with camera
+    // Full-resolution Camera Capture
     val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        if (bitmap != null) {
-            photoBitmap = bitmap
-            imageUri = null
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        if (success && cameraTargetUri.value != null) {
+            imageUri = cameraTargetUri.value
+            photoBitmap = null
+            startBillScan(uri = cameraTargetUri.value, bitmap = null)
         }
     }
 
-    val context = LocalContext.current
+    fun launchCameraHighRes() {
+        try {
+            val cacheFile = File.createTempFile("bill_scan_${System.currentTimeMillis()}", ".jpg", context.cacheDir)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", cacheFile)
+            cameraTargetUri.value = uri
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            viewModel.showToast("Camera error: ${e.message}")
+        }
+    }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            try {
-                cameraLauncher.launch(null)
-            } catch (e: Exception) {
-                viewModel.showToast("Camera error: ${e.localizedMessage}")
-            }
+            launchCameraHighRes()
         } else {
             viewModel.showToast("Camera permission is required to capture bills.")
         }
@@ -159,6 +251,48 @@ fun BillScreen(viewModel: StockViewModel) {
 
     if (showCalculator) {
         CalculatorDialog(onDismiss = { showCalculator = false })
+    }
+
+    // Scanning Modal Dialog
+    if (isScanning) {
+        Dialog(onDismissRequest = {}) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = BrandBlue,
+                        strokeWidth = 4.dp
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        text = "Reading Bill with Gemini AI",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = scanStatusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = BrandBlue
+                    )
+                }
+            }
+        }
     }
 
     if (showFullImage && (imageUri != null || photoBitmap != null)) {
@@ -224,17 +358,20 @@ fun BillScreen(viewModel: StockViewModel) {
             }
 
             Text(
-                text = if (stage == "review") "Enter items" else "Bill",
+                text = if (stage == "review") "Review Scanned Items" else "Upload Bill & Update Stock",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
 
-            if (stage == "review") {
-                IconButton(onClick = { showCalculator = true }) {
-                    Icon(Icons.Default.Calculate, contentDescription = "Calculator", tint = BrandBlue)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { showAiTrainingDialog = true }) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Train AI", tint = BrandBlue)
                 }
-            } else {
-                Spacer(modifier = Modifier.width(48.dp))
+                if (stage == "review") {
+                    IconButton(onClick = { showCalculator = true }) {
+                        Icon(Icons.Default.Calculate, contentDescription = "Calculator", tint = BrandBlue)
+                    }
+                }
             }
         }
 
@@ -245,18 +382,221 @@ fun BillScreen(viewModel: StockViewModel) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
+                // AI Vision Scanner Hero Card
+                item {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "AI Bill & Memo Scanner",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Reads handwritten cash memos, pack sizes (1x6, 500x8) & paint shades.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // AI Training Quick Banner
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(BrandBlue.copy(alpha = 0.08f))
+                                    .clickable { showAiTrainingDialog = true }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Trained Shades: Phirozi, P.O. Red...",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrandBlue
+                                    )
+                                }
+                                Text(
+                                    text = "Train AI Vocabulary →",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BrandBlue
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Capture Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                            launchCameraHighRes()
+                                        } else {
+                                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Take Photo", fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        galleryLauncher.launch(
+                                            androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("From Gallery", fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            // Error notice if previous scan failed
+                            if (scanError != null) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = DangerRed.copy(alpha = 0.1f)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DangerRed.copy(alpha = 0.4f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = scanError ?: "",
+                                            fontSize = 12.sp,
+                                            color = DangerRed,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Image preview if chosen
+                            if (photoBitmap != null || imageUri != null) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                if (photoBitmap != null) {
+                                    Image(
+                                        bitmap = photoBitmap!!.asImageBitmap(),
+                                        contentDescription = "Bill photo",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(200.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black)
+                                            .clickable { showFullImage = true },
+                                        contentScale = ContentScale.Fit
+                                    )
+                                } else if (imageUri != null) {
+                                    AsyncImage(
+                                        model = imageUri,
+                                        contentDescription = "Bill photo",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(200.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black)
+                                            .clickable { showFullImage = true },
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { startBillScan(imageUri, photoBitmap) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1.4f)
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Re-Scan with AI", fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { stage = "review" },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Manual Edit →")
+                                    }
+
+                                    IconButton(onClick = {
+                                        imageUri = null
+                                        photoBitmap = null
+                                        scanError = null
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = DangerRed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Quick Sequential Scan Banner for Receiving Shipments
                 item {
                     Spacer(modifier = Modifier.height(12.dp))
                     Card(
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = BrandBlue.copy(alpha = 0.12f)),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, BrandBlue),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = BrandBlue, shape = CircleShape, modifier = Modifier.size(32.dp)) {
+                                Surface(color = BrandBlue.copy(alpha = 0.15f), shape = CircleShape, modifier = Modifier.size(32.dp)) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Text("⚡", fontSize = 16.sp)
                                     }
@@ -264,13 +604,12 @@ fun BillScreen(viewModel: StockViewModel) {
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = "Quick Bill Entry (Sequential Scan)",
+                                        text = "Barcode / Sequential Scan",
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = BrandBlue
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Scan items sequentially when receiving shipments to auto-populate the bill.",
+                                        text = "Scan items sequentially with barcode scanner to populate the bill.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -297,109 +636,13 @@ fun BillScreen(viewModel: StockViewModel) {
                     }
                 }
 
+                // Manual Entry without Photo
                 item {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "📷 Bill image",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Take a photo or pick from gallery, then tap Continue. You'll enter items while viewing the photo.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = {
-                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                            try {
-                                                cameraLauncher.launch(null)
-                                            } catch (e: Exception) {
-                                                viewModel.showToast("Camera error: ${e.localizedMessage}")
-                                            }
-                                        } else {
-                                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
-                                ) {
-                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Camera")
-                                }
-
-                                OutlinedButton(onClick = { galleryLauncher.launch("image/*") }) {
-                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Gallery")
-                                }
-
-                                if (imageUri != null || photoBitmap != null) {
-                                    OutlinedButton(onClick = {
-                                        imageUri = null
-                                        photoBitmap = null
-                                    }) {
-                                        Text("Remove")
-                                    }
-                                }
-                            }
-
-                            if (photoBitmap != null) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Image(
-                                    bitmap = photoBitmap!!.asImageBitmap(),
-                                    contentDescription = "Bill photo",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(180.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.Black),
-                                    contentScale = ContentScale.Fit
-                                )
-                            } else if (imageUri != null) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                AsyncImage(
-                                    model = imageUri,
-                                    contentDescription = "Bill photo",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(180.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.Black),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-
-                            if (imageUri != null || photoBitmap != null) {
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Button(
-                                    onClick = { stage = "review" },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
-                                ) {
-                                    Text("Continue →")
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -408,13 +651,13 @@ fun BillScreen(viewModel: StockViewModel) {
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Skip the photo and enter rows or scan items directly.",
+                                text = "Skip uploading a photo and manually enter purchase rows.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             OutlinedButton(onClick = { stage = "review" }) {
                                 Text("Enter items directly →")
                             }
@@ -422,14 +665,12 @@ fun BillScreen(viewModel: StockViewModel) {
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-
                     OutlinedButton(
                         onClick = { viewModel.navigateBack() },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Cancel")
                     }
-
                     Spacer(modifier = Modifier.height(40.dp))
                 }
             }
@@ -450,7 +691,7 @@ fun BillScreen(viewModel: StockViewModel) {
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 6.dp)
                                 .clickable { showFullImage = true }
                         ) {
                             if (photoBitmap != null) {
@@ -459,7 +700,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                     contentDescription = "Bill thumbnail",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(140.dp)
+                                        .height(120.dp)
                                         .background(Color.Black),
                                     contentScale = ContentScale.Fit
                                 )
@@ -469,19 +710,60 @@ fun BillScreen(viewModel: StockViewModel) {
                                     contentDescription = "Bill thumbnail",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(140.dp)
+                                        .height(120.dp)
                                         .background(Color.Black),
                                     contentScale = ContentScale.Fit
                                 )
                             }
                             Text(
-                                text = "Tap image to enlarge",
+                                text = "🔍 Tap image to enlarge and inspect handwriting",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier
-                                    .padding(6.dp)
+                                    .padding(4.dp)
                                     .align(Alignment.CenterHorizontally)
                             )
+                        }
+                    }
+                }
+
+                // AI Financial Calculation Breakdown (Subtotal vs Previous Due)
+                parsedBillSummary?.let { summary ->
+                    if (summary.previousBalance > 0.0 || (summary.itemsSubtotal > 0 && summary.itemsSubtotal != summary.totalAmount)) {
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Bill Subtotal", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(StockViewModel.formatRupees(summary.itemsSubtotal), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                    if (summary.previousBalance > 0.0) {
+                                        Text("+", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Column {
+                                            Text("Previous Dues", fontSize = 11.sp, color = DangerRed)
+                                            Text(StockViewModel.formatRupees(summary.previousBalance), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = DangerRed)
+                                        }
+                                    }
+                                    Text("=", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Column {
+                                        Text("Memo Total", fontSize = 11.sp, color = BrandBlue)
+                                        Text(StockViewModel.formatRupees(summary.totalAmount), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = BrandBlue)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -493,42 +775,141 @@ fun BillScreen(viewModel: StockViewModel) {
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp)
+                            .padding(vertical = 6.dp)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             OutlinedTextField(
                                 value = supplier,
                                 onValueChange = { supplier = it },
-                                label = { Text("Supplier") },
+                                label = { Text("Supplier / Store Name") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = billNo,
-                                onValueChange = { billNo = it },
-                                label = { Text("Bill no") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = billNo,
+                                    onValueChange = { billNo = it },
+                                    label = { Text("Bill / Memo No") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = billDate,
+                                    onValueChange = { billDate = it },
+                                    label = { Text("Date (dd/mm/yyyy)") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Quick Batch Selling Margin & Actions Bar
+                item {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Auto-calculate Selling Price Margin:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(10, 15, 20, 25).forEach { marginPct ->
+                                    AssistChip(
+                                        onClick = {
+                                            for (i in rows.indices) {
+                                                val r = rows[i]
+                                                if (r.rate > 0) {
+                                                    val markedUpPrice = kotlin.math.round(r.rate * (1 + marginPct / 100.0) * 10.0) / 10.0
+                                                    rows[i] = r.copy(
+                                                        sellingPrice = markedUpPrice,
+                                                        updateSellingPrice = true
+                                                    )
+                                                }
+                                            }
+                                            viewModel.showToast("Applied +$marginPct% profit margin to all items")
+                                        },
+                                        label = { Text("+$marginPct%") },
+                                        colors = AssistChipDefaults.assistChipColors(containerColor = BrandBlue.copy(alpha = 0.08f))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Row Items Header
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Items (${rows.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Toggle Stock",
+                                fontSize = 11.sp,
+                                color = BrandBlue,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable {
+                                        val anyEnabled = rows.any { it.updateStock }
+                                        for (i in rows.indices) {
+                                            rows[i] = rows[i].copy(updateStock = !anyEnabled)
+                                        }
+                                    }
+                                    .padding(4.dp)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = billDate,
-                                onValueChange = { billDate = it },
-                                label = { Text("Bill date (dd/mm/yyyy)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                            Text(
+                                text = "•",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Toggle Cost",
+                                fontSize = 11.sp,
+                                color = BrandBlue,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable {
+                                        val anyEnabled = rows.any { it.updateCost }
+                                        for (i in rows.indices) {
+                                            rows[i] = rows[i].copy(updateCost = !anyEnabled)
+                                        }
+                                    }
+                                    .padding(4.dp)
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Set Type / Brand / Size first if you want to narrow the item list. Then tap item name to pick.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
 
                 // Row Items
@@ -550,39 +931,90 @@ fun BillScreen(viewModel: StockViewModel) {
                 // Summary & Actions
                 item {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "Bill total",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = StockViewModel.formatRupees(billTotal),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = BrandBlue
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Purchased Items Total",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${includedRows.size} items included",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                text = StockViewModel.formatRupees(billTotal),
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrandBlue
+                            )
+                        }
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Payment Mode Selection (Khata Due vs Paid in Cash)
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Payment Status & Expense Logging",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrandBlue
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = !paidInCash,
+                                    onClick = { paidInCash = false },
+                                    label = { Text("Credit / Khata (Due)", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = paidInCash,
+                                    onClick = { paidInCash = true },
+                                    label = { Text("Paid in Cash (Expense)", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (paidInCash) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "⚡ Will automatically record an expense of ${StockViewModel.formatRupees(billTotal)} for date $billDate in Daily Cashflow.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { showSequentialScanDialog = true },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("⚡ Quick Scan")
-                        }
-
                         OutlinedButton(
                             onClick = {
                                 rows.add(
@@ -608,12 +1040,12 @@ fun BillScreen(viewModel: StockViewModel) {
                                     viewModel.showToast("Add at least one named row")
                                     return@Button
                                 }
-                                viewModel.confirmBill(supplier, billNo, billDate, rows)
+                                viewModel.confirmBill(supplier, billNo, billDate, rows, paidInCash)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
-                            modifier = Modifier.weight(1.2f)
+                            modifier = Modifier.weight(1.5f)
                         ) {
-                            Text("Confirm (${includedRows.size})")
+                            Text("Confirm & Sync (${includedRows.size})", fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -622,6 +1054,7 @@ fun BillScreen(viewModel: StockViewModel) {
             }
         }
     }
+
 
     if (showSequentialScanDialog) {
         SequentialScanBillDialog(
@@ -639,6 +1072,13 @@ fun BillScreen(viewModel: StockViewModel) {
                 }
                 showSequentialScanDialog = false
             }
+        )
+    }
+
+    if (showAiTrainingDialog) {
+        AiVocabularyTrainingDialog(
+            context = context,
+            onDismiss = { showAiTrainingDialog = false }
         )
     }
 }
@@ -1059,15 +1499,20 @@ fun BillRowEditor(
     onUpdate: (BillRowData) -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     var showItemPicker by remember { mutableStateOf(false) }
     var pickerField by remember { mutableStateOf<String?>(null) } // "type", "brand", "size", "unit"
+
+    val matched = row.matchedItem
 
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = if (matched == null) androidx.compose.foundation.BorderStroke(1.dp, BrandBlue.copy(alpha = 0.4f)) else null,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            // Header Row: Checkbox, Name, Confidence Badge, Delete
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -1079,20 +1524,62 @@ fun BillRowEditor(
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Item #${index + 1}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        // Confidence Tag
+                        if (matched != null) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF2E7D32).copy(alpha = 0.15f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(10.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "In Stock (${matched.qty.toInt()} ${matched.unit})",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = BrandBlue.copy(alpha = 0.15f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(10.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("✨ New Item", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                                }
+                            }
+                        }
+                    }
+
                     Text(
-                        text = "Item #${index + 1}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (row.name.isNotBlank()) row.name + (if (row.matchedItem == null) " (new)" else "") else "— tap to pick item —",
+                        text = if (row.name.isNotBlank()) row.name else "— tap to select item —",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (row.name.isNotBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showItemPicker = true }
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 2.dp)
                     )
                 }
 
@@ -1101,7 +1588,100 @@ fun BillRowEditor(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Cost Comparison & Stock Diff Card
+            if (matched != null) {
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Cost Comparison",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Old: ₹${matched.cost}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(" → ", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("New: ₹${row.rate}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                                }
+                            }
+
+                            // Difference pill
+                            val diff = row.rate - matched.cost
+                            if (matched.cost > 0 && row.rate > 0) {
+                                val pct = ((diff / matched.cost) * 100).toInt()
+                                if (diff > 0.05) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = DangerRed.copy(alpha = 0.12f)) {
+                                        Text(
+                                            text = "🔺 +₹${"%.1f".format(diff)} (+${pct}%)",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = DangerRed,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else if (diff < -0.05) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFF2E7D32).copy(alpha = 0.12f)) {
+                                        Text(
+                                            text = "🔻 -₹${"%.1f".format(-diff)} (${pct}%)",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2E7D32),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = Color.Gray.copy(alpha = 0.12f)) {
+                                        Text(
+                                            text = "Same cost",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.DarkGray,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Toggles for Cost & Stock update
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FilterChip(
+                                selected = row.updateCost,
+                                onClick = { onUpdate(row.copy(updateCost = !row.updateCost)) },
+                                label = { Text("Update Cost Price", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = row.updateStock,
+                                onClick = { onUpdate(row.copy(updateStock = !row.updateStock)) },
+                                label = {
+                                    val newTotal = (matched.qty + row.qty).let { if (it % 1.0 == 0.0) it.toInt().toString() else "%.1f".format(it) }
+                                    Text("Add Stock (+${row.qty.toInt()} → $newTotal)", fontSize = 10.sp)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Rate and Quantity + Multi-Unit Conversion
             Row(
@@ -1115,7 +1695,7 @@ fun BillRowEditor(
                         val r = it.toDoubleOrNull() ?: 0.0
                         onUpdate(row.copy(rate = r))
                     },
-                    label = { Text("Rate (₹)") },
+                    label = { Text("Bill Cost (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.weight(1f)
@@ -1156,7 +1736,96 @@ fun BillRowEditor(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Type, Brand, Size, Unit chips/buttons
+            // Selling Price & Profit Margin Controls
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = row.updateSellingPrice,
+                                onCheckedChange = { onUpdate(row.copy(updateSellingPrice = it)) },
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Update Selling Price",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (matched != null && matched.price > 0) {
+                            Text(
+                                text = "Current MRP: ₹${matched.price}",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = if (row.sellingPrice > 0) row.sellingPrice.toString() else "",
+                            onValueChange = {
+                                val p = it.toDoubleOrNull() ?: 0.0
+                                onUpdate(row.copy(sellingPrice = p, updateSellingPrice = true))
+                            },
+                            label = { Text("New Selling (₹)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        // Quick Margin Chips
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1.3f)
+                        ) {
+                            listOf(10, 15, 20, 25).forEach { marginPct ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = BrandBlue.copy(alpha = 0.1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            if (row.rate > 0) {
+                                                val markedUp = kotlin.math.round(row.rate * (1 + marginPct / 100.0) * 10.0) / 10.0
+                                                onUpdate(row.copy(sellingPrice = markedUp, updateSellingPrice = true))
+                                            }
+                                        }
+                                ) {
+                                    Text(
+                                        text = "+$marginPct%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrandBlue,
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Type, Brand, Size, Unit chips
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1165,90 +1834,188 @@ fun BillRowEditor(
                     onClick = { pickerField = "type" },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = row.type.ifEmpty { "Type" },
-                        maxLines = 1,
-                        fontSize = 12.sp
-                    )
+                    Text(text = row.type.ifEmpty { "Type" }, maxLines = 1, fontSize = 11.sp)
                 }
 
                 OutlinedButton(
                     onClick = { pickerField = "brand" },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = row.brand.ifEmpty { "Brand" },
-                        maxLines = 1,
-                        fontSize = 12.sp
-                    )
+                    Text(text = row.brand.ifEmpty { "Brand" }, maxLines = 1, fontSize = 11.sp)
                 }
 
                 OutlinedButton(
                     onClick = { pickerField = "size" },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = row.size.ifEmpty { "Size" },
-                        maxLines = 1,
-                        fontSize = 12.sp
-                    )
+                    Text(text = row.size.ifEmpty { "Size" }, maxLines = 1, fontSize = 11.sp)
                 }
 
                 OutlinedButton(
                     onClick = { pickerField = "unit" },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = row.unit.ifEmpty { "pcs" },
-                        maxLines = 1,
-                        fontSize = 12.sp
-                    )
+                    Text(text = row.unit.ifEmpty { "pcs" }, maxLines = 1, fontSize = 11.sp)
                 }
             }
         }
     }
 
-    // Item Picker Dialog
+    // Smart Item Picker Dialog with AI Alias Learning
     if (showItemPicker) {
-        val filteredScope = remember(row, allItems) {
-            allItems.filter { it ->
-                if (row.type.isNotBlank() && it.type != row.type) false
-                else if (row.brand.isNotBlank() && it.brand != row.brand) false
-                else if (row.size.isNotBlank() && it.size != row.size) false
-                else true
+        var searchQuery by remember { mutableStateOf("") }
+        var trainAliasForFuture by remember { mutableStateOf(true) }
+
+        val filteredItems = remember(searchQuery, allItems) {
+            if (searchQuery.isBlank()) allItems.take(50)
+            else allItems.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                it.aliases.contains(searchQuery, ignoreCase = true) ||
+                it.brand.contains(searchQuery, ignoreCase = true) ||
+                it.code.contains(searchQuery, ignoreCase = true)
+            }.take(50)
+        }
+
+        Dialog(onDismissRequest = { showItemPicker = false }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Match Item in Store Catalog",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Bill scanned as: \"${row.name}\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BrandBlue,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search catalog items...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // AI Learn Checkbox
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { trainAliasForFuture = !trainAliasForFuture }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = trainAliasForFuture,
+                            onCheckedChange = { trainAliasForFuture = it }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Train AI: Remember \"${row.name}\" maps to this product for future scans",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = 260.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredItems) { item ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (trainAliasForFuture && row.name.isNotBlank()) {
+                                            BillAliasManager.saveAlias(context, row.name, item.name)
+                                        }
+                                        onUpdate(
+                                            row.copy(
+                                                name = item.name,
+                                                matchedItem = item,
+                                                rate = if (row.rate == 0.0) item.cost else row.rate,
+                                                sellingPrice = if (row.sellingPrice == 0.0) item.price else row.sellingPrice,
+                                                type = if (row.type.isEmpty()) item.type else row.type,
+                                                brand = if (row.brand.isEmpty()) item.brand else row.brand,
+                                                size = if (row.size.isEmpty()) item.size else row.size,
+                                                unit = if (row.unit.isEmpty() || row.unit == "pcs") item.unit else row.unit
+                                            )
+                                        )
+                                        showItemPicker = false
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(10.dp)
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            text = "Cost: ₹${item.cost} | Sell: ₹${item.price} | Stock: ${item.qty.toInt()} ${item.unit}",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Icon(Icons.Default.Link, contentDescription = "Link", tint = BrandBlue)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showItemPicker = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                if (searchQuery.isNotBlank()) {
+                                    onUpdate(row.copy(name = searchQuery, matchedItem = null))
+                                }
+                                showItemPicker = false
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Keep as New")
+                        }
+                    }
+                }
             }
         }
-        val options = filteredScope.map { it.name to it.cost.toInt() }
-        ValuePickerDialog(
-            title = "Pick Item",
-            optionsWithCount = options,
-            currentValue = row.name,
-            onSelect = { selectedName ->
-                val matched = filteredScope.firstOrNull { it.name.equals(selectedName, ignoreCase = true) }
-                if (matched != null) {
-                    onUpdate(
-                        row.copy(
-                            name = matched.name,
-                            matchedItem = matched,
-                            rate = if (row.rate == 0.0) matched.cost else row.rate,
-                            type = if (row.type.isEmpty()) matched.type else row.type,
-                            brand = if (row.brand.isEmpty()) matched.brand else row.brand,
-                            size = if (row.size.isEmpty()) matched.size else row.size,
-                            unit = if (row.unit.isEmpty() || row.unit == "pcs") matched.unit else row.unit
-                        )
-                    )
-                } else {
-                    onUpdate(
-                        row.copy(
-                            name = selectedName,
-                            matchedItem = null
-                        )
-                    )
-                }
-                showItemPicker = false
-            },
-            onDismiss = { showItemPicker = false }
-        )
     }
 
     // Type / Brand / Size / Unit picker
@@ -1285,5 +2052,180 @@ fun BillRowEditor(
             },
             onDismiss = { pickerField = null }
         )
+    }
+}
+
+@Composable
+fun AiVocabularyTrainingDialog(
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    var rawInput by remember { mutableStateOf("") }
+    var mappedInput by remember { mutableStateOf("") }
+    var aliases by remember { mutableStateOf(BillAliasManager.getAliases(context)) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "AI OCR Handwriting Training",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Train AI on how your suppliers write shades & items.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Teach new alias box
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Teach AI a New Name / Shortcut",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = BrandBlue
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = rawInput,
+                            onValueChange = { rawInput = it },
+                            label = { Text("What supplier writes") },
+                            placeholder = { Text("e.g. phirozi, p.o.red, kathi") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = mappedInput,
+                            onValueChange = { mappedInput = it },
+                            label = { Text("Store Product / Shade Name") },
+                            placeholder = { Text("e.g. Phirozi 1L, P.O. Red Enamel") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (rawInput.isNotBlank() && mappedInput.isNotBlank()) {
+                                    BillAliasManager.saveAlias(context, rawInput, mappedInput)
+                                    aliases = BillAliasManager.getAliases(context)
+                                    rawInput = ""
+                                    mappedInput = ""
+                                }
+                            },
+                            enabled = rawInput.isNotBlank() && mappedInput.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Teach AI This Shortcut")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Active Learned Vocabulary (${aliases.size})",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(max = 220.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(aliases.entries.toList()) { entry ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "\"${entry.key}\"",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = BrandBlue
+                                    )
+                                    Text(
+                                        text = "➔ ${entry.value}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        BillAliasManager.removeAlias(context, entry.key)
+                                        aliases = BillAliasManager.getAliases(context)
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        tint = DangerRed,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Done")
+                }
+            }
+        }
     }
 }

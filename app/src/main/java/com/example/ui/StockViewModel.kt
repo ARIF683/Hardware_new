@@ -596,12 +596,12 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun confirmBill(supplier: String, billNo: String, billDate: String, rows: List<BillRowData>) {
+    fun confirmBill(supplier: String, billNo: String, billDate: String, rows: List<BillRowData>, paidInCash: Boolean = false) {
         viewModelScope.launch {
-            repository.confirmBill(supplier, billNo, billDate, rows)
+            repository.confirmBill(supplier, billNo, billDate, rows, paidInCash)
             _currentScreen.value = CurrentScreen.Main
             _currentTab.value = NavigationTab.ITEMS
-            showToast("Bill confirmed & synced")
+            showToast(if (paidInCash) "Bill confirmed, synced & cash expense recorded ✓" else "Bill confirmed & synced to Khata ✓")
         }
     }
 
