@@ -60,9 +60,15 @@ object GeminiBillScanner {
     }
 
     suspend fun parseBill(bitmap: Bitmap, inventoryItems: List<Item>, context: android.content.Context? = null): ParsedBillResult = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            throw IllegalStateException("Gemini API key is missing or not configured. Please add your GEMINI_API_KEY in the AI Studio Secrets panel.")
+        val key1 = BuildConfig.GEMINI_API_KEY
+        val key2 = try {
+            val field = BuildConfig::class.java.getField("GEMINI_KEY")
+            field.get(null) as? String ?: ""
+        } catch (_: Exception) { "" }
+
+        val apiKey = if (key1.isNotBlank() && key1 != "MY_GEMINI_API_KEY") key1 else key2
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "MY_GEMINI_KEY") {
+            throw IllegalStateException("Gemini API key is missing or not configured. Please add your GEMINI_API_KEY or GEMINI_KEY in the AI Studio Secrets panel.")
         }
 
         val learnedAliasesPrompt = if (context != null) BillAliasManager.formatPromptAliases(context) else ""

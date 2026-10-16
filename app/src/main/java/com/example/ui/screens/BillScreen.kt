@@ -122,6 +122,7 @@ fun BillScreen(viewModel: StockViewModel) {
     var stage by remember { mutableStateOf("idle") } // "idle" or "review"
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var photoBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val imageUris = remember { mutableStateListOf<Uri>() }
     var showFullImage by remember { mutableStateOf(false) }
 
     var isScanning by remember { mutableStateOf(false) }
@@ -1503,6 +1504,30 @@ fun BillRowEditor(
     var showItemPicker by remember { mutableStateOf(false) }
     var pickerField by remember { mutableStateOf<String?>(null) } // "type", "brand", "size", "unit"
 
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                val numeric = spoken.filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+                if (numeric != null) {
+                    if (pickerField == "voice_rate") onUpdate(row.copy(rate = numeric))
+                    else if (pickerField == "voice_qty") onUpdate(row.copy(qty = numeric))
+                }
+            }
+        }
+        pickerField = null
+    }
+
+    fun launchVoice(field: String) {
+        pickerField = field
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        }
+        speechLauncher.launch(intent)
+    }
+
     val matched = row.matchedItem
 
     Card(
@@ -1698,6 +1723,11 @@ fun BillRowEditor(
                     label = { Text("Bill Cost (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = { launchVoice("voice_rate") }) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice Rate")
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
 
@@ -1711,6 +1741,11 @@ fun BillRowEditor(
                         label = { Text("Qty (${row.unit})") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { launchVoice("voice_qty") }) {
+                                Icon(Icons.Default.Mic, contentDescription = "Voice Qty")
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth()
                     )
 
