@@ -603,7 +603,7 @@ fun GstBillsTabContent(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 480.dp),
+                        .height(400.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     LazyColumn(
@@ -650,11 +650,14 @@ fun GstBillsTabContent(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(item.name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                        Text(
-                                            "HSN: ${item.hsn.ifBlank { "8481" }}  •  Qty: ${item.qty} ${item.unit} @ ₹${String.format(Locale.US, "%.2f", item.rate)}",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text("HSN: ${item.hsn.ifBlank { "8481" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Qty: ${item.qty} ${item.unit}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("@ ₹${String.format(Locale.US, "%.2f", item.rate)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
                                         Text(
                                             "Tax ${item.taxRatePercent}% (₹${String.format(Locale.US, "%.2f", item.taxAmount)})",
                                             fontSize = 10.sp,

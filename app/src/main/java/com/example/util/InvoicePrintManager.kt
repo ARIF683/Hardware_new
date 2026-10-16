@@ -812,7 +812,7 @@ object InvoicePrintManager {
         val maxItemsContinuation = 20
         val rowHeight = 30f
         val totalsBlockHeight = 220f
-        val pageBottomLimit = 760f
+        val pageBottomLimit = 800f
 
         // Pre-calculate total pages
         var calcPages = 1
