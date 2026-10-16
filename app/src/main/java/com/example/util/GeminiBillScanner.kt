@@ -182,8 +182,14 @@ Return ONLY valid JSON in this exact structure:
             put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
         }
 
-        // Try primary model gemini-2.5-flash with fallback to gemini-1.5-flash
-        val candidateModels = listOf("gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash")
+        // Try primary model gemini-3.8-flash (recommended by Google Generative AI API) with fallbacks
+        val candidateModels = listOf(
+            "gemini-3.8-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash"
+        )
         var lastException: Exception? = null
         var responseStr: String? = null
 
@@ -199,7 +205,13 @@ Return ONLY valid JSON in this exact structure:
                     responseStr = bodyStr
                     break
                 } else {
-                    lastException = Exception("Gemini ($modelName) failed (${response.code}): $bodyStr")
+                    val friendlyError = try {
+                        val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
+                        errObj?.optString("message") ?: bodyStr
+                    } catch (_: Exception) {
+                        bodyStr
+                    }
+                    lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
                 }
             } catch (e: Exception) {
                 lastException = e
@@ -218,11 +230,19 @@ Return ONLY valid JSON in this exact structure:
         val firstPart = parts.optJSONObject(0) ?: throw Exception("Empty parts list.")
         val text = firstPart.optString("text", "")
 
-        val cleanJson = text.trim()
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
+        val trimmedText = text.trim()
+        val withoutFences = if (trimmedText.startsWith("```")) {
+            trimmedText.substringAfter("\n").substringBeforeLast("```").trim()
+        } else {
+            trimmedText
+        }
+        val firstBrace = withoutFences.indexOf('{')
+        val lastBrace = withoutFences.lastIndexOf('}')
+        val cleanJson = if (firstBrace != -1 && lastBrace != -1 && lastBrace > firstBrace) {
+            withoutFences.substring(firstBrace, lastBrace + 1)
+        } else {
+            withoutFences
+        }
 
         val billObj = JSONObject(cleanJson)
         val supplierName = billObj.optString("supplierName", "")
