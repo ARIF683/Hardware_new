@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
@@ -88,6 +90,8 @@ import com.example.ui.components.CalculatorDialog
 import com.example.ui.components.ValuePickerDialog
 import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
+import com.example.ui.theme.SuccessGreen
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -129,6 +133,8 @@ fun BillScreen(viewModel: StockViewModel) {
     var scanStatusMessage by remember { mutableStateOf("Analyzing bill with Gemini Vision...") }
     var scanError by remember { mutableStateOf<String?>(null) }
     var parsedBillSummary by remember { mutableStateOf<ParsedBillResult?>(null) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var inputCustomKey by remember { mutableStateOf("") }
 
     var supplier by remember { mutableStateOf("") }
     var billNo by remember { mutableStateOf("") }
@@ -250,6 +256,69 @@ fun BillScreen(viewModel: StockViewModel) {
         }
     }
 
+    if (showApiKeyDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Gemini API Key", style = MaterialTheme.typography.titleMedium)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        "Paste or update your Gemini API key from Google AI Studio. It is saved directly on your device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = inputCustomKey,
+                        onValueChange = { inputCustomKey = it },
+                        label = { Text("API Key") },
+                        placeholder = { Text("AQ... or AIzaSy...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (inputCustomKey.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val formatLabel = when {
+                            inputCustomKey.startsWith("AQ.") -> "Format: Google Auth Key (AQ)"
+                            inputCustomKey.startsWith("AIza") -> "Format: Standard Key (AIza)"
+                            else -> "Custom Key"
+                        }
+                        Text(
+                            text = formatLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = BrandBlue
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        GeminiBillScanner.setSavedCustomApiKey(context, inputCustomKey.trim())
+                        showApiKeyDialog = false
+                        viewModel.showToast("API key saved!")
+                        if (imageUri != null || photoBitmap != null) {
+                            startBillScan(uri = imageUri, bitmap = photoBitmap)
+                        }
+                    }
+                ) {
+                    Text("Save & Scan")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showApiKeyDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (showCalculator) {
         CalculatorDialog(onDismiss = { showCalculator = false })
     }
@@ -360,11 +429,22 @@ fun BillScreen(viewModel: StockViewModel) {
 
             Text(
                 text = if (stage == "review") "Review Scanned Items" else "Upload Bill & Update Stock",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp)
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    inputCustomKey = GeminiBillScanner.getSavedCustomApiKey(context)
+                    showApiKeyDialog = true
+                }) {
+                    Icon(Icons.Default.Key, contentDescription = "Gemini API Key", tint = BrandBlue)
+                }
                 IconButton(onClick = { showAiTrainingDialog = true }) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = "Train AI", tint = BrandBlue)
                 }
@@ -455,6 +535,41 @@ fun BillScreen(viewModel: StockViewModel) {
                                 )
                             }
 
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Gemini API Key Quick Banner
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                                    .clickable {
+                                        inputCustomKey = GeminiBillScanner.getSavedCustomApiKey(context)
+                                        showApiKeyDialog = true
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val currentKey = GeminiBillScanner.getSavedCustomApiKey(context)
+                                    Text(
+                                        text = if (currentKey.isNotBlank()) "Gemini API Key: Configured ✓" else "Gemini API Key: Tap to set / edit",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (currentKey.isNotBlank()) SuccessGreen else BrandBlue
+                                    )
+                                }
+                                Text(
+                                    text = "Set Key 🔑",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BrandBlue
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
 
                             // Capture Buttons
@@ -503,18 +618,35 @@ fun BillScreen(viewModel: StockViewModel) {
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(20.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = scanError ?: "",
-                                            fontSize = 12.sp,
-                                            color = DangerRed,
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Warning, contentDescription = null, tint = DangerRed, modifier = Modifier.size(20.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = scanError ?: "",
+                                                fontSize = 12.sp,
+                                                color = DangerRed,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    inputCustomKey = GeminiBillScanner.getSavedCustomApiKey(context)
+                                                    showApiKeyDialog = true
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Change / Enter API Key", fontSize = 11.sp)
+                                            }
+                                        }
                                     }
                                 }
                             }

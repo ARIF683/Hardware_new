@@ -36,6 +36,10 @@ jobs:
       - name: Prepare build files & keystores
         run: |
           touch .env
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+            echo "GEMINI_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          fi
           if [ -f my-upload-key.jks.base64 ]; then
             echo "Decoding permanent release keystore..."
             base64 -d my-upload-key.jks.base64 > my-upload-key.jks

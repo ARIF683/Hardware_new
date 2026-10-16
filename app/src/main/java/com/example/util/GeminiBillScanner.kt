@@ -59,16 +59,30 @@ object GeminiBillScanner {
         return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
     }
 
-    suspend fun parseBill(bitmap: Bitmap, inventoryItems: List<Item>, context: android.content.Context? = null): ParsedBillResult = withContext(Dispatchers.IO) {
-        val key1 = BuildConfig.GEMINI_API_KEY
-        val key2 = try {
-            val field = BuildConfig::class.java.getField("GEMINI_KEY")
-            field.get(null) as? String ?: ""
-        } catch (_: Exception) { "" }
+    fun getSavedCustomApiKey(context: android.content.Context): String {
+        return context.getSharedPreferences("gemini_prefs", android.content.Context.MODE_PRIVATE)
+            .getString("custom_gemini_api_key", "") ?: ""
+    }
 
-        val apiKey = if (key1.isNotBlank() && key1 != "MY_GEMINI_API_KEY") key1 else key2
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "MY_GEMINI_KEY") {
-            throw IllegalStateException("Gemini API key is missing or not configured. Please add your GEMINI_API_KEY or GEMINI_KEY in the AI Studio Secrets panel.")
+    fun setSavedCustomApiKey(context: android.content.Context, key: String) {
+        context.getSharedPreferences("gemini_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("custom_gemini_api_key", key.trim())
+            .apply()
+    }
+
+    suspend fun parseBill(bitmap: Bitmap, inventoryItems: List<Item>, context: android.content.Context? = null): ParsedBillResult = withContext(Dispatchers.IO) {
+        val customKey = if (context != null) getSavedCustomApiKey(context) else ""
+        val candidateKeys = listOf(
+            customKey,
+            BuildConfig.GEMINI_KEY,
+            BuildConfig.GEMINI_API_KEY
+        ).map { it.trim() }
+         .filter { it.isNotBlank() && it != "MY_GEMINI_KEY" && it != "MY_GEMINI_API_KEY" }
+         .distinct()
+
+        if (candidateKeys.isEmpty()) {
+            throw IllegalStateException("Gemini API key is missing. Please add GEMINI_API_KEY or GEMINI_KEY to the AI Studio Secrets panel, or set it in the scanner.")
         }
 
         val learnedAliasesPrompt = if (context != null) BillAliasManager.formatPromptAliases(context) else ""
@@ -182,39 +196,48 @@ Return ONLY valid JSON in this exact structure:
             put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
         }
 
-        // Try primary model gemini-3.8-flash (recommended by Google Generative AI API) with fallbacks
+        // Prioritize stable fast models: gemini-3.1-flash-lite and gemini-3.8-flash
         val candidateModels = listOf(
-            "gemini-3.8-flash",
             "gemini-3.1-flash-lite",
+            "gemini-3.8-flash",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
             "gemini-1.5-flash"
         )
         var lastException: Exception? = null
         var responseStr: String? = null
 
-        for (modelName in candidateModels) {
-            try {
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
-                val body = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).build()
+        keyLoop@ for (key in candidateKeys) {
+            for (modelName in candidateModels) {
+                try {
+                    val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key"
+                    val body = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("x-goog-api-key", key)
+                        .post(body)
+                        .build()
 
-                val response = client.newCall(request).execute()
-                val bodyStr = response.body?.string()
-                if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
-                    responseStr = bodyStr
-                    break
-                } else {
-                    val friendlyError = try {
-                        val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
-                        errObj?.optString("message") ?: bodyStr
-                    } catch (_: Exception) {
-                        bodyStr
+                    val response = client.newCall(request).execute()
+                    val bodyStr = response.body?.string()
+                    if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
+                        responseStr = bodyStr
+                        break@keyLoop
+                    } else {
+                        val friendlyError = try {
+                            val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
+                            errObj?.optString("message") ?: bodyStr
+                        } catch (_: Exception) {
+                            bodyStr
+                        }
+                        lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
+                        // If this key is invalid or unauthorized, skip to the next key
+                        if (response.code in listOf(400, 401, 403) && (bodyStr?.contains("API key not valid", ignoreCase = true) == true || bodyStr?.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) == true)) {
+                            continue@keyLoop
+                        }
                     }
-                    lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
+                } catch (e: Exception) {
+                    lastException = e
                 }
-            } catch (e: Exception) {
-                lastException = e
             }
         }
 
@@ -227,8 +250,18 @@ Return ONLY valid JSON in this exact structure:
         val firstCandidate = candidates.optJSONObject(0) ?: throw Exception("Empty candidates list.")
         val content = firstCandidate.optJSONObject("content") ?: throw Exception("No content object.")
         val parts = content.optJSONArray("parts") ?: throw Exception("No parts array.")
-        val firstPart = parts.optJSONObject(0) ?: throw Exception("Empty parts list.")
-        val text = firstPart.optString("text", "")
+
+        // Collect non-thought text parts (some newer models include thought blocks)
+        val textBuilder = StringBuilder()
+        for (i in 0 until parts.length()) {
+            val part = parts.optJSONObject(i) ?: continue
+            if (part.optBoolean("thought", false)) continue
+            val partText = part.optString("text", "")
+            if (partText.isNotBlank()) {
+                textBuilder.append(partText)
+            }
+        }
+        val text = if (textBuilder.isNotEmpty()) textBuilder.toString() else parts.optJSONObject(0)?.optString("text", "") ?: ""
 
         val trimmedText = text.trim()
         val withoutFences = if (trimmedText.startsWith("```")) {

@@ -81,6 +81,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -122,6 +123,8 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showExportDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showColorMachineDialog by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var inputCustomKey by remember { mutableStateOf("") }
 
     var replaceExisting by remember { mutableStateOf(false) }
 
@@ -338,6 +341,66 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                     Text("Clear Queue", fontSize = 12.sp)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // 1B. Gemini AI API Key Card
+            item {
+                Spacer(modifier = Modifier.height(14.dp))
+                val currentSavedKey = remember(showApiKeyDialog) {
+                    com.example.util.GeminiBillScanner.getSavedCustomApiKey(context)
+                }
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(BrandBlue.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Gemini AI API Key", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Powers bill photo scanning & inventory updates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            if (currentSavedKey.isNotBlank()) {
+                                BadgePill("Configured ✓", SuccessGreen, Color.White)
+                            } else {
+                                BadgePill("Not Set", WarningAmber, Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = {
+                                inputCustomKey = com.example.util.GeminiBillScanner.getSavedCustomApiKey(context)
+                                showApiKeyDialog = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (currentSavedKey.isNotBlank()) "Change Gemini API Key" else "Enter Gemini API Key", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -888,6 +951,67 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 }
             },
             onDismiss = { showDeleteAllDialog = false }
+        )
+    }
+
+    // Gemini API Key Dialog
+    if (showApiKeyDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Gemini API Key", style = MaterialTheme.typography.titleMedium)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        "Paste or update your Gemini API key from Google AI Studio. It is saved directly on your device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = inputCustomKey,
+                        onValueChange = { inputCustomKey = it },
+                        label = { Text("API Key") },
+                        placeholder = { Text("AQ... or AIzaSy...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (inputCustomKey.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val formatLabel = when {
+                            inputCustomKey.startsWith("AQ.") -> "Format: Google Auth Key (AQ)"
+                            inputCustomKey.startsWith("AIza") -> "Format: Standard Key (AIza)"
+                            else -> "Custom Key"
+                        }
+                        Text(
+                            text = formatLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = BrandBlue
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        com.example.util.GeminiBillScanner.setSavedCustomApiKey(context, inputCustomKey.trim())
+                        showApiKeyDialog = false
+                        viewModel.showToast("API key saved!")
+                    }
+                ) {
+                    Text("Save Key")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showApiKeyDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
