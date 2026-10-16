@@ -196,12 +196,13 @@ Return ONLY valid JSON in this exact structure:
             put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
         }
 
-        // Try currently supported multimodal models first. Older model IDs may return 404
-        // when they are no longer available to a project or API key.
+        // Prefer current stable multimodal models. Older IDs such as gemini-1.5-flash
+        // may no longer be available to the API project and return 404.
         val candidateModels = listOf(
             "gemini-3.8-flash",
+            "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
-            "gemini-3.6-flash"
+            "gemini-3.1-flash-lite"
         )
         var lastException: Exception? = null
         var responseStr: String? = null
