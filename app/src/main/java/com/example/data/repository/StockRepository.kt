@@ -1180,6 +1180,148 @@ class StockRepository(
         }
     }
 
+    // ==================== GST BILLS & INVOICES ====================
+    val allGstBills: Flow<List<com.example.data.model.GstBillRecord>> = database.gstBillDao().getAllGstBills()
+
+    suspend fun saveGstBill(bill: com.example.data.model.GstBillRecord) = withContext(Dispatchers.IO) {
+        database.gstBillDao().insert(bill)
+    }
+
+    suspend fun deleteGstBill(id: String) = withContext(Dispatchers.IO) {
+        database.gstBillDao().deleteById(id)
+    }
+
+    suspend fun convertQuotationToGstBill(
+        quotation: com.example.data.model.QuotationRecord,
+        invoiceNo: String? = null,
+        customerGstin: String = "",
+        isInterState: Boolean = false,
+        deductStock: Boolean = true
+    ): Result<com.example.data.model.GstBillRecord> = withContext(Dispatchers.IO) {
+        try {
+            val now = nowIso()
+            val invNumber = invoiceNo?.ifBlank { null } ?: "GST-${quotation.quotationNo}"
+            val quoteItems = com.example.util.InvoicePrintManager.parseLineItems(quotation.itemsJson)
+
+            // Map quotation line items into GST bill line items
+            val gstLineItems = quoteItems.mapIndexed { idx, qItem ->
+                val matched = if (qItem.itemId != null) database.itemDao().getItemByIdOnce(qItem.itemId) else null
+                val effectiveRate = if (qItem.qty > 0) {
+                    qItem.total / qItem.qty
+                } else qItem.unitPrice
+                val taxRate = quotation.taxPercent
+                val taxableAmount = effectiveRate * qItem.qty
+                val taxAmt = taxableAmount * (taxRate / 100.0)
+                val totalAmt = taxableAmount + taxAmt
+
+                com.example.data.model.GstBillLineItem(
+                    id = qItem.itemId ?: "row_$idx",
+                    name = qItem.name,
+                    hsn = matched?.code?.ifBlank { "8481" } ?: "8481",
+                    qty = qItem.qty,
+                    rate = effectiveRate,
+                    taxRatePercent = taxRate,
+                    taxableAmount = taxableAmount,
+                    taxAmount = taxAmt,
+                    totalAmount = totalAmt,
+                    unit = qItem.unit.ifBlank { matched?.unit ?: "pcs" },
+                    subtitle = qItem.type,
+                    imageUrl = matched?.imageUrl
+                )
+            }
+
+            val taxableTotal = gstLineItems.sumOf { it.taxableAmount }
+            val totalTaxAmount = gstLineItems.sumOf { it.taxAmount }
+            val grandTotal = taxableTotal + totalTaxAmount
+
+            val gstBill = com.example.data.model.GstBillRecord(
+                id = UUID.randomUUID().toString(),
+                invoiceNo = invNumber,
+                invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
+                customerName = quotation.customerName,
+                customerPhone = quotation.customerPhone,
+                customerGstin = customerGstin,
+                customerAddress = quotation.customerAddress,
+                storeGstin = "27AABCS1234F1Z5",
+                isInterState = isInterState,
+                itemsJson = com.example.util.InvoicePrintManager.gstItemsToJson(gstLineItems),
+                taxableTotal = taxableTotal,
+                totalTaxAmount = totalTaxAmount,
+                grandTotal = grandTotal,
+                transporterId = "",
+                vehicleNo = "",
+                quotationId = quotation.id,
+                quotationNo = quotation.quotationNo,
+                pdfPath = null,
+                status = "Generated",
+                createdAt = now
+            )
+
+            // Save GST bill record to local database
+            database.gstBillDao().insert(gstBill)
+
+            // Mark Quotation as converted
+            val updatedNotes = if (quotation.notes.isNotBlank()) {
+                "${quotation.notes} | Converted to GST Bill #$invNumber"
+            } else {
+                "Converted to GST Bill #$invNumber"
+            }
+            val updatedQuot = quotation.copy(status = "Converted", notes = updatedNotes)
+            database.quotationDao().insert(updatedQuot)
+            enqueueOp("upsertQuotations", quotationListAdapter.toJson(listOf(updatedQuot)))
+            try {
+                supabaseClient.upsertQuotations(listOf(updatedQuot))
+            } catch (e: Exception) {
+                Log.w(tag, "Immediate sync of converted quotation failed: ${e.message}")
+            }
+
+            // Deduct stock if requested
+            if (deductStock) {
+                val txList = mutableListOf<TransactionRecord>()
+                val itemsToUpdate = mutableListOf<Item>()
+
+                for (lineItem in quoteItems) {
+                    if (lineItem.itemId != null) {
+                        val existing = database.itemDao().getItemByIdOnce(lineItem.itemId)
+                        if (existing != null) {
+                            val newQty = existing.qty - lineItem.qty
+                            val updatedItem = existing.copy(qty = newQty, updatedAt = now)
+                            itemsToUpdate.add(updatedItem)
+
+                            val tx = TransactionRecord(
+                                clientId = UUID.randomUUID().toString(),
+                                itemId = existing.id,
+                                itemName = existing.name,
+                                action = "out",
+                                qty = lineItem.qty,
+                                balance = newQty,
+                                note = "GST Inv #$invNumber (Est #${quotation.quotationNo})",
+                                unit = existing.unit,
+                                createdAt = now
+                            )
+                            txList.add(tx)
+                        }
+                    }
+                }
+
+                if (itemsToUpdate.isNotEmpty()) {
+                    database.itemDao().insertAll(itemsToUpdate)
+                    enqueueOp("upsert", itemListAdapter.toJson(itemsToUpdate))
+                }
+                if (txList.isNotEmpty()) {
+                    database.transactionDao().insertAll(txList)
+                    enqueueOp("tx", txListAdapter.toJson(txList))
+                }
+            }
+
+            flushQueue()
+            Result.success(gstBill)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to convert quotation to GST bill", e)
+            Result.failure(e)
+        }
+    }
+
     // ==================== LEDGER / KHATA ====================
     val allLedgerAccounts: Flow<List<com.example.data.model.LedgerAccount>> = database.ledgerDao().getAllAccounts()
 

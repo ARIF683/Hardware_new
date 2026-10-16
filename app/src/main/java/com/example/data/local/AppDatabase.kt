@@ -12,6 +12,7 @@ import com.example.data.model.Item
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
+import com.example.data.model.GstBillRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
 
@@ -24,9 +25,10 @@ import com.example.data.model.TransactionRecord
         LedgerAccount::class,
         LedgerEntry::class,
         DailyCashflowRecord::class,
-        ColorTintLog::class
+        ColorTintLog::class,
+        GstBillRecord::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ledgerDao(): LedgerDao
     abstract fun dailyCashflowDao(): DailyCashflowDao
     abstract fun colorTintDao(): ColorTintDao
+    abstract fun gstBillDao(): GstBillDao
 
     companion object {
         @Volatile
@@ -76,6 +79,37 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS gst_bills (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        invoice_no TEXT NOT NULL,
+                        invoice_date TEXT NOT NULL,
+                        customer_name TEXT NOT NULL,
+                        customer_phone TEXT NOT NULL,
+                        customer_gstin TEXT NOT NULL,
+                        customer_address TEXT NOT NULL,
+                        store_gstin TEXT NOT NULL,
+                        is_inter_state INTEGER NOT NULL,
+                        items_json TEXT NOT NULL,
+                        taxable_total REAL NOT NULL,
+                        total_tax_amount REAL NOT NULL,
+                        grand_total REAL NOT NULL,
+                        transporter_id TEXT NOT NULL,
+                        vehicle_no TEXT NOT NULL,
+                        quotation_id TEXT,
+                        quotation_no TEXT,
+                        pdf_path TEXT,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -83,7 +117,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stock_manager.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

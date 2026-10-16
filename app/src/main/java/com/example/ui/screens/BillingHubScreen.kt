@@ -12,10 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,6 +39,7 @@ import com.example.ui.theme.BrandBlue
 fun BillingHubScreen(viewModel: StockViewModel) {
     val selectedSubTab by viewModel.billingKhataSubTab.collectAsState()
     val quotations by viewModel.allQuotations.collectAsState()
+    val gstBills by viewModel.allGstBills.collectAsState()
     val ledgerAccounts by viewModel.allLedgerAccounts.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -50,20 +50,21 @@ fun BillingHubScreen(viewModel: StockViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             TabRow(
-                selectedTabIndex = selectedSubTab,
+                selectedTabIndex = selectedSubTab.coerceIn(0, 2),
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = BrandBlue,
                 indicator = { tabPositions ->
-                    if (selectedSubTab < tabPositions.size) {
+                    val tabIdx = selectedSubTab.coerceIn(0, tabPositions.size - 1)
+                    if (tabIdx < tabPositions.size) {
                         TabRowDefaults.SecondaryIndicator(
-                            Modifier.tabIndicatorOffset(tabPositions[selectedSubTab]),
+                            Modifier.tabIndicatorOffset(tabPositions[tabIdx]),
                             color = BrandBlue,
                             height = 3.dp
                         )
                     }
                 }
             ) {
-                // Tab 1: Estimates & Quotes
+                // Tab 0: Estimates & Quotes
                 Tab(
                     selected = selectedSubTab == 0,
                     onClick = { viewModel.setBillingKhataSubTab(0) },
@@ -72,14 +73,38 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                             Icon(
                                 Icons.Default.Description,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(15.dp),
                                 tint = if (selectedSubTab == 0) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "Estimates (${quotations.size})",
                                 fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 13.sp
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                )
+
+                // Tab 1: GST Invoices & Bills
+                Tab(
+                    selected = selectedSubTab == 1,
+                    onClick = { viewModel.setBillingKhataSubTab(1) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = if (selectedSubTab == 1) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "GST Bills (${gstBills.size})",
+                                fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                maxLines = 1
                             )
                         }
                     }
@@ -87,21 +112,22 @@ fun BillingHubScreen(viewModel: StockViewModel) {
 
                 // Tab 2: Supplier & Khata Ledger
                 Tab(
-                    selected = selectedSubTab == 1,
-                    onClick = { viewModel.setBillingKhataSubTab(1) },
+                    selected = selectedSubTab == 2,
+                    onClick = { viewModel.setBillingKhataSubTab(2) },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Default.AccountBalanceWallet,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (selectedSubTab == 1) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                modifier = Modifier.size(15.dp),
+                                tint = if (selectedSubTab == 2) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = "Khata Ledger (${ledgerAccounts.size})",
-                                fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 13.sp
+                                text = "Khata (${ledgerAccounts.size})",
+                                fontWeight = if (selectedSubTab == 2) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                maxLines = 1
                             )
                         }
                     }
@@ -111,10 +137,10 @@ fun BillingHubScreen(viewModel: StockViewModel) {
 
         // Body Content
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (selectedSubTab == 0) {
-                QuotationScreen(viewModel = viewModel)
-            } else {
-                LedgerScreen(viewModel = viewModel)
+            when (selectedSubTab) {
+                0 -> QuotationScreen(viewModel = viewModel)
+                1 -> GstBillsTabContent(viewModel = viewModel, onOpenGstCalculator = { viewModel.openGstCalculator() })
+                else -> LedgerScreen(viewModel = viewModel)
             }
         }
     }

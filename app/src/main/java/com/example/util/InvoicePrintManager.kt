@@ -29,6 +29,8 @@ import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import androidx.core.content.FileProvider
+import com.example.data.model.GstBillLineItem
+import com.example.data.model.GstBillRecord
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationLineItem
@@ -54,6 +56,9 @@ object InvoicePrintManager {
     private val lineItemListAdapter = moshi.adapter<List<QuotationLineItem>>(
         Types.newParameterizedType(List::class.java, QuotationLineItem::class.java)
     )
+    private val gstLineItemListAdapter = moshi.adapter<List<GstBillLineItem>>(
+        Types.newParameterizedType(List::class.java, GstBillLineItem::class.java)
+    )
 
     fun parseLineItems(json: String): List<QuotationLineItem> {
         return try {
@@ -67,8 +72,79 @@ object InvoicePrintManager {
         return lineItemListAdapter.toJson(items)
     }
 
+    fun parseGstLineItems(json: String): List<GstBillLineItem> {
+        return try {
+            gstLineItemListAdapter.fromJson(json) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun gstItemsToJson(items: List<GstBillLineItem>): String {
+        return gstLineItemListAdapter.toJson(items)
+    }
+
+    fun createGstBillPdf(
+        context: Context,
+        bill: GstBillRecord,
+        storeName: String = "HARDWARE & TOOLS STORE",
+        storeAddress: String = "Main Market",
+        storePhone: String = "",
+        storeEmail: String = "",
+        bankingInfo: BankingInfo? = null,
+        signatureBitmap: Bitmap? = null,
+        qrCodeBitmap: Bitmap? = null
+    ): File {
+        val pdfItems = parseGstLineItems(bill.itemsJson).map { item ->
+            val bmp = if (!item.imageUrl.isNullOrBlank()) {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    loadBitmap(context, item.imageUrl)
+                }
+            } else null
+            GstTaxPdfItem(
+                name = item.name,
+                hsn = item.hsn,
+                qty = item.qty,
+                rate = item.rate,
+                taxRatePercent = item.taxRatePercent,
+                taxableAmount = item.taxableAmount,
+                taxAmount = item.taxAmount,
+                totalAmount = item.totalAmount,
+                unit = item.unit,
+                subtitle = item.subtitle,
+                imageBitmap = bmp
+            )
+        }
+        return createGstTaxInvoicePdf(
+            context = context,
+            invoiceNo = bill.invoiceNo,
+            invoiceDate = bill.invoiceDate,
+            storeName = storeName,
+            storeAddress = storeAddress,
+            storePhone = storePhone,
+            storeEmail = storeEmail,
+            storeGstin = bill.storeGstin,
+            customerName = bill.customerName,
+            customerGstin = bill.customerGstin,
+            customerAddress = bill.customerAddress,
+            customerPhone = bill.customerPhone,
+            isInterState = bill.isInterState,
+            items = pdfItems,
+            taxableTotal = bill.taxableTotal,
+            totalTaxAmount = bill.totalTaxAmount,
+            grandTotal = bill.grandTotal,
+            transporterId = bill.transporterId,
+            vehicleNo = bill.vehicleNo,
+            bankingInfo = bankingInfo,
+            signatureBitmap = signatureBitmap,
+            qrCodeBitmap = qrCodeBitmap
+        )
+    }
+
     /**
-     * Generates a clean A4 PDF document for Quotations / Estimates
+     * Generates a clean A4 multi-page PDF document for Quotations / Estimates.
+     * Supports unlimited items with automatic pagination, repeated column headers,
+     * page numbering ("Page X of Y"), and elegant summary cards on the final page.
      */
     fun createQuotationPdf(
         context: Context,
@@ -78,30 +154,52 @@ object InvoicePrintManager {
         storeAddress: String = "Main Market"
     ): File {
         val pdfDoc = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 at 72dpi
-        val page = pdfDoc.startPage(pageInfo)
-        val canvas: Canvas = page.canvas
+        val items = parseLineItems(quotation.itemsJson)
 
-        val paint = Paint().apply { isAntiAlias = true }
-        val titlePaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 18f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = Color.rgb(20, 24, 33)
+        val maxItemsPage1 = 20
+        val maxItemsContinuation = 26
+        val rowHeight = 22f
+        val totalsHeight = 135f
+        val pageBottomLimit = 780f
+
+        // Pre-calculate total pages so every page shows "Page X of Y"
+        var calcPages = 1
+        var calcItemsOnPage = 0
+        var calcY = 222f // Page 1 items start Y after banner & info cards
+        for (i in items.indices) {
+            val maxForThisPage = if (calcPages == 1) maxItemsPage1 else maxItemsContinuation
+            if (calcItemsOnPage >= maxForThisPage || calcY + rowHeight > pageBottomLimit) {
+                calcPages++
+                calcItemsOnPage = 0
+                calcY = 100f // continuation header (44f) + table header (30f + padding)
+            }
+            calcItemsOnPage++
+            calcY += rowHeight
         }
+        if (calcY + totalsHeight > pageBottomLimit) {
+            calcPages++
+        }
+        val totalPages = maxOf(1, calcPages)
+
+        var currentPage = 1
+        var page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+        var canvas: Canvas = page.canvas
+
+        // Common Paints
+        val paint = Paint().apply { isAntiAlias = true }
         val subPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 10f
+            textSize = 9.5f
             color = Color.rgb(100, 116, 139)
         }
         val textPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 10f
+            textSize = 9.5f
             color = Color.rgb(30, 41, 59)
         }
         val boldPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 10f
+            textSize = 9.5f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.rgb(15, 23, 42)
         }
@@ -111,88 +209,6 @@ object InvoicePrintManager {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.rgb(255, 255, 255)
         }
-
-        // Header Background Banner
-        val bgPaint = Paint().apply {
-            color = Color.rgb(30, 41, 59) // Deep Navy
-        }
-        canvas.drawRect(0f, 0f, 595f, 90f, bgPaint)
-
-        // Store Title
-        val storeTitlePaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 20f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = Color.WHITE
-        }
-        canvas.drawText(storeName.uppercase(), 36f, 42f, storeTitlePaint)
-        val headerSubPaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 9f
-            color = Color.rgb(203, 213, 225)
-        }
-        canvas.drawText("Phone: ${storePhone.ifEmpty { "N/A" }} | $storeAddress", 36f, 62f, headerSubPaint)
-
-        // Document Type Badge
-        val docTypePaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 16f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = Color.rgb(245, 158, 11) // Amber
-            textAlign = Paint.Align.RIGHT
-        }
-        canvas.drawText("ESTIMATE / QUOTE", 559f, 45f, docTypePaint)
-        val docNumPaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 10f
-            color = Color.WHITE
-            textAlign = Paint.Align.RIGHT
-        }
-        canvas.drawText("No: #${quotation.quotationNo}", 559f, 65f, docNumPaint)
-
-        var y = 120f
-
-        // Customer & Meta Info Card
-        val cardPaint = Paint().apply {
-            color = Color.rgb(248, 250, 252)
-        }
-        val strokePaint = Paint().apply {
-            color = Color.rgb(226, 232, 240)
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-        }
-        canvas.drawRoundRect(36f, y, 559f, y + 70f, 8f, 8f, cardPaint)
-        canvas.drawRoundRect(36f, y, 559f, y + 70f, 8f, 8f, strokePaint)
-
-        canvas.drawText("CUSTOMER DETAILS", 50f, y + 20f, boldPaint)
-        canvas.drawText("Name: ${quotation.customerName}", 50f, y + 38f, textPaint)
-        if (quotation.customerPhone.isNotEmpty()) {
-            canvas.drawText("Phone: ${quotation.customerPhone}", 50f, y + 54f, textPaint)
-        }
-
-        canvas.drawText("ESTIMATE DETAILS", 340f, y + 20f, boldPaint)
-        canvas.drawText("Date: ${quotation.date}", 340f, y + 38f, textPaint)
-        if (quotation.validUntil.isNotEmpty()) {
-            canvas.drawText("Valid Until: ${quotation.validUntil}", 340f, y + 54f, textPaint)
-        }
-
-        y += 90f
-
-        // Table Header
-        val tableHeadBg = Paint().apply { color = Color.rgb(51, 65, 85) }
-        canvas.drawRoundRect(36f, y, 559f, y + 24f, 4f, 4f, tableHeadBg)
-
-        canvas.drawText("#", 46f, y + 16f, headerPaint)
-        canvas.drawText("ITEM DESCRIPTION", 75f, y + 16f, headerPaint)
-        canvas.drawText("QTY", 320f, y + 16f, headerPaint)
-        canvas.drawText("RATE", 380f, y + 16f, headerPaint)
-        canvas.drawText("DISC %", 450f, y + 16f, headerPaint)
-        val rightHeaderPaint = Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT }
-        canvas.drawText("TOTAL", 545f, y + 16f, rightHeaderPaint)
-
-        y += 32f
-
-        val items = parseLineItems(quotation.itemsJson)
         val linePaint = Paint().apply {
             color = Color.rgb(241, 245, 249)
             strokeWidth = 1f
@@ -200,50 +216,215 @@ object InvoicePrintManager {
         val rightTextPaint = Paint(textPaint).apply { textAlign = Paint.Align.RIGHT }
         val rightBoldPaint = Paint(boldPaint).apply { textAlign = Paint.Align.RIGHT }
 
-        items.forEachIndexed { index, item ->
-            if (index % 2 == 1) {
-                canvas.drawRect(36f, y - 10f, 559f, y + 12f, Paint().apply { color = Color.rgb(248, 250, 252) })
+        val cardPaint = Paint().apply { color = Color.rgb(248, 250, 252) }
+        val strokePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+        }
+        val footerPaint = Paint().apply {
+            isAntiAlias = true
+            textSize = 8f
+            color = Color.rgb(148, 163, 184)
+            textAlign = Paint.Align.CENTER
+        }
+
+        // Helper: Draw table column header
+        fun drawTableHeader(c: Canvas, headerY: Float): Float {
+            val tableHeadBg = Paint().apply { color = Color.rgb(51, 65, 85) }
+            c.drawRoundRect(36f, headerY, 559f, headerY + 24f, 4f, 4f, tableHeadBg)
+
+            c.drawText("#", 46f, headerY + 16f, headerPaint)
+            c.drawText("ITEM DESCRIPTION", 75f, headerY + 16f, headerPaint)
+            c.drawText("QTY", 320f, headerY + 16f, headerPaint)
+            c.drawText("RATE", 380f, headerY + 16f, headerPaint)
+            c.drawText("DISC %", 450f, headerY + 16f, headerPaint)
+            val rightHeaderPaint = Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT }
+            c.drawText("TOTAL", 545f, headerY + 16f, rightHeaderPaint)
+
+            return headerY + 30f
+        }
+
+        // Helper: Draw footer on a page
+        fun drawFooter(c: Canvas, pageNum: Int) {
+            c.drawText(
+                "Generated via Hardware Stock Manager • Thank you for your business!  •  Page $pageNum of $totalPages",
+                595f / 2f,
+                815f,
+                footerPaint
+            )
+        }
+
+        // Helper: Draw Page 1 Top Branding & Info Cards
+        fun drawPage1Header(c: Canvas): Float {
+            val bgPaint = Paint().apply { color = Color.rgb(30, 41, 59) }
+            c.drawRect(0f, 0f, 595f, 90f, bgPaint)
+
+            val storeTitlePaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 19f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.WHITE
             }
+            c.drawText(storeName.uppercase(), 36f, 40f, storeTitlePaint)
+
+            val headerSubPaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 9f
+                color = Color.rgb(203, 213, 225)
+            }
+            c.drawText("Phone: ${storePhone.ifEmpty { "N/A" }} | $storeAddress", 36f, 60f, headerSubPaint)
+
+            val docTypePaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 16f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.rgb(245, 158, 11) // Amber
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("ESTIMATE / QUOTE", 559f, 43f, docTypePaint)
+
+            val docNumPaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 9.5f
+                color = Color.WHITE
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("No: #${quotation.quotationNo}", 559f, 63f, docNumPaint)
+
+            var curY = 104f
+            c.drawRoundRect(36f, curY, 559f, curY + 68f, 6f, 6f, cardPaint)
+            c.drawRoundRect(36f, curY, 559f, curY + 68f, 6f, 6f, strokePaint)
+
+            c.drawText("CUSTOMER DETAILS", 50f, curY + 18f, boldPaint)
+            c.drawText("Name: ${quotation.customerName}", 50f, curY + 34f, textPaint)
+            val phoneOrAddr = listOf(
+                if (quotation.customerPhone.isNotEmpty()) "Ph: ${quotation.customerPhone}" else null,
+                if (quotation.customerAddress.isNotEmpty()) quotation.customerAddress else null
+            ).filterNotNull().joinToString(" • ")
+            if (phoneOrAddr.isNotEmpty()) {
+                c.drawText(phoneOrAddr.take(45), 50f, curY + 50f, subPaint)
+            }
+
+            c.drawText("ESTIMATE DETAILS", 340f, curY + 18f, boldPaint)
+            c.drawText("Date: ${quotation.date}", 340f, curY + 34f, textPaint)
+            if (quotation.validUntil.isNotEmpty()) {
+                c.drawText("Valid Until: ${quotation.validUntil}", 340f, curY + 50f, textPaint)
+            }
+
+            curY += 80f
+            return drawTableHeader(c, curY)
+        }
+
+        // Helper: Draw Continuation Header on Page 2+
+        fun drawContinuationHeader(c: Canvas, pageNum: Int): Float {
+            val bgPaint = Paint().apply { color = Color.rgb(30, 41, 59) }
+            c.drawRect(0f, 0f, 595f, 44f, bgPaint)
+
+            val miniStorePaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 12f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.WHITE
+            }
+            c.drawText(storeName.uppercase(), 36f, 28f, miniStorePaint)
+
+            val miniMetaPaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 9.5f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.rgb(245, 158, 11)
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("ESTIMATE / QUOTE #${quotation.quotationNo} (Page $pageNum of $totalPages)", 559f, 28f, miniMetaPaint)
+
+            return drawTableHeader(c, 56f)
+        }
+
+        // Draw initial Page 1
+        var y = drawPage1Header(canvas)
+        var itemsOnCurrentPage = 0
+
+        // Render line items with intelligent page transitions (max 20 on page 1)
+        items.forEachIndexed { index, item ->
+            val maxForThisPage = if (currentPage == 1) maxItemsPage1 else maxItemsContinuation
+
+            if (itemsOnCurrentPage >= maxForThisPage || y + rowHeight > pageBottomLimit) {
+                // Finish current page and open next page
+                drawFooter(canvas, currentPage)
+                pdfDoc.finishPage(page)
+
+                currentPage++
+                page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+                canvas = page.canvas
+
+                y = drawContinuationHeader(canvas, currentPage)
+                itemsOnCurrentPage = 0
+            }
+
+            // Draw alternating row highlight
+            if (index % 2 == 1) {
+                canvas.drawRect(36f, y - 8f, 559f, y + 13f, Paint().apply { color = Color.rgb(248, 250, 252) })
+            }
+
+            // Columns: #, Item Description, Qty, Rate, Disc %, Total
             canvas.drawText("${index + 1}", 46f, y + 2f, subPaint)
-            val nameDisplay = if (item.name.length > 35) item.name.take(32) + "…" else item.name
+            val nameDisplay = if (item.name.length > 38) item.name.take(35) + "…" else item.name
             canvas.drawText(nameDisplay, 75f, y + 2f, boldPaint)
             canvas.drawText(String.format(Locale.US, "%.1f %s", item.qty, item.unit), 320f, y + 2f, textPaint)
             canvas.drawText(String.format(Locale.US, "₹%.2f", item.unitPrice), 380f, y + 2f, textPaint)
-            canvas.drawText(if (item.discountPercent > 0) "${item.discountPercent}%" else "-", 450f, y + 2f, textPaint)
+            canvas.drawText(if (item.discountPercent > 0) "${item.discountPercent.toInt()}%" else "-", 450f, y + 2f, textPaint)
             canvas.drawText(String.format(Locale.US, "₹%.2f", item.total), 545f, y + 2f, rightBoldPaint)
 
-            canvas.drawLine(36f, y + 14f, 559f, y + 14f, linePaint)
-            y += 24f
+            canvas.drawLine(36f, y + 13f, 559f, y + 13f, linePaint)
+            y += rowHeight
+            itemsOnCurrentPage++
         }
 
-        y += 15f
+        // If totals block doesn't fit on the current page, transition to next page
+        if (y + totalsHeight > pageBottomLimit) {
+            drawFooter(canvas, currentPage)
+            pdfDoc.finishPage(page)
 
-        // Totals Card on right
+            currentPage++
+            page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+            canvas = page.canvas
+
+            y = drawContinuationHeader(canvas, currentPage)
+        }
+
+        y += 12f
+
+        // Draw Totals Summary Box (Right: 320 to 559)
         val totalBoxX = 320f
         canvas.drawRoundRect(totalBoxX, y, 559f, y + 95f, 6f, 6f, cardPaint)
         canvas.drawRoundRect(totalBoxX, y, 559f, y + 95f, 6f, 6f, strokePaint)
 
-        var ty = y + 20f
+        var ty = y + 18f
         canvas.drawText("Subtotal:", totalBoxX + 16f, ty, textPaint)
         canvas.drawText(String.format(Locale.US, "₹%.2f", quotation.subtotal), 545f, ty, rightTextPaint)
 
         if (quotation.discount > 0) {
-            ty += 18f
+            ty += 16f
             canvas.drawText("Discount:", totalBoxX + 16f, ty, textPaint)
             canvas.drawText(String.format(Locale.US, "-₹%.2f", quotation.discount), 545f, ty, rightTextPaint)
         }
 
         if (quotation.taxAmount > 0) {
-            ty += 18f
+            ty += 16f
             canvas.drawText("GST/Tax (${quotation.taxPercent}%):", totalBoxX + 16f, ty, textPaint)
             canvas.drawText(String.format(Locale.US, "+₹%.2f", quotation.taxAmount), 545f, ty, rightTextPaint)
+        } else if (quotation.taxPercent == 0.0) {
+            ty += 16f
+            canvas.drawText("GST/Tax (0% - Exempt):", totalBoxX + 16f, ty, textPaint)
+            canvas.drawText("₹0.00", 545f, ty, rightTextPaint)
         }
 
-        ty += 22f
-        canvas.drawLine(totalBoxX + 10f, ty - 8f, 545f, ty - 8f, strokePaint)
+        ty += 20f
+        canvas.drawLine(totalBoxX + 10f, ty - 6f, 545f, ty - 6f, strokePaint)
         val grandTotalPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 13f
+            textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.rgb(15, 23, 42)
         }
@@ -254,21 +435,23 @@ object InvoicePrintManager {
         canvas.drawText("GRAND TOTAL:", totalBoxX + 16f, ty + 2f, grandTotalPaint)
         canvas.drawText(String.format(Locale.US, "₹%.2f", quotation.grandTotal), 545f, ty + 2f, grandTotalRight)
 
-        // Notes & Terms on left
+        // Notes & Terms on left (36 to 305)
         if (quotation.notes.isNotEmpty()) {
-            canvas.drawText("NOTES / TERMS:", 36f, y + 20f, boldPaint)
-            canvas.drawText(quotation.notes.take(80), 36f, y + 38f, subPaint)
+            canvas.drawRoundRect(36f, y, 305f, y + 50f, 6f, 6f, cardPaint)
+            canvas.drawRoundRect(36f, y, 305f, y + 50f, 6f, 6f, strokePaint)
+            canvas.drawText("NOTES / TERMS:", 46f, y + 18f, boldPaint)
+            val noteLine = if (quotation.notes.length > 45) quotation.notes.take(42) + "…" else quotation.notes
+            canvas.drawText(noteLine, 46f, y + 34f, subPaint)
         }
 
-        // Footer
-        val footerPaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 8f
-            color = Color.rgb(148, 163, 184)
-            textAlign = Paint.Align.CENTER
-        }
-        canvas.drawText("Generated via Hardware Stock Manager • Thank you for your business!", 595f / 2f, 810f, footerPaint)
+        // Authorized Signatory Block
+        val sigY = y + 58f
+        canvas.drawLine(36f, sigY + 24f, 180f, sigY + 24f, strokePaint)
+        canvas.drawText("Authorized Signatory", 36f, sigY + 35f, subPaint)
+        canvas.drawText("For $storeName", 36f, sigY + 12f, Paint(boldPaint).apply { textSize = 8.5f })
 
+        // Final page footer
+        drawFooter(canvas, currentPage)
         pdfDoc.finishPage(page)
 
         val outputDir = File(context.cacheDir, "invoices").apply { mkdirs() }
@@ -625,9 +808,34 @@ object InvoicePrintManager {
         qrCodeBitmap: Bitmap? = null
     ): File {
         val pdfDoc = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // Standard A4 at 72dpi
-        val page = pdfDoc.startPage(pageInfo)
-        val canvas: Canvas = page.canvas
+        val maxItemsPage1 = 14
+        val maxItemsContinuation = 20
+        val rowHeight = 30f
+        val totalsBlockHeight = 220f
+        val pageBottomLimit = 760f
+
+        // Pre-calculate total pages
+        var calcPages = 1
+        var calcItemsOnPage = 0
+        var calcY = 166f
+        for (i in items.indices) {
+            val maxForThisPage = if (calcPages == 1) maxItemsPage1 else maxItemsContinuation
+            if (calcItemsOnPage >= maxForThisPage || calcY + rowHeight > pageBottomLimit) {
+                calcPages++
+                calcItemsOnPage = 0
+                calcY = 66f
+            }
+            calcItemsOnPage++
+            calcY += rowHeight
+        }
+        if (calcY + totalsBlockHeight > pageBottomLimit) {
+            calcPages++
+        }
+        val totalPages = maxOf(1, calcPages)
+
+        var currentPage = 1
+        var page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+        var canvas: Canvas = page.canvas
 
         val paint = Paint().apply { isAntiAlias = true }
         val titlePaint = Paint().apply {
@@ -663,121 +871,156 @@ object InvoicePrintManager {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.WHITE
         }
-
-        // 1. Header Background Banner (Navy Blue)
-        val bgPaint = Paint().apply { color = Color.rgb(30, 58, 138) }
-        canvas.drawRect(24f, 24f, 571f, 96f, bgPaint)
-
-        // Store Title, Details & GSTIN
-        canvas.drawText(storeName.uppercase(), 36f, 48f, titlePaint)
-        val subLine1 = listOf(
-            storeAddress.ifBlank { null },
-            if (storePhone.isNotBlank()) "Ph: $storePhone" else null,
-            if (storeEmail.isNotBlank()) "Email: $storeEmail" else null
-        ).filterNotNull().joinToString("  •  ")
-        if (subLine1.isNotBlank()) {
-            canvas.drawText(subLine1, 36f, 64f, headerSubPaint)
-        }
-        canvas.drawText("GSTIN: ${storeGstin.ifEmpty { "Unregistered" }}  •  TAX INVOICE (Rule 46 CGST Rules)", 36f, 78f, headerSubPaint)
-
-        // Invoice Meta Right-aligned in Banner
-        val docTypePaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 14f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = Color.rgb(251, 191, 36) // Amber/Gold
-            textAlign = Paint.Align.RIGHT
-        }
-        canvas.drawText("TAX INVOICE", 559f, 48f, docTypePaint)
-        val metaPaint = Paint().apply {
-            isAntiAlias = true
-            textSize = 8.5f
-            color = Color.WHITE
-            textAlign = Paint.Align.RIGHT
-        }
-        canvas.drawText("Invoice #: $invoiceNo", 559f, 64f, metaPaint)
-        canvas.drawText("Date: $invoiceDate", 559f, 78f, metaPaint)
-
-        var y = 104f
-
-        // 2. Customer & Dispatch Details Box
-        val cardPaint = Paint().apply { color = Color.rgb(248, 250, 252) }
-        val strokePaint = Paint().apply {
-            color = Color.rgb(226, 232, 240)
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-        }
-        canvas.drawRoundRect(24f, y, 571f, y + 54f, 4f, 4f, cardPaint)
-        canvas.drawRoundRect(24f, y, 571f, y + 54f, 4f, 4f, strokePaint)
-
-        // Left Column: Billed To
-        canvas.drawText("BILLED TO / RECIPIENT:", 36f, y + 16f, boldPaint)
-        val buyerName = customerName.ifEmpty { "Cash / Retail Customer" }
-        canvas.drawText("Name: $buyerName", 36f, y + 29f, textPaint)
-        val buyerGstin = customerGstin.ifEmpty { "Unregistered" }
-        val buyerExtra = if (customerPhone.isNotBlank()) " | Ph: $customerPhone" else ""
-        canvas.drawText("GSTIN: $buyerGstin$buyerExtra", 36f, y + 42f, textPaint)
-
-        // Right Column: Supply & Dispatch
-        val placeOfSupply = if (isInterState) "Inter-State (IGST 100%)" else "Intra-State (CGST 50% + SGST 50%)"
-        canvas.drawText("Place of Supply: $placeOfSupply", 310f, y + 16f, textPaint)
-        if (transporterId.isNotEmpty() || vehicleNo.isNotEmpty()) {
-            val transText = "Transport: ${transporterId.ifEmpty { "-" }} | Vehicle: ${vehicleNo.ifEmpty { "-" }}"
-            canvas.drawText(transText, 310f, y + 29f, textPaint)
-        } else {
-            canvas.drawText("Reverse Charge: No | Terms: Due on Receipt", 310f, y + 29f, textPaint)
-        }
-        canvas.drawText("Original for Recipient", 310f, y + 42f, smallSubPaint)
-
-        y += 62f
-
-        // 3. Table Header Banner with ITEM IMAGE column
-        // Columns:
-        // # (24..44, w=20)
-        // IMAGE (44..80, w=36)
-        // ITEM DESCRIPTION (80..235, w=155)
-        // HSN (235..280, w=45)
-        // QTY (280..325, w=45)
-        // RATE (325..375, w=50)
-        // TAXABLE (375..440, w=65)
-        // GST% (440..490, w=50)
-        // TOTAL (490..571, w=81)
-        val tableHeaderBg = Paint().apply { color = Color.rgb(51, 65, 85) }
-        canvas.drawRect(24f, y, 571f, y + 22f, tableHeaderBg)
-
-        canvas.drawText("#", 30f, y + 14f, headerColPaint)
-        canvas.drawText("IMAGE", 48f, y + 14f, headerColPaint)
-        canvas.drawText("ITEM DESCRIPTION", 84f, y + 14f, headerColPaint)
-        canvas.drawText("HSN", 240f, y + 14f, headerColPaint)
-        canvas.drawText("QTY", 286f, y + 14f, headerColPaint)
-        canvas.drawText("RATE", 332f, y + 14f, headerColPaint)
-        canvas.drawText("TAXABLE", 382f, y + 14f, headerColPaint)
-        canvas.drawText("GST%", 446f, y + 14f, headerColPaint)
-        val rightHeaderPaint = Paint(headerColPaint).apply { textAlign = Paint.Align.RIGHT }
-        canvas.drawText("TOTAL", 562f, y + 14f, rightHeaderPaint)
-
-        y += 22f
-
         val linePaint = Paint().apply {
             color = Color.rgb(226, 232, 240)
             strokeWidth = 0.8f
         }
         val rightTextPaint = Paint(textPaint).apply { textAlign = Paint.Align.RIGHT }
         val rightBoldPaint = Paint(boldPaint).apply { textAlign = Paint.Align.RIGHT }
+        val cardPaint = Paint().apply { color = Color.rgb(248, 250, 252) }
+        val strokePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+        }
+        val footerPaint = Paint().apply {
+            isAntiAlias = true
+            textSize = 7.5f
+            color = Color.rgb(148, 163, 184)
+            textAlign = Paint.Align.CENTER
+        }
 
-        val rowHeight = 30f // Plenty of space for 24x24 thumbnail image + text
+        fun drawTableHeader(c: Canvas, headerY: Float): Float {
+            val tableHeaderBg = Paint().apply { color = Color.rgb(51, 65, 85) }
+            c.drawRect(24f, headerY, 571f, headerY + 22f, tableHeaderBg)
 
-        // Render Table Rows (Item Image displayed; if no image, cell is left BLANK)
+            c.drawText("#", 30f, headerY + 14f, headerColPaint)
+            c.drawText("IMAGE", 48f, headerY + 14f, headerColPaint)
+            c.drawText("ITEM DESCRIPTION", 84f, headerY + 14f, headerColPaint)
+            c.drawText("HSN", 240f, headerY + 14f, headerColPaint)
+            c.drawText("QTY", 286f, headerY + 14f, headerColPaint)
+            c.drawText("RATE", 332f, headerY + 14f, headerColPaint)
+            c.drawText("TAXABLE", 382f, headerY + 14f, headerColPaint)
+            c.drawText("GST%", 446f, headerY + 14f, headerColPaint)
+            val rightHeaderPaint = Paint(headerColPaint).apply { textAlign = Paint.Align.RIGHT }
+            c.drawText("TOTAL", 562f, headerY + 14f, rightHeaderPaint)
+
+            return headerY + 22f
+        }
+
+        fun drawFooter(c: Canvas, pageNum: Int) {
+            val outerBorderPaint = Paint().apply {
+                color = Color.rgb(203, 213, 225)
+                style = Paint.Style.STROKE
+                strokeWidth = 1f
+            }
+            c.drawRect(24f, 24f, 571f, 816f, outerBorderPaint)
+            c.drawText("GST Tax Invoice • Standard Rule 46 Compliant • Page $pageNum of $totalPages", 595f / 2f, 810f, footerPaint)
+        }
+
+        fun drawPage1Header(c: Canvas): Float {
+            val bgPaint = Paint().apply { color = Color.rgb(30, 58, 138) }
+            c.drawRect(24f, 24f, 571f, 96f, bgPaint)
+
+            c.drawText(storeName.uppercase(), 36f, 48f, titlePaint)
+            val subLine1 = listOf(
+                storeAddress.ifBlank { null },
+                if (storePhone.isNotBlank()) "Ph: $storePhone" else null,
+                if (storeEmail.isNotBlank()) "Email: $storeEmail" else null
+            ).filterNotNull().joinToString("  •  ")
+            if (subLine1.isNotBlank()) {
+                c.drawText(subLine1, 36f, 64f, headerSubPaint)
+            }
+            c.drawText("GSTIN: ${storeGstin.ifEmpty { "Unregistered" }}  •  TAX INVOICE (Rule 46 CGST Rules)", 36f, 78f, headerSubPaint)
+
+            val docTypePaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 14f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.rgb(251, 191, 36)
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("TAX INVOICE", 559f, 48f, docTypePaint)
+            val metaPaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 8.5f
+                color = Color.WHITE
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("Invoice #: $invoiceNo", 559f, 64f, metaPaint)
+            c.drawText("Date: $invoiceDate", 559f, 78f, metaPaint)
+
+            var curY = 104f
+            c.drawRoundRect(24f, curY, 571f, curY + 54f, 4f, 4f, cardPaint)
+            c.drawRoundRect(24f, curY, 571f, curY + 54f, 4f, 4f, strokePaint)
+
+            c.drawText("BILLED TO / RECIPIENT:", 36f, curY + 16f, boldPaint)
+            val buyerName = customerName.ifEmpty { "Cash / Retail Customer" }
+            c.drawText("Name: $buyerName", 36f, curY + 29f, textPaint)
+            val buyerGstin = customerGstin.ifEmpty { "Unregistered" }
+            val buyerExtra = if (customerPhone.isNotBlank()) " | Ph: $customerPhone" else ""
+            c.drawText("GSTIN: $buyerGstin$buyerExtra", 36f, curY + 42f, textPaint)
+
+            val placeOfSupply = if (isInterState) "Inter-State (IGST 100%)" else "Intra-State (CGST 50% + SGST 50%)"
+            c.drawText("Place of Supply: $placeOfSupply", 310f, curY + 16f, textPaint)
+            if (transporterId.isNotEmpty() || vehicleNo.isNotEmpty()) {
+                val transText = "Transport: ${transporterId.ifEmpty { "-" }} | Vehicle: ${vehicleNo.ifEmpty { "-" }}"
+                c.drawText(transText, 310f, curY + 29f, textPaint)
+            } else {
+                c.drawText("Reverse Charge: No | Terms: Due on Receipt", 310f, curY + 29f, textPaint)
+            }
+            c.drawText("Original for Recipient", 310f, curY + 42f, smallSubPaint)
+
+            curY += 62f
+            return drawTableHeader(c, curY)
+        }
+
+        fun drawContinuationHeader(c: Canvas, pageNum: Int): Float {
+            val bgPaint = Paint().apply { color = Color.rgb(30, 58, 138) }
+            c.drawRect(24f, 24f, 571f, 60f, bgPaint)
+
+            val miniStorePaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 12f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.WHITE
+            }
+            c.drawText("${storeName.uppercase()} - TAX INVOICE (Continuation - Page $pageNum of $totalPages)", 36f, 46f, miniStorePaint)
+
+            val miniMetaPaint = Paint().apply {
+                isAntiAlias = true
+                textSize = 9f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.rgb(251, 191, 36)
+                textAlign = Paint.Align.RIGHT
+            }
+            c.drawText("Inv #: $invoiceNo", 559f, 46f, miniMetaPaint)
+
+            return drawTableHeader(c, 66f)
+        }
+
+        var y = drawPage1Header(canvas)
+        var itemsOnCurrentPage = 0
+
         items.forEachIndexed { idx, item ->
-            if (y > 660f) return@forEachIndexed // safety page limit
+            val maxForThisPage = if (currentPage == 1) maxItemsPage1 else maxItemsContinuation
+            if (itemsOnCurrentPage >= maxForThisPage || y + rowHeight > pageBottomLimit) {
+                drawFooter(canvas, currentPage)
+                pdfDoc.finishPage(page)
+
+                currentPage++
+                page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+                canvas = page.canvas
+
+                y = drawContinuationHeader(canvas, currentPage)
+                itemsOnCurrentPage = 0
+            }
 
             val rowBg = if (idx % 2 == 0) Color.WHITE else Color.rgb(248, 250, 252)
             canvas.drawRect(24f, y, 571f, y + rowHeight, Paint().apply { color = rowBg })
 
-            // Index
             canvas.drawText("${idx + 1}", 30f, y + 17f, textPaint)
 
-            // ITEM IMAGE: Show if exists, LEAVE BLANK if no image!
             if (item.imageBitmap != null) {
                 try {
                     val bmp = item.imageBitmap
@@ -788,8 +1031,6 @@ object InvoicePrintManager {
                     val imgX = 46f + (34f - w) / 2f
                     val imgY = y + 3f + (24f - h) / 2f
                     val destRect = RectF(imgX, imgY, imgX + w, imgY + h)
-                    
-                    // Draw thumbnail border and bitmap
                     val thumbBorderPaint = Paint().apply {
                         color = Color.rgb(226, 232, 240)
                         style = Paint.Style.STROKE
@@ -797,12 +1038,9 @@ object InvoicePrintManager {
                     }
                     canvas.drawRoundRect(destRect, 2f, 2f, thumbBorderPaint)
                     canvas.drawBitmap(bmp, null, destRect, Paint().apply { isFilterBitmap = true })
-                } catch (_: Exception) {
-                    // Blank on failure
-                }
-            } // else: completely blank cell, per user specification!
+                } catch (_: Exception) {}
+            }
 
-            // Item Name & Subtitle
             val truncName = if (item.name.length > 25) item.name.take(23) + ".." else item.name
             canvas.drawText(truncName, 84f, y + 13f, boldPaint)
             if (item.subtitle.isNotBlank()) {
@@ -810,7 +1048,6 @@ object InvoicePrintManager {
                 canvas.drawText(truncSub, 84f, y + 24f, smallSubPaint)
             }
 
-            // HSN, Qty, Rate, Taxable, GST%, Total
             canvas.drawText(item.hsn.ifEmpty { "-" }, 240f, y + 17f, textPaint)
             canvas.drawText("%.1f %s".format(item.qty, item.unit), 286f, y + 17f, textPaint)
             canvas.drawText("₹%.2f".format(item.rate), 332f, y + 17f, textPaint)
@@ -820,11 +1057,21 @@ object InvoicePrintManager {
 
             canvas.drawLine(24f, y + rowHeight, 571f, y + rowHeight, linePaint)
             y += rowHeight
+            itemsOnCurrentPage++
+        }
+
+        if (y + totalsBlockHeight > pageBottomLimit) {
+            drawFooter(canvas, currentPage)
+            pdfDoc.finishPage(page)
+
+            currentPage++
+            page = pdfDoc.startPage(PdfDocument.PageInfo.Builder(595, 842, currentPage).create())
+            canvas = page.canvas
+            y = drawContinuationHeader(canvas, currentPage)
         }
 
         y += 8f
 
-        // 4. Totals Card on Right Side (x = 320 to 571)
         val totalsCardPaint = Paint().apply { color = Color.rgb(241, 245, 249) }
         canvas.drawRoundRect(320f, y, 571f, y + 84f, 4f, 4f, totalsCardPaint)
         canvas.drawRoundRect(320f, y, 571f, y + 84f, 4f, 4f, strokePaint)
@@ -853,7 +1100,6 @@ object InvoicePrintManager {
         canvas.drawText("TOTAL INVOICE VALUE:", 332f, y + 70f, grandTotalLabelPaint)
         canvas.drawText("₹%.2f".format(grandTotal), 558f, y + 70f, grandTotalValPaint)
 
-        // 5. Left Side: Bank Details & UPI QR Code Box (x = 24 to 310)
         val bankBoxPaint = Paint().apply { color = Color.rgb(248, 250, 252) }
         canvas.drawRoundRect(24f, y, 310f, y + 84f, 4f, 4f, bankBoxPaint)
         canvas.drawRoundRect(24f, y, 310f, y + 84f, 4f, 4f, strokePaint)
@@ -876,11 +1122,6 @@ object InvoicePrintManager {
             textSize = 7.5f
             color = Color.rgb(51, 65, 85)
         }
-
-        // Has QR Code? If yes, draw QR Code on right inside bank box
-        val hasQr = qrCodeBitmap != null
-        val textMaxRight = if (hasQr) 235f else 300f
-
         canvas.drawText("Bank: $bankName", 34f, y + 27f, bankTextPaint)
         canvas.drawText("A/C No: $acNo", 34f, y + 39f, bankTextPaint)
         canvas.drawText("IFSC Code: $ifsc", 34f, y + 51f, bankTextPaint)
@@ -891,7 +1132,7 @@ object InvoicePrintManager {
             canvas.drawText("Branch: ${bankingInfo?.branchName}", 34f, y + 75f, smallSubPaint)
         }
 
-        if (hasQr && qrCodeBitmap != null) {
+        if (qrCodeBitmap != null) {
             try {
                 val qrSize = 54f
                 val qrX = 244f
@@ -913,11 +1154,9 @@ object InvoicePrintManager {
 
         y += 92f
 
-        // 6. Amount in Words
         val wordsText = convertNumberToIndianWords(grandTotal)
         canvas.drawText("Amount in Words: $wordsText", 28f, y + 10f, boldPaint)
 
-        // E-Way Bill Notice if > 50k
         if (grandTotal > 50000.0) {
             val ewayPaint = Paint().apply {
                 isAntiAlias = true
@@ -930,13 +1169,11 @@ object InvoicePrintManager {
 
         y += 30f
 
-        // 7. Terms & Conditions (Left) and Authorized Signature (Right)
         canvas.drawText("Terms & Conditions:", 28f, y + 12f, boldPaint)
         canvas.drawText("1. Goods once sold will not be accepted back or exchanged.", 28f, y + 24f, smallSubPaint)
         canvas.drawText("2. Certified that all particulars are true and correct.", 28f, y + 34f, smallSubPaint)
         canvas.drawText("3. Subject to local state jurisdiction.", 28f, y + 44f, smallSubPaint)
 
-        // Authorized Signature Block (Right side)
         val sigRight = 559f
         val forStorePaint = Paint().apply {
             isAntiAlias = true
@@ -947,7 +1184,6 @@ object InvoicePrintManager {
         }
         canvas.drawText("For $storeName", sigRight, y + 12f, forStorePaint)
 
-        // If digital signature uploaded, render signature bitmap above signatory line!
         if (signatureBitmap != null) {
             try {
                 val sigTargetW = 85f
@@ -976,21 +1212,7 @@ object InvoicePrintManager {
         }
         canvas.drawText("Authorized Signatory", sigRight, y + 66f, authLabelPaint)
 
-        // 8. Outer Page Border & Footer
-        val outerBorderPaint = Paint().apply {
-            color = Color.rgb(203, 213, 225)
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-        }
-        canvas.drawRect(24f, 24f, 571f, 816f, outerBorderPaint)
-
-        canvas.drawText("GST Tax Invoice • Standard Rule 46 Compliant • Hardware Stock Manager", 595f / 2f, 810f, Paint().apply {
-            isAntiAlias = true
-            textSize = 7.5f
-            color = Color.rgb(148, 163, 184)
-            textAlign = Paint.Align.CENTER
-        })
-
+        drawFooter(canvas, currentPage)
         pdfDoc.finishPage(page)
 
         val cleanInvNo = invoiceNo.replace(Regex("[^a-zA-Z0-9_-]"), "_")

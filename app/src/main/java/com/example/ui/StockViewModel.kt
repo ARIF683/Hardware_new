@@ -13,6 +13,7 @@ import com.example.data.model.TransactionRecord
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
+import com.example.data.model.GstBillRecord
 import com.example.data.pref.AppLogoStyle
 import com.example.data.pref.BankingInfo
 import com.example.data.pref.BankingPreferenceManager
@@ -201,6 +202,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val allQuotations: StateFlow<List<QuotationRecord>> = repository.allQuotations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allGstBills: StateFlow<List<GstBillRecord>> = repository.allGstBills
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allLedgerAccounts: StateFlow<List<LedgerAccount>> = repository.allLedgerAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -284,7 +288,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         isSelectionMode.value = false
     }
 
-    val billingKhataSubTab = MutableStateFlow(0) // 0 = Quotes / Estimates, 1 = Khata Ledger
+    val billingKhataSubTab = MutableStateFlow(0) // 0 = Quotes / Estimates, 1 = GST Bills & Invoices, 2 = Khata Ledger
 
     fun setBillingKhataSubTab(subTab: Int) {
         billingKhataSubTab.value = subTab
@@ -295,8 +299,13 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         navigateTo(NavigationTab.BILLING)
     }
 
-    fun navigateToKhata() {
+    fun navigateToGstBills() {
         billingKhataSubTab.value = 1
+        navigateTo(NavigationTab.BILLING)
+    }
+
+    fun navigateToKhata() {
+        billingKhataSubTab.value = 2
         navigateTo(NavigationTab.BILLING)
     }
 
@@ -308,8 +317,20 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         _currentScreen.value = CurrentScreen.BillFlow
     }
 
+    val prefilledQuotationForGst = MutableStateFlow<QuotationRecord?>(null)
+
     fun openGstCalculator() {
+        prefilledQuotationForGst.value = null
         _currentScreen.value = CurrentScreen.GstCalculator
+    }
+
+    fun openGstCalculatorWithQuotation(quotation: QuotationRecord) {
+        prefilledQuotationForGst.value = quotation
+        _currentScreen.value = CurrentScreen.GstCalculator
+    }
+
+    fun clearPrefilledGstQuotation() {
+        prefilledQuotationForGst.value = null
     }
 
     fun openSmartSynonymSearch() {
@@ -700,6 +721,48 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 showToast("Converted to Sale! Stock deducted & logged ✓")
             } else {
                 showToast("Failed to convert: ${result.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
+    // ==================== GST BILL ACTIONS ====================
+    fun saveGstBill(bill: GstBillRecord) {
+        viewModelScope.launch {
+            repository.saveGstBill(bill)
+            showToast("GST Bill #${bill.invoiceNo} saved in Billing ✓")
+        }
+    }
+
+    fun deleteGstBill(id: String) {
+        viewModelScope.launch {
+            repository.deleteGstBill(id)
+            showToast("GST Bill deleted")
+        }
+    }
+
+    fun convertQuotationToGstBill(
+        quotation: QuotationRecord,
+        invoiceNo: String? = null,
+        customerGstin: String = "",
+        isInterState: Boolean = false,
+        deductStock: Boolean = true,
+        onComplete: ((GstBillRecord?) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val result = repository.convertQuotationToGstBill(
+                quotation = quotation,
+                invoiceNo = invoiceNo,
+                customerGstin = customerGstin,
+                isInterState = isInterState,
+                deductStock = deductStock
+            )
+            if (result.isSuccess) {
+                val bill = result.getOrNull()
+                showToast("Converted to GST Bill #${bill?.invoiceNo ?: ""}! Saved in Billing ✓")
+                onComplete?.invoke(bill)
+            } else {
+                showToast("Failed to convert: ${result.exceptionOrNull()?.message}")
+                onComplete?.invoke(null)
             }
         }
     }

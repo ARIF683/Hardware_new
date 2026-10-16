@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
+import com.example.ui.theme.SuccessGreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -329,28 +331,65 @@ fun QuotationScreen(viewModel: StockViewModel) {
         )
     }
 
-    // Convert to Sale Confirmation
+    // Convert Quotation Dialog (Sale or GST Bill)
     if (quotationToConvert != null) {
         val q = quotationToConvert!!
         AlertDialog(
             onDismissRequest = { quotationToConvert = null },
-            title = { Text("Convert to Confirmed Sale?") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = BrandBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Convert Estimate #${q.quotationNo}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
             text = {
-                Text("This will deduct all ${InvoicePrintManager.parseLineItems(q.itemsJson).size} item(s) from current stock and log Stock OUT transactions automatically.")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Choose how you want to convert this quotation for ${q.customerName} (${InvoicePrintManager.parseLineItems(q.itemsJson).size} items):",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.convertQuotationToSale(q)
-                        quotationToConvert = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Confirm & Deduct Stock")
+                    // Option 1: Convert to GST Bill
+                    Button(
+                        onClick = {
+                            val quoteToConvert = q
+                            quotationToConvert = null
+                            viewModel.openGstCalculatorWithQuotation(quoteToConvert)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Convert to GST Tax Bill & Store", fontWeight = FontWeight.Bold)
+                    }
+
+                    // Option 2: Regular Stock Sale
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.convertQuotationToSale(q)
+                            quotationToConvert = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp), tint = SuccessGreen)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Regular Stock Sale (Deduct Stock)", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { quotationToConvert = null }) { Text("Cancel") }
+                TextButton(onClick = { quotationToConvert = null }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -1123,23 +1162,51 @@ fun QuotationFormDialog(
                     }
 
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = discountText,
-                                onValueChange = { discountText = it },
-                                label = { Text("Discount (₹)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = taxPercentText,
-                                onValueChange = { taxPercentText = it },
-                                label = { Text("GST/Tax (%)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = discountText,
+                                    onValueChange = { discountText = it },
+                                    label = { Text("Discount (₹)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = taxPercentText,
+                                    onValueChange = { taxPercentText = it },
+                                    label = { Text("GST/Tax (%)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Quick Tax: ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                listOf("0", "5", "12", "18", "28").forEach { pct ->
+                                    val isSelected = taxPercentText.trim() == pct
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isSelected) BrandBlue else MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier
+                                            .padding(horizontal = 2.dp)
+                                            .clickable { taxPercentText = pct }
+                                    ) {
+                                        Text(
+                                            text = if (pct == "0") "0%" else "$pct%",
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 

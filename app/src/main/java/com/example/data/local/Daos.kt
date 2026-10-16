@@ -210,3 +210,30 @@ interface ColorTintDao {
     @Query("DELETE FROM color_tint_logs")
     suspend fun clearAll()
 }
+
+@Dao
+interface GstBillDao {
+    @Query("SELECT * FROM gst_bills ORDER BY created_at DESC")
+    fun getAllGstBills(): Flow<List<com.example.data.model.GstBillRecord>>
+
+    @Query("SELECT * FROM gst_bills ORDER BY created_at DESC")
+    suspend fun getAllGstBillsList(): List<com.example.data.model.GstBillRecord>
+
+    @Query("SELECT * FROM gst_bills WHERE id = :id LIMIT 1")
+    suspend fun getGstBillById(id: String): com.example.data.model.GstBillRecord?
+
+    @Query("SELECT * FROM gst_bills WHERE quotation_id = :quotationId LIMIT 1")
+    suspend fun getGstBillByQuotationId(quotationId: String): com.example.data.model.GstBillRecord?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(bill: com.example.data.model.GstBillRecord)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(bills: List<com.example.data.model.GstBillRecord>)
+
+    @Query("DELETE FROM gst_bills WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM gst_bills")
+    suspend fun deleteAll()
+}
