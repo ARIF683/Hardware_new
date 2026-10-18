@@ -76,8 +76,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
-    private val _customThemeColor = MutableStateFlow(themePrefs.getString("theme_color", "#4C6FFF") ?: "#4C6FFF")
+    private val _customThemeColor = MutableStateFlow(themePrefs.getString("theme_color", "#007AFF") ?: "#007AFF")
     val customThemeColor: StateFlow<String> = _customThemeColor.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(themePrefs.getString("theme_mode", "dark") ?: "dark")
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        themePrefs.edit().putString("theme_mode", mode).apply()
+        showToast("Switched to ${when(mode) { "light" -> "Light Mode"; "dark" -> "Dark Mode"; else -> "System Default" }}")
+    }
 
     fun setCustomThemeColor(hexColor: String) {
         _customThemeColor.value = hexColor
@@ -93,6 +102,22 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         _itemsViewLayout.value = layout
         layoutPrefs.edit().putString("items_layout", layout).apply()
         showToast(if (layout == "list") "Switched to List View (Showcase)" else "Switched to 2-Column Grid")
+    }
+
+    private val _navBarStyle = MutableStateFlow(layoutPrefs.getString("nav_style", "floating_pill") ?: "floating_pill")
+    val navBarStyle: StateFlow<String> = _navBarStyle.asStateFlow()
+    fun setNavBarStyle(style: String) {
+        _navBarStyle.value = style
+        layoutPrefs.edit().putString("nav_style", style).apply()
+        showToast("Navigation style updated")
+    }
+
+    private val _cardStyle = MutableStateFlow(layoutPrefs.getString("card_style", "modern_inset") ?: "modern_inset")
+    val cardStyle: StateFlow<String> = _cardStyle.asStateFlow()
+    fun setCardStyle(style: String) {
+        _cardStyle.value = style
+        layoutPrefs.edit().putString("card_style", style).apply()
+        showToast("Card style updated")
     }
 
     val selectedLogo: StateFlow<AppLogoStyle> = logoPreferenceManager.selectedLogo
@@ -237,6 +262,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        themePrefs.edit().putString("theme_mode", "dark").apply()
+        _themeMode.value = "dark" 
         // Trigger initial remote load when ViewModel initializes
         viewModelScope.launch {
             repository.loadFromRemote()

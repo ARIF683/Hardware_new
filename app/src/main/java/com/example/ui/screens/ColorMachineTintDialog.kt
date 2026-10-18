@@ -81,7 +81,6 @@ import com.example.data.model.ColorTintLog
 import com.example.data.model.Item
 import com.example.data.repository.ColorMachineImportResult
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.WarningAmber
@@ -462,7 +461,7 @@ fun ColorMachineTintDialog(
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Info, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text("Smart Features:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                                         }

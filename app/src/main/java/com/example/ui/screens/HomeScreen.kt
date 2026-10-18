@@ -98,7 +98,6 @@ import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.WarningAmber
@@ -261,7 +260,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                     "warning" -> WarningAmber.copy(alpha = 0.15f)
                     "alert" -> DangerRed.copy(alpha = 0.15f)
                     "success" -> SuccessGreen.copy(alpha = 0.15f)
-                    else -> BrandBlue.copy(alpha = 0.12f)
+                    else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 }
                 val bannerIcon = when (uiConfig.announcement.severity) {
                     "warning" -> Icons.Default.Warning
@@ -272,7 +271,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                     "warning" -> WarningAmber
                     "alert" -> DangerRed
                     "success" -> SuccessGreen
-                    else -> BrandBlue
+                    else -> MaterialTheme.colorScheme.primary
                 }
 
                 Card(
@@ -343,7 +342,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 Button(
                                     onClick = { viewModel.startDownloadAndInstall(status.info.apkDownloadUrl) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                                 ) {
                                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -364,7 +363,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Download, contentDescription = null, tint = BrandBlue)
+                                Icon(Icons.Default.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = "Downloading update... ${(status.progress * 100).toInt()}%",
@@ -376,7 +375,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                             LinearProgressIndicator(
                                 progress = { status.progress },
                                 modifier = Modifier.fillMaxWidth(),
-                                color = BrandBlue
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -595,7 +594,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = "Verified Store",
-                                tint = BrandBlue,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -619,7 +618,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 // + Quick Bill Primary Button
                                 Button(
                                     onClick = { viewModel.openBillFlow() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1.2f),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 10.dp)
@@ -663,7 +662,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                     .padding(top = 8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 10.dp)
                             ) {
-                                Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(15.dp), tint = BrandBlue)
+                                Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Tint Machine Report (.XLS / .CSV)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
@@ -671,7 +670,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                             // GST Calculator Button
                             Button(
                                 onClick = { viewModel.openGstCalculator() },
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()

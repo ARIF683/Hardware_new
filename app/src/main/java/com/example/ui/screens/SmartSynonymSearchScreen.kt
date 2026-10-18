@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.Item
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandBlue
 import com.example.util.ItemSearchMatcher
 
 data class SynonymGroup(
@@ -77,7 +78,7 @@ fun SmartSynonymSearchScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = BrandBlue)
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Smart Hardware Synonym Search", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
@@ -113,8 +114,8 @@ fun SmartSynonymSearchScreen(
                 val isSelected = selectedGlossaryTerm == group.term
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) BrandBlue else MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, if (isSelected) BrandBlue else MaterialTheme.colorScheme.outlineVariant),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.clickable {
                         selectedGlossaryTerm = if (isSelected) null else group.term
                         synonymQuery = ""
@@ -204,7 +205,7 @@ fun SmartSynonymSearchScreen(
                                 Text(item.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (item.brand.isNotBlank()) Text("Brand: ${item.brand}", fontSize = 11.sp, color = BrandBlue)
+                                    if (item.brand.isNotBlank()) Text("Brand: ${item.brand}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                                     if (item.size.isNotBlank()) Text("Size: ${item.size}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (item.type.isNotBlank()) Text("Type: ${item.type}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -215,7 +216,7 @@ fun SmartSynonymSearchScreen(
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("Qty: ${item.qty.toInt()} ${item.unit}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("₹${item.price}", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = BrandBlue)
+                                Text("₹${item.price}", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }

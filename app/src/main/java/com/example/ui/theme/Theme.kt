@@ -12,11 +12,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = StaticBrandBlueLight,
+    primary = StaticBrandBlue,
     onPrimary = Color.White,
     primaryContainer = StaticBrandBlueDark,
     onPrimaryContainer = Color.White,
-    secondary = StaticBrandBlueLight,
+    secondary = StaticBrandBlue,
     onSecondary = Color.White,
     tertiary = WarningAmber,
     background = DarkBg,
@@ -53,13 +53,13 @@ private val LightColorScheme = lightColorScheme(
 fun StockManagerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
-    customThemeColor: String = "#4C6FFF",
+    customThemeColor: String = "#007AFF",
     content: @Composable () -> Unit
 ) {
     val baseColor = try {
         Color(android.graphics.Color.parseColor(customThemeColor))
     } catch (e: Exception) {
-        Color(0xFF4C6FFF)
+        Color(0xFF007AFF)
     }
 
     val isLightPrimary = (baseColor.red * 0.299f + baseColor.green * 0.587f + baseColor.blue * 0.114f) > 0.65f

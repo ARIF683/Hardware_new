@@ -68,7 +68,6 @@ import coil.compose.AsyncImage
 import com.example.data.model.Item
 import com.example.ui.StockViewModel
 import com.example.ui.components.SimpleConfirmDialog
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import com.example.util.ImageModelHelper

@@ -105,7 +105,6 @@ import com.example.data.model.QuotationLineItem
 import com.example.data.model.QuotationRecord
 import com.example.ui.StockViewModel
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import com.example.util.InvoicePrintManager
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -148,7 +147,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                 },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("New Estimate") },
-                containerColor = BrandBlue,
+                containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color.White
             )
         }
@@ -338,7 +337,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
             onDismissRequest = { quotationToConvert = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = BrandBlue)
+                    Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Convert Estimate #${q.quotationNo}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
@@ -364,7 +363,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                             quotationToConvert = null
                             viewModel.openGstCalculatorWithQuotation(quoteToConvert)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -412,7 +411,7 @@ fun QuotationCard(
     val statusColor = when (quotation.status) {
         "Converted" -> Color(0xFF9333EA)
         "Accepted" -> Color(0xFF16A34A)
-        "Sent" -> BrandBlue
+        "Sent" -> MaterialTheme.colorScheme.primary
         else -> BrandAmber
     }
 
@@ -490,7 +489,7 @@ fun QuotationCard(
                             val sColor = when (s) {
                                 "Converted" -> Color(0xFF9333EA)
                                 "Accepted" -> Color(0xFF16A34A)
-                                "Sent" -> BrandBlue
+                                "Sent" -> MaterialTheme.colorScheme.primary
                                 else -> BrandAmber
                             }
                             val isCurrent = quotation.status.equals(s, ignoreCase = true)
@@ -604,7 +603,7 @@ fun QuotationCard(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = onPrintPdf, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Print, contentDescription = "Print A4 PDF", tint = BrandBlue, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Print, contentDescription = "Print A4 PDF", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = onThermalPrint, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = "Thermal Print", tint = BrandAmber, modifier = Modifier.size(18.dp))
@@ -813,7 +812,7 @@ fun QuotationFormDialog(
                                     val chipColor = when (s) {
                                         "Converted" -> Color(0xFF9333EA)
                                         "Accepted" -> Color(0xFF16A34A)
-                                        "Sent" -> BrandBlue
+                                        "Sent" -> MaterialTheme.colorScheme.primary
                                         else -> BrandAmber
                                     }
                                     Surface(
@@ -926,7 +925,7 @@ fun QuotationFormDialog(
                                                     },
                                                     modifier = Modifier.size(36.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = BrandBlue)
+                                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
                                                 }
                                                 if (lineItems.size > 1) {
                                                     IconButton(
@@ -993,15 +992,15 @@ fun QuotationFormDialog(
                                                             Text(matched.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                                             if (matched.size.isNotBlank()) {
                                                                 Surface(
-                                                                    color = BrandBlue.copy(alpha = 0.14f),
+                                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                                                                     shape = RoundedCornerShape(4.dp),
-                                                                    border = androidx.compose.foundation.BorderStroke(1.dp, BrandBlue.copy(alpha = 0.35f))
+                                                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
                                                                 ) {
                                                                     Text(
                                                                         text = matched.size,
                                                                         fontSize = 10.sp,
                                                                         fontWeight = FontWeight.ExtraBold,
-                                                                        color = BrandBlue,
+                                                                        color = MaterialTheme.colorScheme.primary,
                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                                     )
                                                                 }
@@ -1010,14 +1009,14 @@ fun QuotationFormDialog(
                                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                             if (matched.type.isNotBlank()) {
                                                                 Surface(
-                                                                    color = BrandBlue.copy(alpha = 0.12f),
+                                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                                                                     shape = RoundedCornerShape(4.dp)
                                                                 ) {
                                                                     Text(
                                                                         text = matched.type,
                                                                         fontSize = 10.sp,
                                                                         fontWeight = FontWeight.Bold,
-                                                                        color = BrandBlue,
+                                                                        color = MaterialTheme.colorScheme.primary,
                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                                     )
                                                                 }
@@ -1029,7 +1028,7 @@ fun QuotationFormDialog(
                                                         String.format(Locale.US, "₹%.2f", matched.price),
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 13.sp,
-                                                        color = BrandBlue
+                                                        color = MaterialTheme.colorScheme.primary
                                                     )
                                                 }
                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -1079,7 +1078,7 @@ fun QuotationFormDialog(
                                                 colors = FilterChipDefaults.filterChipColors(
                                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                                     labelColor = MaterialTheme.colorScheme.onSurface,
-                                                    selectedContainerColor = BrandBlue,
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
                                                     selectedLabelColor = androidx.compose.ui.graphics.Color.White
                                                 )
                                             )
@@ -1124,7 +1123,7 @@ fun QuotationFormDialog(
                                                 text = "⇄ ${paired.first.uppercase()}",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = BrandBlue,
+                                                color = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier
                                                     .clickable {
                                                         val newUnit = paired.first
@@ -1192,7 +1191,7 @@ fun QuotationFormDialog(
                                     val isSelected = taxPercentText.trim() == pct
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = if (isSelected) BrandBlue else MaterialTheme.colorScheme.surfaceVariant,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                         modifier = Modifier
                                             .padding(horizontal = 2.dp)
                                             .clickable { taxPercentText = pct }
@@ -1272,7 +1271,7 @@ fun QuotationFormDialog(
                                 onSave(record)
                             },
                             enabled = customerName.isNotBlank() && lineItems.any { it.name.isNotBlank() },
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text("Save Estimate", fontWeight = FontWeight.Bold)

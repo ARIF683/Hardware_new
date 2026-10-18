@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.pref.AppLogoStyle
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -109,7 +108,7 @@ fun SmoothSplashScreen(
                         Brush.radialGradient(
                             colors = listOf(
                                 BrandAmber.copy(alpha = 0.25f),
-                                BrandBlue.copy(alpha = 0.1f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                 Color.Transparent
                             )
                         ),
@@ -125,7 +124,7 @@ fun SmoothSplashScreen(
                         .border(
                             width = 2.dp,
                             brush = Brush.linearGradient(
-                                listOf(BrandAmber.copy(alpha = 0.8f), BrandBlue.copy(alpha = 0.5f))
+                                listOf(BrandAmber.copy(alpha = 0.8f), MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                             ),
                             shape = RoundedCornerShape(24.dp)
                         ),

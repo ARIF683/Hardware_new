@@ -61,7 +61,6 @@ import com.example.data.model.Item
 import com.example.ui.StockViewModel
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.BrandAmber
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
@@ -114,6 +113,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val lastUiSyncedTime by viewModel.lastUiSyncedTime.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
     val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
+    val navBarStyle by viewModel.navBarStyle.collectAsState()
 
     var selectedSettingsTab by remember { mutableStateOf(0) }
     var showAdminPinDialog by remember { mutableStateOf(false) }
@@ -201,7 +201,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
             TabRow(
                 selectedTabIndex = selectedSettingsTab,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                contentColor = BrandBlue,
+                contentColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
@@ -242,10 +242,10 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(BrandBlue.copy(alpha = 0.15f)),
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
@@ -288,7 +288,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         ) {
                             Button(
                                 onClick = { viewModel.reloadFromDatabase() },
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
@@ -369,10 +369,10 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(BrandBlue.copy(alpha = 0.15f)),
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
@@ -394,7 +394,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 inputCustomKey = com.example.util.GeminiBillScanner.getSavedCustomApiKey(context)
                                 showApiKeyDialog = true
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -411,15 +411,14 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.height(14.dp))
                 val customThemeColor by viewModel.customThemeColor.collectAsState()
                 val presetColors = listOf(
-                    Pair("White", "#FFFFFF"),
-                    Pair("Blue", "#3B82F6"),
-                    Pair("Indigo", "#4F46E5"),
-                    Pair("Emerald", "#10B981"),
-                    Pair("Rose", "#F43F5E"),
-                    Pair("Amber", "#F59E0B"),
-                    Pair("Violet", "#8B5CF6"),
-                    Pair("Teal", "#0EA5E9"),
-                    Pair("Slate", "#475569")
+                    Pair("iOS Blue", "#007AFF"),
+                    Pair("iOS Indigo", "#5856D6"),
+                    Pair("iOS Green", "#34C759"),
+                    Pair("iOS Orange", "#FF9500"),
+                    Pair("iOS Pink", "#FF2D55"),
+                    Pair("iOS Purple", "#AF52DE"),
+                    Pair("iOS Teal", "#5AC8FA"),
+                    Pair("iOS Gray", "#8E8E93")
                 )
 
                 Card(
@@ -447,6 +446,42 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
+                        Text("APPEARANCE MODE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val themeMode by viewModel.themeMode.collectAsState()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val modes = listOf(
+                                Triple("light", "Light", "Crisp White"),
+                                Triple("dark", "Dark", "OLED Dark"),
+                                Triple("system", "System", "Device Auto")
+                            )
+                            modes.forEach { (mode, label, desc) ->
+                                val isSelected = themeMode == mode
+                                Card(
+                                    onClick = { viewModel.setThemeMode(mode) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                    ),
+                                    border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(label, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(desc, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text("ACCENT COLOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -547,6 +582,52 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("BOTTOM NAVIGATION STYLE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(8.dp))
+                                                Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            val isFloating = navBarStyle == "floating_pill"
+                            Card(
+                                onClick = { viewModel.setNavBarStyle("floating_pill") },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isFloating) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (isFloating) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("Floating Pill", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Curved modern bar", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            val isClassicNav = navBarStyle == "classic"
+                            Card(
+                                onClick = { viewModel.setNavBarStyle("classic") },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isClassicNav) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (isClassicNav) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("Classic Bar", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Full edge-to-edge", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -612,7 +693,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Palette, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Color Machine Tint Import (.CSC / .CSV)")
                         }
@@ -647,10 +728,10 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(BrandBlue.copy(alpha = 0.15f)),
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
@@ -719,7 +800,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 Button(
                                     onClick = { viewModel.startDownloadAndInstall(s.info.apkDownloadUrl) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -752,9 +833,9 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isAdmin) BrandBlue.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        containerColor = if (isAdmin) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     ),
-                    border = BorderStroke(1.dp, if (isAdmin) BrandBlue.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    border = BorderStroke(1.dp, if (isAdmin) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -960,7 +1041,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
             onDismissRequest = { showApiKeyDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue)
+                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Gemini API Key", style = MaterialTheme.typography.titleMedium)
                 }
@@ -991,7 +1072,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         Text(
                             text = formatLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = BrandBlue
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -1131,7 +1212,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     Button(
                         onClick = { selectFileLauncher.launch("*/*") },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1392,8 +1473,8 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
         // Info Header Banner
         Card(
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = BrandBlue.copy(alpha = 0.1f)),
-            border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.3f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
         ) {
             Row(
                 modifier = Modifier.padding(14.dp),
@@ -1401,7 +1482,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = BrandBlue,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(42.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -1410,7 +1491,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text("GST Banking & Signature Setup", fontWeight = FontWeight.Bold, color = BrandBlue, fontSize = 15.sp)
+                    Text("GST Banking & Signature Setup", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
                     Text("Details, QR code, and signature added here will automatically appear on all GST Tax Invoices and PDF exports.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -1423,7 +1504,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Bank Account Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
@@ -1495,7 +1576,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                     onClick = {
                         viewModel.saveBankDetails(bankName, accountHolder, accountNumber, ifscCode, branchName, upiId)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1512,7 +1593,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.DriveFileRenameOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Authorized Signature", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
@@ -1524,7 +1605,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color.White,
-                        border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(110.dp)
@@ -1587,7 +1668,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         onClick = {
                             signatureLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1605,7 +1686,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.QrCode2, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.QrCode2, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("UPI Payment QR Code", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
@@ -1621,7 +1702,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.White,
-                            border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                             modifier = Modifier.size(160.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().padding(8.dp)) {
@@ -1683,7 +1764,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         onClick = {
                             qrLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1701,7 +1782,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text("👁️ Live GST Invoice Footer Preview", fontWeight = FontWeight.Bold, color = BrandBlue, fontSize = 13.sp)
+                Text("👁️ Live GST Invoice Footer Preview", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Surface(
@@ -1717,7 +1798,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                     ) {
                         // Left: Bank details & QR
                         Column(modifier = Modifier.weight(1.3f)) {
-                            Text("BANK DETAILS:", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = BrandBlue)
+                            Text("BANK DETAILS:", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                             Text("Bank: ${bankName.ifBlank { "Not set" }}", fontSize = 9.sp, color = Color(0xFF334155))
                             Text("A/C: ${accountNumber.ifBlank { "Not set" }}", fontSize = 9.sp, color = Color(0xFF334155))
                             Text("IFSC: ${ifscCode.ifBlank { "Not set" }}", fontSize = 9.sp, color = Color(0xFF334155))
@@ -1741,7 +1822,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                                         modifier = Modifier.fillMaxSize().padding(2.dp)
                                     )
                                 }
-                                Text("Scan to Pay", fontSize = 7.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                                Text("Scan to Pay", fontSize = 7.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             }
                         }
 

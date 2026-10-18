@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.auth.AuthManager
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 
 @Composable
@@ -105,13 +104,13 @@ fun AuthGateScreen(viewModel: StockViewModel) {
             Box(
                 modifier = Modifier
                     .size(72.dp)
-                    .background(BrandBlue.copy(alpha = 0.1f), CircleShape),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = "Lock",
-                    tint = BrandBlue,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(36.dp)
                 )
             }
@@ -164,7 +163,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 },
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = BrandBlue,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -176,7 +175,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 onClick = { submitUnlock() },
                 enabled = !isLocked && !isChecking,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)

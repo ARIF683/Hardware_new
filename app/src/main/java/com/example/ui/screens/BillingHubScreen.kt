@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandBlue
 
 @Composable
 fun BillingHubScreen(viewModel: StockViewModel) {
@@ -52,13 +51,13 @@ fun BillingHubScreen(viewModel: StockViewModel) {
             TabRow(
                 selectedTabIndex = selectedSubTab.coerceIn(0, 2),
                 containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = BrandBlue,
+                contentColor = MaterialTheme.colorScheme.primary,
                 indicator = { tabPositions ->
                     val tabIdx = selectedSubTab.coerceIn(0, tabPositions.size - 1)
                     if (tabIdx < tabPositions.size) {
                         TabRowDefaults.SecondaryIndicator(
                             Modifier.tabIndicatorOffset(tabPositions[tabIdx]),
-                            color = BrandBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             height = 3.dp
                         )
                     }
@@ -74,7 +73,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                                 Icons.Default.Description,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
-                                tint = if (selectedSubTab == 0) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (selectedSubTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
@@ -97,7 +96,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                                 Icons.Default.ReceiptLong,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
-                                tint = if (selectedSubTab == 1) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (selectedSubTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
@@ -120,7 +119,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                                 Icons.Default.AccountBalanceWallet,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
-                                tint = if (selectedSubTab == 2) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (selectedSubTab == 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(

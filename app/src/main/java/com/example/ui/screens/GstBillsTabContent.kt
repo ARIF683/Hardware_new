@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.material3.MaterialTheme
+
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.GstBillLineItem
 import com.example.data.model.GstBillRecord
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.WarningAmber
@@ -110,7 +111,7 @@ fun GstBillsTabContent(
 
                     Button(
                         onClick = onOpenGstCalculator,
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         modifier = Modifier.height(36.dp)
@@ -221,8 +222,8 @@ fun GstBillsTabContent(
                     onClick = { filterPeriod = period },
                     label = { Text(period, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BrandBlue.copy(alpha = 0.15f),
-                        selectedLabelColor = BrandBlue
+                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        selectedLabelColor = MaterialTheme.colorScheme.primary
                     )
                 )
             }
@@ -260,7 +261,7 @@ fun GstBillsTabContent(
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = onOpenGstCalculator,
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -299,14 +300,14 @@ fun GstBillsTabContent(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = BrandBlue.copy(alpha = 0.12f),
-                                        border = BorderStroke(0.5.dp, BrandBlue.copy(alpha = 0.3f))
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                                     ) {
                                         Text(
                                             text = bill.invoiceNo,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 13.sp,
-                                            color = BrandBlue,
+                                            color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                         )
                                     }
@@ -426,7 +427,7 @@ fun GstBillsTabContent(
                                         text = String.format(Locale.US, "₹%.2f", bill.grandTotal),
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        color = BrandBlue
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     if (isEWay) {
                                         Surface(
@@ -465,7 +466,7 @@ fun GstBillsTabContent(
                                         Icon(
                                             Icons.Default.Visibility,
                                             contentDescription = "View Details",
-                                            tint = BrandBlue,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -592,7 +593,7 @@ fun GstBillsTabContent(
                 ) {
                     Column {
                         Text("GST Tax Invoice Details", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Invoice #: ${b.invoiceNo}", fontSize = 12.sp, color = BrandBlue, fontWeight = FontWeight.SemiBold)
+                        Text("Invoice #: ${b.invoiceNo}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                     }
                     IconButton(onClick = { billForDetails = null }) {
                         Icon(Icons.Default.Close, contentDescription = "Close")
@@ -631,7 +632,7 @@ fun GstBillsTabContent(
 
                         // Items Header
                         item {
-                            Text("Line Items (${parsedItems.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = BrandBlue)
+                            Text("Line Items (${parsedItems.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                         }
 
                         // Items List
@@ -703,7 +704,7 @@ fun GstBillsTabContent(
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("Grand Total:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text(String.format(Locale.US, "₹%.2f", b.grandTotal), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = BrandBlue)
+                                        Text(String.format(Locale.US, "₹%.2f", b.grandTotal), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             }
@@ -729,7 +730,7 @@ fun GstBillsTabContent(
                             InvoicePrintManager.printPdf(context, pdfFile, "GST_${b.invoiceNo}")
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))

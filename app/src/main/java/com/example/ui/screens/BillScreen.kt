@@ -88,7 +88,6 @@ import com.example.data.repository.BillRowData
 import com.example.ui.StockViewModel
 import com.example.ui.components.CalculatorDialog
 import com.example.ui.components.ValuePickerDialog
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import androidx.compose.ui.text.style.TextOverflow
@@ -261,7 +260,7 @@ fun BillScreen(viewModel: StockViewModel) {
             onDismissRequest = { showApiKeyDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue)
+                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Gemini API Key", style = MaterialTheme.typography.titleMedium)
                 }
@@ -292,7 +291,7 @@ fun BillScreen(viewModel: StockViewModel) {
                         Text(
                             text = formatLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = BrandBlue
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -339,7 +338,7 @@ fun BillScreen(viewModel: StockViewModel) {
                 ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(48.dp),
-                        color = BrandBlue,
+                        color = MaterialTheme.colorScheme.primary,
                         strokeWidth = 4.dp
                     )
                     Spacer(modifier = Modifier.height(18.dp))
@@ -358,7 +357,7 @@ fun BillScreen(viewModel: StockViewModel) {
                     Spacer(modifier = Modifier.height(16.dp))
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
-                        color = BrandBlue
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -443,14 +442,14 @@ fun BillScreen(viewModel: StockViewModel) {
                     inputCustomKey = GeminiBillScanner.getSavedCustomApiKey(context)
                     showApiKeyDialog = true
                 }) {
-                    Icon(Icons.Default.Key, contentDescription = "Gemini API Key", tint = BrandBlue)
+                    Icon(Icons.Default.Key, contentDescription = "Gemini API Key", tint = MaterialTheme.colorScheme.primary)
                 }
                 IconButton(onClick = { showAiTrainingDialog = true }) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = "Train AI", tint = BrandBlue)
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Train AI", tint = MaterialTheme.colorScheme.primary)
                 }
                 if (stage == "review") {
                     IconButton(onClick = { showCalculator = true }) {
-                        Icon(Icons.Default.Calculate, contentDescription = "Calculator", tint = BrandBlue)
+                        Icon(Icons.Default.Calculate, contentDescription = "Calculator", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -511,27 +510,27 @@ fun BillScreen(viewModel: StockViewModel) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(BrandBlue.copy(alpha = 0.08f))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
                                     .clickable { showAiTrainingDialog = true }
                                     .padding(horizontal = 10.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Trained Shades: Phirozi, P.O. Red...",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = BrandBlue
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 Text(
                                     text = "Train AI Vocabulary →",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = BrandBlue
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -552,21 +551,21 @@ fun BillScreen(viewModel: StockViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Key, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     val currentKey = GeminiBillScanner.getSavedCustomApiKey(context)
                                     Text(
                                         text = if (currentKey.isNotBlank()) "Gemini API Key: Configured ✓" else "Gemini API Key: Tap to set / edit",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (currentKey.isNotBlank()) SuccessGreen else BrandBlue
+                                        color = if (currentKey.isNotBlank()) SuccessGreen else MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 Text(
                                     text = "Set Key 🔑",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = BrandBlue
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -585,7 +584,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -688,7 +687,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                 ) {
                                     Button(
                                         onClick = { startBillScan(imageUri, photoBitmap) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.weight(1.4f)
                                     ) {
@@ -729,7 +728,7 @@ fun BillScreen(viewModel: StockViewModel) {
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = BrandBlue.copy(alpha = 0.15f), shape = CircleShape, modifier = Modifier.size(32.dp)) {
+                                Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), shape = CircleShape, modifier = Modifier.size(32.dp)) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Text("⚡", fontSize = 16.sp)
                                     }
@@ -751,7 +750,7 @@ fun BillScreen(viewModel: StockViewModel) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Button(
                                 onClick = { showSequentialScanDialog = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("⚡ Start Sequential Shipment Scan", fontWeight = FontWeight.Bold)
@@ -761,7 +760,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                 onClick = { viewModel.openGstCalculator() },
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandBlue)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Text("📊 GST & E-Way Bill Calculator", fontWeight = FontWeight.Bold)
                             }
@@ -892,8 +891,8 @@ fun BillScreen(viewModel: StockViewModel) {
                                     }
                                     Text("=", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Column {
-                                        Text("Memo Total", fontSize = 11.sp, color = BrandBlue)
-                                        Text(StockViewModel.formatRupees(summary.totalAmount), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = BrandBlue)
+                                        Text("Memo Total", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                        Text(StockViewModel.formatRupees(summary.totalAmount), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             }
@@ -985,7 +984,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                             viewModel.showToast("Applied +$marginPct% profit margin to all items")
                                         },
                                         label = { Text("+$marginPct%") },
-                                        colors = AssistChipDefaults.assistChipColors(containerColor = BrandBlue.copy(alpha = 0.08f))
+                                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
                                     )
                                 }
                             }
@@ -1010,7 +1009,7 @@ fun BillScreen(viewModel: StockViewModel) {
                             Text(
                                 text = "Toggle Stock",
                                 fontSize = 11.sp,
-                                color = BrandBlue,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
                                     .clickable {
@@ -1029,7 +1028,7 @@ fun BillScreen(viewModel: StockViewModel) {
                             Text(
                                 text = "Toggle Cost",
                                 fontSize = 11.sp,
-                                color = BrandBlue,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
                                     .clickable {
@@ -1093,7 +1092,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                 text = StockViewModel.formatRupees(billTotal),
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = BrandBlue
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -1111,7 +1110,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                 text = "Payment Status & Expense Logging",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = BrandBlue
+                                color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(
@@ -1175,7 +1174,7 @@ fun BillScreen(viewModel: StockViewModel) {
                                 }
                                 viewModel.confirmBill(supplier, billNo, billDate, rows, paidInCash)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             modifier = Modifier.weight(1.5f)
                         ) {
                             Text("Confirm & Sync (${includedRows.size})", fontWeight = FontWeight.Bold)
@@ -1359,16 +1358,16 @@ fun SequentialScanBillDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
-                            color = BrandBlue.copy(alpha = 0.15f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             shape = CircleShape,
                             modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Quick Shipment Barcode Scan", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = BrandBlue)
+                        Text("Quick Shipment Barcode Scan", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Close")
@@ -1401,7 +1400,7 @@ fun SequentialScanBillDialog(
                                 seqCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.weight(1.2f)
                     ) {
                         Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1424,7 +1423,7 @@ fun SequentialScanBillDialog(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp), tint = BrandBlue)
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("🎤 Speak", fontSize = 12.sp)
                     }
@@ -1465,7 +1464,7 @@ fun SequentialScanBillDialog(
                                         Text(
                                             text = if (itm.barcode.isNotBlank()) "🏷️ ${itm.barcode}" else "SKU: ${itm.code}",
                                             fontSize = 9.sp,
-                                            color = BrandBlue
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -1494,7 +1493,7 @@ fun SequentialScanBillDialog(
                     Button(
                         onClick = { processBarcode(scannedInput) },
                         enabled = scannedInput.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.height(56.dp)
                     ) {
                         Text("+ Add")
@@ -1566,14 +1565,14 @@ fun SequentialScanBillDialog(
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Surface(
-                                            color = BrandBlue.copy(alpha = 0.15f),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
                                                 text = "Qty: ${sRow.qty.toInt()}",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
-                                                color = BrandBlue,
+                                                color = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                             )
                                         }
@@ -1613,7 +1612,7 @@ fun SequentialScanBillDialog(
                     Button(
                         onClick = { onItemsScanned(scannedList.toList()) },
                         enabled = scannedList.isNotEmpty(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.weight(1.5f)
                     ) {
                         Text("✓ Apply to Bill (${scannedList.size})", fontWeight = FontWeight.Bold)
@@ -1665,7 +1664,7 @@ fun BillRowEditor(
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        border = if (matched == null) androidx.compose.foundation.BorderStroke(1.dp, BrandBlue.copy(alpha = 0.4f)) else null,
+        border = if (matched == null) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)) else null,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -1677,7 +1676,7 @@ fun BillRowEditor(
                 Checkbox(
                     checked = row.include,
                     onCheckedChange = { onUpdate(row.copy(include = it)) },
-                    colors = CheckboxDefaults.colors(checkedColor = BrandBlue)
+                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -1714,15 +1713,15 @@ fun BillRowEditor(
                         } else {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = BrandBlue.copy(alpha = 0.15f)
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(10.dp))
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(10.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("✨ New Item", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                                    Text("✨ New Item", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -1770,7 +1769,7 @@ fun BillRowEditor(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Old: ₹${matched.cost}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(" → ", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    Text("New: ₹${row.rate}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+                                    Text("New: ₹${row.rate}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
 
@@ -1888,7 +1887,7 @@ fun BillRowEditor(
                             text = "⇄ Convert to ${paired.first.uppercase()}",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = BrandBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .clickable {
                                     val newUnit = paired.first
@@ -1965,7 +1964,7 @@ fun BillRowEditor(
                             listOf(10, 15, 20, 25).forEach { marginPct ->
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = BrandBlue.copy(alpha = 0.1f),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
@@ -1979,7 +1978,7 @@ fun BillRowEditor(
                                         text = "+$marginPct%",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = BrandBlue,
+                                        color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(vertical = 8.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                     )
@@ -2064,7 +2063,7 @@ fun BillRowEditor(
                     Text(
                         text = "Bill scanned as: \"${row.name}\"",
                         style = MaterialTheme.typography.bodySmall,
-                        color = BrandBlue,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
 
@@ -2149,7 +2148,7 @@ fun BillRowEditor(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    Icon(Icons.Default.Link, contentDescription = "Link", tint = BrandBlue)
+                                    Icon(Icons.Default.Link, contentDescription = "Link", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -2279,7 +2278,7 @@ fun AiVocabularyTrainingDialog(
                             text = "Teach AI a New Name / Shortcut",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
-                            color = BrandBlue
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
@@ -2310,7 +2309,7 @@ fun AiVocabularyTrainingDialog(
                                 }
                             },
                             enabled = rawInput.isNotBlank() && mappedInput.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -2356,7 +2355,7 @@ fun AiVocabularyTrainingDialog(
                                         text = "\"${entry.key}\"",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
-                                        color = BrandBlue
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
                                         text = "➔ ${entry.value}",

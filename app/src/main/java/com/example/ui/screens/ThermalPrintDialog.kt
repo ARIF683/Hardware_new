@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.QuotationLineItem
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import com.example.util.InvoicePrintManager
 import kotlinx.coroutines.launch
 
@@ -100,7 +99,7 @@ fun ThermalPrintDialog(
                 Icon(
                     Icons.Default.Print,
                     contentDescription = null,
-                    tint = BrandBlue,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -182,7 +181,7 @@ fun ThermalPrintDialog(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSelected) BrandBlue.copy(alpha = 0.12f) else Color.Transparent)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
                                     .clickable { selectedDevice = device }
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -192,7 +191,7 @@ fun ThermalPrintDialog(
                                     Icon(
                                         Icons.Default.Bluetooth,
                                         contentDescription = null,
-                                        tint = if (isSelected) BrandBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -213,7 +212,7 @@ fun ThermalPrintDialog(
                                     Icon(
                                         Icons.Default.Check,
                                         contentDescription = "Selected",
-                                        tint = BrandBlue,
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -269,7 +268,7 @@ fun ThermalPrintDialog(
                     }
                 },
                 enabled = selectedDevice != null && !isPrinting,
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 if (isPrinting) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)

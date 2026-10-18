@@ -1,5 +1,12 @@
 package com.example
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
+
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -73,7 +80,6 @@ import com.example.ui.screens.TransactionsScreen
 import android.content.Intent
 import android.net.Uri
 import com.example.ui.screens.ColorMachineTintDialog
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.StockManagerTheme
 
 class MainActivity : ComponentActivity() {
@@ -85,7 +91,14 @@ class MainActivity : ComponentActivity() {
         handleIncomingReportIntent(intent)
         setContent {
             val customThemeColor by viewModel.customThemeColor.collectAsState()
-            StockManagerTheme(customThemeColor = customThemeColor) {
+            val themeMode by viewModel.themeMode.collectAsState()
+            val systemInDark = isSystemInDarkTheme()
+            val isDarkTheme = when (themeMode) {
+                "light" -> false
+                "dark" -> true
+                else -> systemInDark
+            }
+            StockManagerTheme(darkTheme = isDarkTheme, customThemeColor = customThemeColor) {
                 MainAppRoot(viewModel = viewModel)
             }
         }
@@ -190,20 +203,17 @@ fun MainAppRoot(viewModel: StockViewModel) {
         return
     }
 
+    val navBarStyle by viewModel.navBarStyle.collectAsState()
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing),
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
+                bottomBar = {
             if (currentScreen is CurrentScreen.Main) {
                 val inSelectionMode = currentTab == NavigationTab.ITEMS && isSelectionMode && selectedItemIds.isNotEmpty()
                 if (!inSelectionMode) {
-                    NavigationBar(
-                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp
-                    ) {
                     val tabs = listOf(
                         Triple(NavigationTab.HOME, "Home", Icons.Default.Home),
                         Triple(NavigationTab.ITEMS, "Stock", Icons.Default.Inventory2),
@@ -212,58 +222,87 @@ fun MainAppRoot(viewModel: StockViewModel) {
                         Triple(NavigationTab.SETTINGS, "Settings", Icons.Default.Settings)
                     )
 
-                    tabs.forEach { (tab, label, icon) ->
-                        val selected = currentTab == tab
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (tab == NavigationTab.SETTINGS) {
-                                    val now = System.currentTimeMillis()
-                                    if (now - lastGearTapTime < 600) {
-                                        gearTapCount++
-                                        if (gearTapCount >= 3) {
-                                            if (isAdmin) {
-                                                viewModel.authManager.exitAdmin()
-                                                viewModel.showToast("Admin mode off")
+                    val navBarContent: @Composable () -> Unit = {
+                        NavigationBar(
+                            modifier = if (navBarStyle == "floating_pill") Modifier.padding(4.dp) else Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                            containerColor = if (navBarStyle == "floating_pill") Color.Transparent else MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            tonalElevation = if (navBarStyle == "floating_pill") 0.dp else 8.dp
+                        ) {
+                            tabs.forEach { (tab, label, icon) ->
+                                val selected = currentTab == tab
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = {
+                                        if (tab == NavigationTab.SETTINGS) {
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastGearTapTime < 600) {
+                                                gearTapCount++
+                                                if (gearTapCount >= 3) {
+                                                    if (isAdmin) {
+                                                        viewModel.authManager.exitAdmin()
+                                                        viewModel.showToast("Admin mode off")
+                                                    } else {
+                                                        showAdminPinDialog = true
+                                                    }
+                                                    gearTapCount = 0
+                                                }
                                             } else {
-                                                showAdminPinDialog = true
+                                                gearTapCount = 1
                                             }
-                                            gearTapCount = 0
+                                            lastGearTapTime = now
                                         }
-                                    } else {
-                                        gearTapCount = 1
-                                    }
-                                    lastGearTapTime = now
-                                }
-                                viewModel.navigateTo(tab)
-                            },
-                            icon = {
-                                if (tab == NavigationTab.SETTINGS && isAdmin) {
-                                    BadgedBox(
-                                        badge = {
-                                            Badge(
-                                                containerColor = BrandBlue,
-                                                modifier = Modifier.size(6.dp)
-                                            )
+                                        viewModel.navigateTo(tab)
+                                    },
+                                    icon = {
+                                        if (tab == NavigationTab.SETTINGS && isAdmin) {
+                                            BadgedBox(
+                                                badge = {
+                                                    Badge(
+                                                        containerColor = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(6.dp)
+                                                    )
+                                                }
+                                            ) {
+                                                Icon(icon, contentDescription = label)
+                                            }
+                                        } else {
+                                            Icon(icon, contentDescription = label)
                                         }
-                                    ) {
-                                        Icon(icon, contentDescription = label)
-                                    }
-                                } else {
-                                    Icon(icon, contentDescription = label)
-                                }
-                            },
-                            label = { Text(label, fontSize = 12.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = BrandBlue,
-                                selectedTextColor = BrandBlue,
-                                indicatorColor = BrandBlue.copy(alpha = 0.15f)
-                            )
-                        )
+                                    },
+                                    label = { Text(label, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        unselectedIconColor = Color(0xFF8E8E93),
+                                        unselectedTextColor = Color(0xFF8E8E93),
+                                        indicatorColor = Color.Transparent
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    if (navBarStyle == "floating_pill") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(32.dp),
+                                tonalElevation = 12.dp,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                navBarContent()
+                            }
+                        }
+                    } else {
+                        navBarContent()
                     }
                 }
             }
-        }
         }
     ) { innerPadding ->
         Box(

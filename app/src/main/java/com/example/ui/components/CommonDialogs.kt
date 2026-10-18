@@ -43,7 +43,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 
 @Composable
@@ -185,12 +184,12 @@ fun ValuePickerDialog(
                             .padding(vertical = 10.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = BrandBlue)
+                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Add “${searchQuery.trim()}”",
                             fontWeight = FontWeight.Bold,
-                            color = BrandBlue
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -211,7 +210,7 @@ fun ValuePickerDialog(
                         ) {
                             Text("— None —", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (currentValue.isEmpty()) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = BrandBlue)
+                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -240,7 +239,7 @@ fun ValuePickerDialog(
                                     )
                                 }
                                 if (value == currentValue) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = BrandBlue)
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -338,7 +337,7 @@ fun CalculatorDialog(onDismiss: () -> Unit) {
                             val isDel = key in listOf("C", "⌫")
 
                             val containerColor = when {
-                                isEq -> BrandBlue
+                                isEq -> MaterialTheme.colorScheme.primary
                                 isDel -> MaterialTheme.colorScheme.errorContainer
                                 isOp -> MaterialTheme.colorScheme.primaryContainer
                                 else -> MaterialTheme.colorScheme.surfaceVariant
@@ -346,7 +345,7 @@ fun CalculatorDialog(onDismiss: () -> Unit) {
                             val contentColor = when {
                                 isEq -> Color.White
                                 isDel -> DangerRed
-                                isOp -> BrandBlue
+                                isOp -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface
                             }
 

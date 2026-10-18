@@ -76,7 +76,6 @@ import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.ui.StockViewModel
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import com.example.util.InvoicePrintManager
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -161,7 +160,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
                 onClick = { showAddAccountDialog = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text(if (selectedTab == 0) "Add Customer / Contractor" else "Add Supplier") },
-                containerColor = BrandBlue,
+                containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color.White
             )
         }
@@ -406,12 +405,12 @@ fun LedgerAccountCard(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(38.dp)
-                            .background(BrandBlue.copy(alpha = 0.12f), CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape)
                     ) {
                         Text(
                             text = account.name.take(1).uppercase(),
                             fontWeight = FontWeight.Bold,
-                            color = BrandBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             fontSize = 16.sp
                         )
                     }
@@ -603,7 +602,7 @@ fun LedgerAccountDetailScreen(
                             InvoicePrintManager.sharePdf(context, pdf, "Statement - ${account.name}")
                         }
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "Share Statement", tint = BrandBlue)
+                        Icon(Icons.Default.Share, contentDescription = "Share Statement", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(
                         onClick = {
@@ -765,7 +764,7 @@ fun LedgerAccountDetailScreen(
                                         onClick = { entryToEdit = entry },
                                         modifier = Modifier.size(32.dp)
                                     ) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Edit Entry", tint = BrandBlue, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit Entry", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                     }
 
                                     IconButton(
@@ -918,7 +917,7 @@ fun EditLedgerEntryDialog(
                     )
                 },
                 enabled = (amountText.toDoubleOrNull() ?: 0.0) > 0,
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text("Save Changes")
             }
@@ -1019,7 +1018,7 @@ fun AddAccountDialog(
                     onSave(acc)
                 },
                 enabled = name.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text("Save Account")
             }

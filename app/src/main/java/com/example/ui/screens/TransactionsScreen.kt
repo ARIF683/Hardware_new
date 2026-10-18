@@ -79,7 +79,6 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.model.DailyCashflowRecord
 import com.example.ui.StockViewModel
 import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.BrandBlue
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import java.text.SimpleDateFormat
@@ -226,7 +225,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
             }
 
             IconButton(onClick = { showCategoryBreakdownDialog = true }) {
-                Icon(Icons.Default.PieChart, contentDescription = "Breakdown", tint = BrandBlue)
+                Icon(Icons.Default.PieChart, contentDescription = "Breakdown", tint = MaterialTheme.colorScheme.primary)
             }
         }
 
@@ -234,7 +233,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
         TabRow(
             selectedTabIndex = activeTab,
             containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = BrandBlue,
+            contentColor = MaterialTheme.colorScheme.primary,
             divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) }
         ) {
             Tab(
@@ -302,12 +301,12 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                 Text(
                                     text = monthDisplayName,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = BrandBlue
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -550,7 +549,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         }
                                     }
                                 ) {
-                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = BrandBlue)
+                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
                                 }
                                 if (searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { searchQuery = "" }) {
@@ -565,7 +564,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                             unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = BrandBlue
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -582,7 +581,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             onClick = { filterType = "ALL" },
                             label = { Text("All (${monthlyRecords.size})", fontSize = 12.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BrandBlue,
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = Color.White
                             )
                         )
@@ -621,7 +620,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                     onClick = { selectedCategoryFilter = cat },
                                     label = { Text(cat, fontSize = 11.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = BrandBlue.copy(alpha = 0.85f),
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                         selectedLabelColor = Color.White
                                     )
                                 )
@@ -753,7 +752,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                             focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                             unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = BrandBlue
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -925,14 +924,14 @@ fun CashflowRowCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = BrandBlue.copy(alpha = 0.12f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
                                 text = record.category,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = BrandBlue,
+                                color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -970,7 +969,7 @@ fun CashflowRowCard(
                 )
 
                 IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = BrandBlue, modifier = Modifier.size(15.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
                 }
 
                 IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
@@ -1206,7 +1205,7 @@ fun AddEditCashflowDialog(
                             onClick = { paymentMode = pm },
                             label = { Text(pm, fontSize = 10.sp) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BrandBlue,
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = Color.White
                             )
                         )
@@ -1388,7 +1387,7 @@ fun CategoryBreakdownDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("Close")
                 }
