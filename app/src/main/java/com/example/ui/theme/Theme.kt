@@ -44,7 +44,8 @@ private val LightColorScheme = lightColorScheme(
     onSurface = LightText,
     surfaceVariant = LightCard,
     onSurfaceVariant = LightMuted,
-    outline = LightBorder,
+    outline = Color.Black,
+    outlineVariant = Color.Black,
     error = DangerRed,
     onError = Color.White
 )
@@ -83,8 +84,13 @@ fun StockManagerTheme(
             onPrimary = onPrimaryColor,
             secondary = baseColor,
             onSecondary = onPrimaryColor,
+            onSurface = Color.Black,
+            onBackground = Color.Black,
+            onSurfaceVariant = Color(0xFF262626),
+            outline = Color.Black,
+            outlineVariant = Color.Black,
             primaryContainer = if (isLightPrimary) Color(0xFFE2E8F0) else baseColor.copy(alpha = 0.15f),
-            onPrimaryContainer = if (isLightPrimary) Color(0xFF0F172A) else StaticBrandBlueDark
+            onPrimaryContainer = Color.Black
         )
     }
 

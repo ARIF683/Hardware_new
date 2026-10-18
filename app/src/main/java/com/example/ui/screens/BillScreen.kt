@@ -43,6 +43,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -1664,7 +1665,7 @@ fun BillRowEditor(
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        border = if (matched == null) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)) else null,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (matched == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -1727,14 +1728,30 @@ fun BillRowEditor(
                         }
                     }
 
-                    Text(
-                        text = if (row.name.isNotBlank()) row.name else "— tap to select item —",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (row.name.isNotBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = row.name,
+                        onValueChange = { newName ->
+                            val match = allItems.find { it.name.equals(newName.trim(), ignoreCase = true) }
+                            onUpdate(row.copy(name = newName, matchedItem = match))
+                        },
+                        label = { Text("Item Name", fontSize = 11.sp) },
+                        placeholder = { Text("Type item name...") },
+                        trailingIcon = {
+                            IconButton(onClick = { showItemPicker = true }) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Select from inventory",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showItemPicker = true }
                             .padding(vertical = 2.dp)
                     )
                 }
