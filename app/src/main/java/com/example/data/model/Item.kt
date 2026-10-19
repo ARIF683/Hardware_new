@@ -73,6 +73,26 @@ data class Item(
     @Json(name = "image_url")
     val imageUrl: String? = null,
 
+    @ColumnInfo(name = "nfc_tag_id")
+    @Json(name = "nfc_tag_id")
+    val nfcTagId: String? = null,
+
+    @ColumnInfo(name = "shelf_location")
+    @Json(name = "shelf_location")
+    val shelfLocation: String? = null,
+
+    @ColumnInfo(name = "secondary_unit")
+    @Json(name = "secondary_unit")
+    val secondaryUnit: String? = null,
+
+    @ColumnInfo(name = "conversion_factor")
+    @Json(name = "conversion_factor")
+    val conversionFactor: Double = 1.0,
+
+    @ColumnInfo(name = "secondary_price")
+    @Json(name = "secondary_price")
+    val secondaryPrice: Double = 0.0,
+
     @ColumnInfo(name = "updated_at")
     @Json(name = "updated_at")
     val updatedAt: String = ""

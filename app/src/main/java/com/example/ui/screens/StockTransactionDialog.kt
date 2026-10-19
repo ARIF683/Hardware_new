@@ -129,17 +129,77 @@ fun StockTransactionDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val hasSecondary = !item.secondaryUnit.isNullOrBlank() && item.conversionFactor > 1.0
+                var selectedUnitMode by remember { mutableStateOf("primary") } // "primary" or "secondary"
+
+                if (hasSecondary) {
+                    val secUnit = item.secondaryUnit!!
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.compose.material3.Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selectedUnitMode == "primary") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedUnitMode = "primary" }
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
+                                Text(
+                                    text = item.unit.uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (selectedUnitMode == "primary") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        androidx.compose.material3.Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selectedUnitMode == "secondary") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedUnitMode = "secondary" }
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
+                                Text(
+                                    text = "$secUnit (x${item.conversionFactor.toInt()})".uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (selectedUnitMode == "secondary") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                val activeUnitLabel = if (hasSecondary && selectedUnitMode == "secondary") item.secondaryUnit!! else item.unit
+
                 OutlinedTextField(
                     value = qtyText,
                     onValueChange = {
                         qtyText = it
                         negativeWarningAcknowledged = false
                     },
-                    label = { Text("Quantity (${item.unit})") },
+                    label = { Text("Quantity ($activeUnitLabel)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (hasSecondary && selectedUnitMode == "secondary" && (qtyText.toDoubleOrNull() ?: 0.0) > 0.0) {
+                    val rawVal = qtyText.toDoubleOrNull() ?: 0.0
+                    val convertedPcs = rawVal * item.conversionFactor
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "💡 $rawVal ${item.secondaryUnit} = ${if (convertedPcs % 1.0 == 0.0) convertedPcs.toInt().toString() else "%.1f".format(convertedPcs)} ${item.unit}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -172,16 +232,27 @@ fun StockTransactionDialog(
                     Spacer(modifier = Modifier.padding(horizontal = 4.dp))
                     Button(
                         onClick = {
-                            val q = qtyText.trim().toDoubleOrNull()
-                            if (q == null || q <= 0.0) {
+                            val enteredQty = qtyText.trim().toDoubleOrNull()
+                            if (enteredQty == null || enteredQty <= 0.0) {
                                 viewModel.showToast("Enter a valid quantity")
                                 return@Button
                             }
-                            if (action == "out" && q > item.qty && !negativeWarningAcknowledged) {
+                            val effectiveQty = if (hasSecondary && selectedUnitMode == "secondary") {
+                                enteredQty * item.conversionFactor
+                            } else {
+                                enteredQty
+                            }
+                            if (action == "out" && effectiveQty > item.qty && !negativeWarningAcknowledged) {
                                 negativeWarningAcknowledged = true
                                 return@Button
                             }
-                            viewModel.performTransaction(item.id, action, q, note.trim())
+                            val finalNote = if (hasSecondary && selectedUnitMode == "secondary") {
+                                val unitNote = "[$enteredQty ${item.secondaryUnit}]"
+                                if (note.isNotBlank()) "$unitNote ${note.trim()}" else unitNote
+                            } else {
+                                note.trim()
+                            }
+                            viewModel.performTransaction(item.id, action, effectiveQty, finalNote)
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(

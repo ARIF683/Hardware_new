@@ -298,6 +298,22 @@ fun ItemsScreen(
                                 },
                                 leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                             )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("🏷️ NFC Shelf & Bin Radar") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.openNfcShelfBinManager()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Category, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("🏪 Supplier Price Comparison") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.openSupplierPriceComparison()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            )
                         }
                     }
                 }

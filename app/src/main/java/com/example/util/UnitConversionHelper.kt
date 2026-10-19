@@ -83,4 +83,41 @@ object UnitConversionHelper {
                 (major in listOf("bundle", "bdl") && minor in listOf("pcs", "pc", "piece", "pieces")) ||
                 (major in listOf("kg") && minor in listOf("gm", "grams"))
     }
+
+    /**
+     * Breaks down a raw quantity into secondary packaging + loose units.
+     * E.g. 50 pcs with factor 24 -> "2 Cartons + 2 Pcs"
+     */
+    fun calculatePackagedStock(qty: Double, primaryUnit: String, secondaryUnit: String?, factor: Double): String {
+        if (secondaryUnit.isNullOrBlank() || factor <= 1.0) {
+            return "${if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty)} $primaryUnit"
+        }
+        val fullPackages = (qty / factor).toInt()
+        val remainder = qty - (fullPackages * factor)
+        val secLabel = secondaryUnit.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+        val priLabel = primaryUnit.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+
+        return when {
+            fullPackages > 0 && remainder > 0.0 -> {
+                val remStr = if (remainder % 1.0 == 0.0) remainder.toInt().toString() else "%.1f".format(remainder)
+                "$fullPackages ${secLabel}s + $remStr $priLabel"
+            }
+            fullPackages > 0 -> "$fullPackages ${secLabel}s"
+            else -> {
+                val remStr = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.1f".format(qty)
+                "$remStr $priLabel"
+            }
+        }
+    }
+
+    /**
+     * Formats the packaging ratio spec string
+     */
+    fun formatPackagingSummary(secondaryUnit: String?, factor: Double, primaryUnit: String, secondaryPrice: Double = 0.0): String {
+        if (secondaryUnit.isNullOrBlank() || factor <= 1.0) return ""
+        val secLabel = secondaryUnit.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+        val factorInt = if (factor % 1.0 == 0.0) factor.toInt().toString() else "%.1f".format(factor)
+        val pricePart = if (secondaryPrice > 0.0) " • ₹${"%.2f".format(secondaryPrice)}/$secLabel" else ""
+        return "📦 1 $secLabel = $factorInt $primaryUnit$pricePart"
+    }
 }

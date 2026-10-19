@@ -85,10 +85,13 @@ import com.example.ui.theme.StockManagerTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: StockViewModel by viewModels()
 
+    private var nfcAdapter: android.nfc.NfcAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIncomingReportIntent(intent)
+        handleNfcIntent(intent)
         setContent {
             val customThemeColor by viewModel.customThemeColor.collectAsState()
             val themeMode by viewModel.themeMode.collectAsState()
@@ -104,10 +107,66 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        try {
+            nfcAdapter = android.nfc.NfcAdapter.getDefaultAdapter(this)
+            val intent = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                this, 0, intent,
+                android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val filters = arrayOf(
+                android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+                    try { addDataType("*/*") } catch (_: Exception) {}
+                },
+                android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_TAG_DISCOVERED),
+                android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_TECH_DISCOVERED)
+            )
+            nfcAdapter?.enableForegroundDispatch(this, pendingIntent, filters, null)
+        } catch (_: Exception) {}
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            nfcAdapter?.disableForegroundDispatch(this)
+        } catch (_: Exception) {}
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIncomingReportIntent(intent)
+        handleNfcIntent(intent)
+    }
+
+    private fun handleNfcIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action ?: return
+        if (action == android.nfc.NfcAdapter.ACTION_TAG_DISCOVERED ||
+            action == android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED ||
+            action == android.nfc.NfcAdapter.ACTION_TECH_DISCOVERED) {
+            val tag = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(android.nfc.NfcAdapter.EXTRA_TAG, android.nfc.Tag::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(android.nfc.NfcAdapter.EXTRA_TAG)
+            }
+            val tagId = tag?.id?.joinToString(":") { "%02X".format(it) } ?: "TAG-${System.currentTimeMillis() % 10000}"
+            var payloadStr: String? = null
+            val rawMsgs = intent.getParcelableArrayExtra(android.nfc.NfcAdapter.EXTRA_NDEF_MESSAGES)
+            if (rawMsgs != null && rawMsgs.isNotEmpty()) {
+                val msg = rawMsgs[0] as? android.nfc.NdefMessage
+                val record = msg?.records?.firstOrNull()
+                if (record != null) {
+                    try {
+                        payloadStr = String(record.payload, java.nio.charset.Charset.forName("UTF-8")).trim()
+                    } catch (_: Exception) {}
+                }
+            }
+            viewModel.onNfcTagScanned(tagId, payloadStr)
+        }
     }
 
     private fun handleIncomingReportIntent(intent: Intent?) {
@@ -355,6 +414,21 @@ fun MainAppRoot(viewModel: StockViewModel) {
                     } else {
                         BillingHubScreen(viewModel = viewModel)
                     }
+                }
+
+                is CurrentScreen.SupplierPriceComparison -> {
+                    com.example.ui.screens.SupplierPriceComparisonScreen(
+                        preselectedItemId = screen.preselectedItemId,
+                        viewModel = viewModel,
+                        onBack = { viewModel.navigateBack() }
+                    )
+                }
+
+                is CurrentScreen.NfcShelfBinManager -> {
+                    com.example.ui.screens.NfcShelfBinScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.navigateBack() }
+                    )
                 }
 
                 is CurrentScreen.Main -> {

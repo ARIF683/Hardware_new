@@ -13,6 +13,7 @@ import com.example.data.model.PurchaseLine
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
+import com.example.data.model.SupplierPurchaseRecord
 import com.example.data.remote.SupabaseClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -56,6 +57,9 @@ data class BillRowData(
 )
 
 
+
+    
+
 class StockRepository(
     private val context: Context,
     private val database: AppDatabase = AppDatabase.getDatabase(context),
@@ -71,6 +75,31 @@ class StockRepository(
     val pendingQueueCount: Flow<Int> = database.syncQueueDao().getCountFlow()
 
     suspend fun getAllItemsList(): List<Item> = database.itemDao().getAllItemsList()
+
+    val allSupplierPurchases: Flow<List<SupplierPurchaseRecord>> = database.supplierPurchaseDao().getAllPurchases()
+
+    fun getPurchasesForItem(itemId: String): Flow<List<SupplierPurchaseRecord>> {
+        return database.supplierPurchaseDao().getPurchasesForItem(itemId)
+    }
+
+    suspend fun recordSupplierPurchase(record: SupplierPurchaseRecord) = withContext(Dispatchers.IO) {
+        database.supplierPurchaseDao().insert(record)
+    }
+
+    suspend fun recordSupplierPurchases(records: List<SupplierPurchaseRecord>) = withContext(Dispatchers.IO) {
+        database.supplierPurchaseDao().insertAll(records)
+    }
+
+    suspend fun deleteSupplierPurchase(id: String) = withContext(Dispatchers.IO) {
+        database.supplierPurchaseDao().deletePurchase(id)
+    }
+
+    suspend fun updateItem(item: Item) = withContext(Dispatchers.IO) {
+        database.itemDao().insert(item)
+        enqueueOp("upsert", itemListAdapter.toJson(listOf(item)))
+        flushQueue()
+    }
+
 
     private val _syncStatus = MutableStateFlow("Connecting…")
     val syncStatus: StateFlow<String> = _syncStatus.asStateFlow()
@@ -480,7 +509,12 @@ class StockRepository(
         low: Double,
         aliases: String,
         openingQty: Double = 0.0,
-        imageUrl: String? = null
+        imageUrl: String? = null,
+        nfcTagId: String? = null,
+        shelfLocation: String? = null,
+        secondaryUnit: String? = null,
+        conversionFactor: Double = 1.0,
+        secondaryPrice: Double = 0.0
     ): Item = withContext(Dispatchers.IO) {
         val now = nowIso()
         if (id != null) {
@@ -504,6 +538,11 @@ class StockRepository(
                 qty = newQty,
                 low = low,
                 imageUrl = imageUrl ?: existing?.imageUrl,
+                nfcTagId = nfcTagId ?: existing?.nfcTagId,
+                shelfLocation = shelfLocation ?: existing?.shelfLocation,
+                secondaryUnit = secondaryUnit ?: existing?.secondaryUnit,
+                conversionFactor = if (conversionFactor > 0) conversionFactor else existing?.conversionFactor ?: 1.0,
+                secondaryPrice = if (secondaryPrice > 0) secondaryPrice else existing?.secondaryPrice ?: 0.0,
                 updatedAt = now
             )
             database.itemDao().insert(updated)
@@ -549,6 +588,11 @@ class StockRepository(
                 qty = openingQty,
                 low = low,
                 imageUrl = imageUrl,
+                nfcTagId = nfcTagId,
+                shelfLocation = shelfLocation,
+                secondaryUnit = secondaryUnit,
+                conversionFactor = if (conversionFactor > 0) conversionFactor else 1.0,
+                secondaryPrice = secondaryPrice,
                 updatedAt = now
             )
             database.itemDao().insert(newItem)

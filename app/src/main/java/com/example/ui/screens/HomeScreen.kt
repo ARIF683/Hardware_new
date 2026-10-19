@@ -679,6 +679,32 @@ fun HomeScreen(viewModel: StockViewModel) {
                             ) {
                                 Text("📊 GST & E-Way Calc", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
+
+                            // NFC Shelf Radar & Supplier Price Comparison Row
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = { viewModel.openNfcShelfBinManager() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
+                                ) {
+                                    Text("🏷️ NFC Shelf Radar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                FilledTonalButton(
+                                    onClick = { viewModel.openSupplierPriceComparison() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
+                                ) {
+                                    Text("🏪 Supplier Rates", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }

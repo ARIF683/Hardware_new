@@ -13,6 +13,7 @@ import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
 import com.example.data.model.GstBillRecord
+import com.example.data.model.SupplierPurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
 
@@ -26,9 +27,10 @@ import com.example.data.model.TransactionRecord
         LedgerEntry::class,
         DailyCashflowRecord::class,
         ColorTintLog::class,
-        GstBillRecord::class
+        GstBillRecord::class,
+        SupplierPurchaseRecord::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dailyCashflowDao(): DailyCashflowDao
     abstract fun colorTintDao(): ColorTintDao
     abstract fun gstBillDao(): GstBillDao
+    abstract fun supplierPurchaseDao(): SupplierPurchaseDao
 
     companion object {
         @Volatile
@@ -110,6 +113,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS supplier_purchases (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        item_id TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        supplier_name TEXT NOT NULL,
+                        supplier_phone TEXT NOT NULL,
+                        invoice_no TEXT NOT NULL,
+                        purchase_date TEXT NOT NULL,
+                        qty REAL NOT NULL,
+                        unit TEXT NOT NULL,
+                        rate REAL NOT NULL,
+                        mrp REAL,
+                        discount_pct REAL NOT NULL,
+                        tax_pct REAL NOT NULL,
+                        total_amount REAL NOT NULL,
+                        payment_status TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                try { db.execSQL("ALTER TABLE items ADD COLUMN nfc_tag_id TEXT") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE items ADD COLUMN shelf_location TEXT") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE items ADD COLUMN secondary_unit TEXT") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE items ADD COLUMN conversion_factor REAL NOT NULL DEFAULT 1.0") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE items ADD COLUMN secondary_price REAL NOT NULL DEFAULT 0.0") } catch (_: Exception) {}
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -117,7 +153,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stock_manager.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

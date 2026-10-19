@@ -1,5 +1,7 @@
 package com.example.ui
 
+import com.example.data.model.SupplierPurchaseRecord
+
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -45,6 +47,8 @@ sealed class CurrentScreen {
     data class LedgerAccountDetail(val accountId: String) : CurrentScreen()
     object GstCalculator : CurrentScreen()
     object SmartSynonymSearch : CurrentScreen()
+    data class SupplierPriceComparison(val preselectedItemId: String? = null) : CurrentScreen()
+    object NfcShelfBinManager : CurrentScreen()
 }
 
 enum class NavigationTab {
@@ -241,6 +245,83 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentScreen = MutableStateFlow<CurrentScreen>(CurrentScreen.Main)
     val currentScreen: StateFlow<CurrentScreen> = _currentScreen.asStateFlow()
+
+    // --- Supplier Price Comparison & Purchase History ---
+    val allSupplierPurchases: StateFlow<List<SupplierPurchaseRecord>> = repository.allSupplierPurchases
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun recordSupplierPurchase(record: SupplierPurchaseRecord) {
+        viewModelScope.launch {
+            repository.recordSupplierPurchase(record)
+            showToast("Saved rate quote from ${record.supplierName}")
+        }
+    }
+
+    fun deleteSupplierPurchase(id: String) {
+        viewModelScope.launch {
+            repository.deleteSupplierPurchase(id)
+            showToast("Removed supplier record")
+        }
+    }
+
+    fun openSupplierPriceComparison(itemId: String? = null) {
+        _currentScreen.value = CurrentScreen.SupplierPriceComparison(itemId)
+    }
+
+    // --- NFC Shelf & Bin Tapping ---
+    private val _scannedNfcTag = MutableStateFlow<String?>(null)
+    val scannedNfcTag: StateFlow<String?> = _scannedNfcTag.asStateFlow()
+
+    fun openNfcShelfBinManager() {
+        _currentScreen.value = CurrentScreen.NfcShelfBinManager
+    }
+
+    fun onNfcTagScanned(tagId: String, payload: String? = null) {
+        _scannedNfcTag.value = tagId
+        viewModelScope.launch {
+            val items = allItems.value
+            val matched = items.find {
+                it.nfcTagId.equals(tagId, ignoreCase = true) ||
+                (payload != null && it.shelfLocation.equals(payload.trim(), ignoreCase = true)) ||
+                (payload != null && it.barcode.equals(payload.trim(), ignoreCase = true)) ||
+                it.shelfLocation.equals(tagId, ignoreCase = true)
+            }
+            if (matched != null) {
+                showToast("🏷️ Scanned Shelf Bin: ${matched.name} (${matched.shelfLocation})")
+                openItemDetail(matched.id)
+            } else {
+                showToast("🏷️ Tag Scanned: $tagId (Unassigned Shelf Bin)")
+                openNfcShelfBinManager()
+            }
+        }
+    }
+
+    fun linkNfcTagToItem(itemId: String, nfcTagId: String, shelfLocation: String) {
+        viewModelScope.launch {
+            val item = allItems.value.find { it.id == itemId } ?: return@launch
+            val updated = item.copy(
+                nfcTagId = nfcTagId,
+                shelfLocation = shelfLocation
+            )
+            repository.updateItem(updated)
+            showToast("Linked to Shelf Bin: $shelfLocation ($nfcTagId)")
+        }
+    }
+
+    // --- Multi-Unit & Packaging Converter ---
+    fun updateItemPackaging(itemId: String, secondaryUnit: String, conversionFactor: Double, secondaryPrice: Double) {
+        viewModelScope.launch {
+            val item = allItems.value.find { it.id == itemId } ?: return@launch
+            val updated = item.copy(
+                secondaryUnit = secondaryUnit,
+                conversionFactor = if (conversionFactor > 0) conversionFactor else 1.0,
+                secondaryPrice = secondaryPrice
+            )
+            repository.updateItem(updated)
+            showToast("Packaging updated: 1 $secondaryUnit = ${conversionFactor.toInt()} ${item.unit}")
+        }
+    }
+
 
     private val _currentTab = MutableStateFlow(NavigationTab.ITEMS)
     val currentTab: StateFlow<NavigationTab> = _currentTab.asStateFlow()
@@ -547,7 +628,12 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         low: Double,
         aliases: String,
         openingQty: Double,
-        imageUrl: String? = null
+        imageUrl: String? = null,
+        nfcTagId: String? = null,
+        shelfLocation: String? = null,
+        secondaryUnit: String? = null,
+        conversionFactor: Double = 1.0,
+        secondaryPrice: Double = 0.0
     ) {
         viewModelScope.launch {
             try {
@@ -566,7 +652,12 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                     low = low,
                     aliases = aliases,
                     openingQty = openingQty,
-                    imageUrl = imageUrl
+                    imageUrl = imageUrl,
+                    nfcTagId = nfcTagId,
+                    shelfLocation = shelfLocation,
+                    secondaryUnit = secondaryUnit,
+                    conversionFactor = conversionFactor,
+                    secondaryPrice = secondaryPrice
                 )
                 showToast(if (id != null) "Item updated" else "Item created")
             } catch (e: Exception) {

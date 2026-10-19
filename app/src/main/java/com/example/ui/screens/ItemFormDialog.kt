@@ -107,6 +107,11 @@ fun ItemFormDialog(
     }
     var lowStock by remember { mutableStateOf(itemToEdit?.low?.toString() ?: "0") }
     var aliases by remember { mutableStateOf(itemToEdit?.aliases ?: "") }
+    var secondaryUnit by remember { mutableStateOf(itemToEdit?.secondaryUnit ?: "") }
+    var conversionFactor by remember { mutableStateOf(if ((itemToEdit?.conversionFactor ?: 1.0) > 1.0) itemToEdit?.conversionFactor?.toInt()?.toString() ?: "" else "") }
+    var secondaryPrice by remember { mutableStateOf(if ((itemToEdit?.secondaryPrice ?: 0.0) > 0.0) itemToEdit?.secondaryPrice?.toString() ?: "" else "") }
+    var shelfLocation by remember { mutableStateOf(itemToEdit?.shelfLocation ?: "") }
+    var nfcTagId by remember { mutableStateOf(itemToEdit?.nfcTagId ?: "") }
     var imageUrl by remember { mutableStateOf(itemToEdit?.imageUrl) }
     var isUploadingImage by remember { mutableStateOf(false) }
 
@@ -451,6 +456,99 @@ fun ItemFormDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // --- Multi-Unit & Packaging Converter Section ---
+                Text(
+                    text = "📦 MULTI-UNIT & PACKAGING (CARTON ➔ PIECES)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 0.8.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = secondaryUnit,
+                        onValueChange = { secondaryUnit = it },
+                        label = { Text("Bulk Packaging") },
+                        placeholder = { Text("carton, box, roll") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = conversionFactor,
+                        onValueChange = { conversionFactor = it },
+                        label = { Text("1 Unit = ? ${unit.ifBlank { "pcs" }}") },
+                        placeholder = { Text("e.g. 24") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (secondaryUnit.isNotBlank() && (conversionFactor.toDoubleOrNull() ?: 0.0) > 1.0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = secondaryPrice,
+                        onValueChange = { secondaryPrice = it },
+                        label = { Text("Price per $secondaryUnit (₹)") },
+                        placeholder = { Text("Wholesale price per $secondaryUnit") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val factorNum = conversionFactor.toDoubleOrNull() ?: 1.0
+                        val secPriceNum = secondaryPrice.toDoubleOrNull() ?: 0.0
+                        val calcPerPc = if (secPriceNum > 0.0 && factorNum > 0) secPriceNum / factorNum else 0.0
+                        Text(
+                            text = "💡 1 $secondaryUnit = ${factorNum.toInt()} ${unit.ifBlank { "pcs" }}" + (if (calcPerPc > 0.0) " (₹${"%.2f".format(calcPerPc)} / ${unit.ifBlank { "pc" }})" else ""),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(8.dp),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // --- Shelf Bin & NFC Tag Section ---
+                Text(
+                    text = "🏷️ SHELF BIN & NFC / RFID LOCATION",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 0.8.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = shelfLocation,
+                        onValueChange = { shelfLocation = it },
+                        label = { Text("Shelf / Bin Location") },
+                        placeholder = { Text("Rack 2, Bin C") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = nfcTagId,
+                        onValueChange = { nfcTagId = it },
+                        label = { Text("NFC Tag Serial") },
+                        placeholder = { Text("04:A2:9B") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
@@ -469,6 +567,9 @@ fun ItemFormDialog(
                             }
                             val parsedQty = openingQty.trim().toDoubleOrNull()
                             val finalQty = parsedQty ?: (if (isEdit) itemToEdit?.qty ?: 0.0 else 0.0)
+                            val factor = conversionFactor.trim().toDoubleOrNull() ?: 1.0
+                            val secPrice = secondaryPrice.trim().toDoubleOrNull() ?: 0.0
+
                             viewModel.saveItem(
                                 id = itemToEdit?.id,
                                 name = name.trim(),
@@ -484,7 +585,12 @@ fun ItemFormDialog(
                                 low = lowStock.trim().toDoubleOrNull() ?: 0.0,
                                 aliases = aliases.trim(),
                                 openingQty = finalQty,
-                                imageUrl = imageUrl
+                                imageUrl = imageUrl,
+                                nfcTagId = nfcTagId.trim().ifBlank { null },
+                                shelfLocation = shelfLocation.trim().ifBlank { null },
+                                secondaryUnit = secondaryUnit.trim().ifBlank { null },
+                                conversionFactor = if (factor > 0) factor else 1.0,
+                                secondaryPrice = secPrice
                             )
                             onDismiss()
                         },
