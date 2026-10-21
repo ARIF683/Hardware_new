@@ -666,6 +666,21 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateItemSellingPrice(itemId: String, newPrice: Double) {
+        viewModelScope.launch {
+            try {
+                val updated = repository.updateItemSellingPrice(itemId, newPrice)
+                if (updated != null) {
+                    showToast("Selling price updated to ₹${String.format(java.util.Locale.US, "%.2f", newPrice)}")
+                } else {
+                    showToast("Item not found")
+                }
+            } catch (e: Exception) {
+                showToast("Failed to update price: ${e.message}")
+            }
+        }
+    }
+
     suspend fun uploadItemImage(bytes: ByteArray): Result<String> {
         return repository.uploadItemImage(bytes)
     }

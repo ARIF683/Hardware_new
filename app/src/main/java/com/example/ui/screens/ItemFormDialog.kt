@@ -88,32 +88,32 @@ fun ItemFormDialog(
     val allItems by viewModel.allItems.collectAsState()
     val isEdit = itemToEdit != null
 
-    var name by remember { mutableStateOf(itemToEdit?.name ?: "") }
-    var code by remember { mutableStateOf(itemToEdit?.code ?: "") }
-    var barcode by remember { mutableStateOf(itemToEdit?.barcode ?: "") }
-    var type by remember { mutableStateOf(itemToEdit?.type ?: "") }
-    var brand by remember { mutableStateOf(itemToEdit?.brand ?: "") }
-    var size by remember { mutableStateOf(itemToEdit?.size ?: "") }
-    var unit by remember { mutableStateOf(itemToEdit?.unit ?: "pcs") }
-    var mrp by remember { mutableStateOf(itemToEdit?.mrp?.toString() ?: "") }
-    var cost by remember { mutableStateOf(if (isEdit) itemToEdit?.cost?.toString() ?: "" else "") }
-    var price by remember { mutableStateOf(if (isEdit) itemToEdit?.price?.toString() ?: "" else "") }
-    var openingQty by remember {
+    var name by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.name ?: "") }
+    var code by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.code ?: "") }
+    var barcode by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.barcode ?: "") }
+    var type by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.type ?: "") }
+    var brand by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.brand ?: "") }
+    var size by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.size ?: "") }
+    var unit by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.unit ?: "pcs") }
+    var mrp by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.mrp?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
+    var cost by remember(itemToEdit?.id) { mutableStateOf(if (isEdit) (itemToEdit?.cost?.takeIf { it > 0 }?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") else "") }
+    var price by remember(itemToEdit?.id) { mutableStateOf(if (isEdit) (itemToEdit?.price?.takeIf { it > 0 }?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") else "") }
+    var openingQty by remember(itemToEdit?.id) {
         mutableStateOf(
             if (isEdit) {
                 itemToEdit?.qty?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: ""
             } else ""
         )
     }
-    var lowStock by remember { mutableStateOf(itemToEdit?.low?.toString() ?: "0") }
-    var aliases by remember { mutableStateOf(itemToEdit?.aliases ?: "") }
-    var secondaryUnit by remember { mutableStateOf(itemToEdit?.secondaryUnit ?: "") }
-    var conversionFactor by remember { mutableStateOf(if ((itemToEdit?.conversionFactor ?: 1.0) > 1.0) itemToEdit?.conversionFactor?.toInt()?.toString() ?: "" else "") }
-    var secondaryPrice by remember { mutableStateOf(if ((itemToEdit?.secondaryPrice ?: 0.0) > 0.0) itemToEdit?.secondaryPrice?.toString() ?: "" else "") }
-    var shelfLocation by remember { mutableStateOf(itemToEdit?.shelfLocation ?: "") }
-    var nfcTagId by remember { mutableStateOf(itemToEdit?.nfcTagId ?: "") }
-    var imageUrl by remember { mutableStateOf(itemToEdit?.imageUrl) }
-    var isUploadingImage by remember { mutableStateOf(false) }
+    var lowStock by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.low?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "0") }
+    var aliases by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.aliases ?: "") }
+    var secondaryUnit by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.secondaryUnit ?: "") }
+    var conversionFactor by remember(itemToEdit?.id) { mutableStateOf(if ((itemToEdit?.conversionFactor ?: 1.0) > 1.0) itemToEdit?.conversionFactor?.toInt()?.toString() ?: "" else "") }
+    var secondaryPrice by remember(itemToEdit?.id) { mutableStateOf(if ((itemToEdit?.secondaryPrice ?: 0.0) > 0.0) (itemToEdit?.secondaryPrice?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") else "") }
+    var shelfLocation by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.shelfLocation ?: "") }
+    var nfcTagId by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.nfcTagId ?: "") }
+    var imageUrl by remember(itemToEdit?.id) { mutableStateOf(itemToEdit?.imageUrl) }
+    var isUploadingImage by remember(itemToEdit?.id) { mutableStateOf(false) }
 
     // Android Photo Picker
     val photoPickerLauncher = rememberLauncherForActivityResult(

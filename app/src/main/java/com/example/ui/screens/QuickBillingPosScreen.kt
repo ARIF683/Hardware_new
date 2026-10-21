@@ -69,6 +69,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -797,13 +798,36 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text(
-                                            text = String.format(Locale.US, "₹%.2f", dbItem.price),
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
+                                    Column(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                val entry = cartItems.find { it.item.id == dbItem.id }
+                                                if (entry != null) {
+                                                    showCustomQtyDialogFor = entry
+                                                } else {
+                                                    val newEntry = PosCartItem(item = dbItem, qty = 1.0, customPrice = dbItem.price, customTaxRate = taxRateSelected)
+                                                    cartItems.add(newEntry)
+                                                    showCustomQtyDialogFor = newEntry
+                                                }
+                                            }
+                                            .padding(2.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = String.format(Locale.US, "₹%.2f", dbItem.price),
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit Price",
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                        }
                                         if (dbItem.cost > 0.0) {
                                             Text(
                                                 text = "Cost: ₹${dbItem.cost.toInt()}",
@@ -903,7 +927,9 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 6.dp),
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showCustomQtyDialogFor = cartItem }
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1319,31 +1345,152 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
         )
     }
 
-    // Custom Quantity dialog
+    // Custom Quantity & Selling Price dialog
     if (showCustomQtyDialogFor != null) {
         val target = showCustomQtyDialogFor!!
-        var customQtyText by remember { mutableStateOf(target.qty.toInt().toString()) }
+        var customQtyText by remember(target.item.id) {
+            mutableStateOf(if (target.qty % 1.0 == 0.0) target.qty.toLong().toString() else target.qty.toString())
+        }
+        var customPriceText by remember(target.item.id) {
+            val p = target.customPrice
+            mutableStateOf(if (p % 1.0 == 0.0) p.toLong().toString() else String.format(Locale.US, "%.2f", p))
+        }
+        var updateMasterPriceInDb by remember(target.item.id) { mutableStateOf(false) }
+
+        val currentEnteredPrice = customPriceText.trim().toDoubleOrNull() ?: target.customPrice
+        val currentEnteredQty = customQtyText.trim().toDoubleOrNull() ?: target.qty
+        val unitMargin = currentEnteredPrice - target.item.cost
 
         AlertDialog(
             onDismissRequest = { showCustomQtyDialogFor = null },
-            title = { Text(target.item.name, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-            text = {
+            title = {
                 Column {
-                    Text("Set quantity for cart:", fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(target.item.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = "Customize Quantity & Price in POS Bill",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Quantity Section
+                    Text("Quantity (${target.item.unit.ifBlank { "pcs" }}):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
                         value = customQtyText,
                         onValueChange = { customQtyText = it },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    // Quick add buttons with flexible weight and compact padding to prevent overflow
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         listOf(5, 10, 20, 50).forEach { num ->
-                            OutlinedButton(onClick = { customQtyText = num.toString() }) {
-                                Text("+$num", fontSize = 11.sp)
+                            OutlinedButton(
+                                onClick = {
+                                    val cur = customQtyText.trim().toDoubleOrNull() ?: 0.0
+                                    val next = cur + num
+                                    customQtyText = if (next % 1.0 == 0.0) next.toLong().toString() else next.toString()
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("+$num", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Selling Price Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Selling Price (₹):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        if (target.item.cost > 0.0) {
+                            Text(
+                                text = "Cost: ₹${String.format(Locale.US, "%.0f", target.item.cost)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFB45309)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = customPriceText,
+                        onValueChange = { customPriceText = it },
+                        label = { Text("Rate per ${target.item.unit.ifBlank { "pcs" }}") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = {
+                            if (target.item.cost > 0.0 && currentEnteredPrice > 0.0) {
+                                val marginPct = ((unitMargin / target.item.cost) * 100).toInt()
+                                Text(
+                                    text = if (unitMargin >= 0) "Profit Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+$marginPct%)"
+                                    else "Margin: -₹${String.format(Locale.US, "%.2f", -unitMargin)} ($marginPct%)",
+                                    color = if (unitMargin >= 0) Color(0xFF15803D) else Color(0xFFB91C1C),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Master Inventory DB Update Checkbox
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { updateMasterPriceInDb = !updateMasterPriceInDb }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = updateMasterPriceInDb,
+                            onCheckedChange = { updateMasterPriceInDb = it },
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Update item selling price in inventory (master)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    // Line item subtotal preview
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Line Total:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "₹${String.format(Locale.US, "%.2f", currentEnteredQty * currentEnteredPrice)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }
@@ -1351,14 +1498,18 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        val q = customQtyText.toDoubleOrNull() ?: 1.0
+                        val q = customQtyText.trim().toDoubleOrNull() ?: 1.0
+                        val p = customPriceText.trim().toDoubleOrNull() ?: target.customPrice
                         val idx = cartItems.indexOfFirst { it.item.id == target.item.id }
                         if (idx >= 0) {
                             if (q > 0) {
-                                cartItems[idx] = target.copy(qty = q)
+                                cartItems[idx] = target.copy(qty = q, customPrice = p)
                             } else {
                                 cartItems.removeAt(idx)
                             }
+                        }
+                        if (updateMasterPriceInDb && p > 0.0) {
+                            viewModel.updateItemSellingPrice(target.item.id, p)
                         }
                         showCustomQtyDialogFor = null
                     }

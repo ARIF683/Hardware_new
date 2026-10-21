@@ -204,7 +204,26 @@ class StockRepository(
                                 if (item != null) {
                                     val local = database.itemDao().getItemByIdOnce(item.id)
                                     if (local == null || item.updatedAt >= local.updatedAt) {
-                                        database.itemDao().insert(item)
+                                        val merged = if (item.price <= 0.0 && local != null && local.price > 0.0) {
+                                            item.copy(
+                                                price = local.price,
+                                                cost = if (item.cost <= 0.0) local.cost else item.cost,
+                                                shelfLocation = item.shelfLocation ?: local.shelfLocation,
+                                                nfcTagId = item.nfcTagId ?: local.nfcTagId,
+                                                secondaryUnit = item.secondaryUnit ?: local.secondaryUnit,
+                                                conversionFactor = if (item.conversionFactor > 1.0) item.conversionFactor else local.conversionFactor,
+                                                secondaryPrice = if (item.secondaryPrice > 0.0) item.secondaryPrice else local.secondaryPrice
+                                            )
+                                        } else {
+                                            item.copy(
+                                                shelfLocation = item.shelfLocation ?: local?.shelfLocation,
+                                                nfcTagId = item.nfcTagId ?: local?.nfcTagId,
+                                                secondaryUnit = item.secondaryUnit ?: local?.secondaryUnit,
+                                                conversionFactor = if (item.conversionFactor > 1.0) item.conversionFactor else local?.conversionFactor ?: 1.0,
+                                                secondaryPrice = if (item.secondaryPrice > 0.0) item.secondaryPrice else local?.secondaryPrice ?: 0.0
+                                            )
+                                        }
+                                        database.itemDao().insert(merged)
                                     }
                                 }
                             }
@@ -376,7 +395,22 @@ class StockRepository(
             // Reconcile Items (Purge records deleted remotely)
             if (remoteItems != null) {
                 if (remoteItems.isNotEmpty()) {
-                    database.itemDao().insertAll(remoteItems)
+                    val localItemsMap = database.itemDao().getAllItemsList().associateBy { it.id }
+                    val mergedRemote = remoteItems.map { r ->
+                        val l = localItemsMap[r.id]
+                        if (l != null) {
+                            r.copy(
+                                price = if (r.price > 0.0) r.price else l.price,
+                                cost = if (r.cost > 0.0) r.cost else l.cost,
+                                shelfLocation = r.shelfLocation ?: l.shelfLocation,
+                                nfcTagId = r.nfcTagId ?: l.nfcTagId,
+                                secondaryUnit = r.secondaryUnit ?: l.secondaryUnit,
+                                conversionFactor = if (r.conversionFactor > 1.0) r.conversionFactor else l.conversionFactor,
+                                secondaryPrice = if (r.secondaryPrice > 0.0) r.secondaryPrice else l.secondaryPrice
+                            )
+                        } else r
+                    }
+                    database.itemDao().insertAll(mergedRemote)
                 }
                 val remoteItemIds = remoteItems.map { it.id }.toSet()
                 val pendingItemIds = pendingQueue
@@ -616,6 +650,32 @@ class StockRepository(
             flushQueue()
             newItem
         }
+    }
+
+    suspend fun updateItemSellingPrice(id: String, newPrice: Double): Item? = withContext(Dispatchers.IO) {
+        val existing = database.itemDao().getItemByIdOnce(id) ?: return@withContext null
+        saveItem(
+            id = existing.id,
+            name = existing.name,
+            code = existing.code,
+            barcode = existing.barcode,
+            type = existing.type,
+            brand = existing.brand,
+            size = existing.size,
+            unit = existing.unit,
+            mrp = existing.mrp,
+            cost = existing.cost,
+            price = newPrice,
+            low = existing.low,
+            aliases = existing.aliases,
+            openingQty = existing.qty,
+            imageUrl = existing.imageUrl,
+            nfcTagId = existing.nfcTagId,
+            shelfLocation = existing.shelfLocation,
+            secondaryUnit = existing.secondaryUnit,
+            conversionFactor = existing.conversionFactor,
+            secondaryPrice = existing.secondaryPrice
+        )
     }
 
     suspend fun performTransaction(

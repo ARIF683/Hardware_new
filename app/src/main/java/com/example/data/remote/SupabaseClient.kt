@@ -782,6 +782,13 @@ class SupabaseClient(
             if (v.isNaN()) null else v
         } else null
 
+        val priceVal = when {
+            obj.has("price") && !obj.isNull("price") -> obj.optDouble("price", 0.0)
+            obj.has("selling_price") && !obj.isNull("selling_price") -> obj.optDouble("selling_price", 0.0)
+            obj.has("sellingPrice") && !obj.isNull("sellingPrice") -> obj.optDouble("sellingPrice", 0.0)
+            else -> 0.0
+        }
+
         return Item(
             id = obj.optString("id"),
             o = obj.optInt("o", 0),
@@ -794,11 +801,16 @@ class SupabaseClient(
             aliases = obj.optString("aliases", ""),
             mrp = mrpVal,
             cost = obj.optDouble("cost", 0.0),
-            price = obj.optDouble("price", 0.0),
+            price = priceVal,
             qty = obj.optDouble("qty", 0.0),
             low = obj.optDouble("low", 0.0),
             unit = obj.optString("unit", "pcs").ifEmpty { "pcs" },
             imageUrl = if (obj.has("image_url") && !obj.isNull("image_url")) obj.optString("image_url").ifEmpty { null } else null,
+            shelfLocation = if (obj.has("shelf_location") && !obj.isNull("shelf_location")) obj.optString("shelf_location").ifEmpty { null } else null,
+            nfcTagId = if (obj.has("nfc_tag_id") && !obj.isNull("nfc_tag_id")) obj.optString("nfc_tag_id").ifEmpty { null } else null,
+            secondaryUnit = if (obj.has("secondary_unit") && !obj.isNull("secondary_unit")) obj.optString("secondary_unit").ifEmpty { null } else null,
+            conversionFactor = if (obj.has("conversion_factor") && !obj.isNull("conversion_factor")) obj.optDouble("conversion_factor", 1.0).takeIf { it > 0 } ?: 1.0 else 1.0,
+            secondaryPrice = if (obj.has("secondary_price") && !obj.isNull("secondary_price")) obj.optDouble("secondary_price", 0.0) else 0.0,
             updatedAt = obj.optString("updated_at", "")
         )
     }

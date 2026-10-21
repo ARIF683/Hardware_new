@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -106,6 +108,7 @@ fun ItemDetailScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPackagingDialog by remember { mutableStateOf(false) }
+    var showEditPriceDialog by remember { mutableStateOf(false) }
     var isUploadingImage by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -350,13 +353,28 @@ fun ItemDetailScreen(
                                         )
                                     }
 
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Selling Price",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showEditPriceDialog = true }
+                                            .padding(4.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "Selling Price",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit Selling Price",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.height(3.dp))
                                         Text(
                                             text = StockViewModel.formatRupees(item.price),
@@ -1175,6 +1193,75 @@ fun ItemDetailScreen(
                 showDeleteDialog = false
             },
             onDismiss = { showDeleteDialog = false }
+        )
+    }
+
+    if (showEditPriceDialog) {
+        var editPriceText by remember(item.id) {
+            mutableStateOf(if (item.price > 0.0) (if (item.price % 1.0 == 0.0) item.price.toLong().toString() else item.price.toString()) else "")
+        }
+        AlertDialog(
+            onDismissRequest = { showEditPriceDialog = false },
+            title = { Text("Update Selling Price", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column {
+                    Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    if (item.cost > 0.0) {
+                        Text(
+                            text = "Purchase Cost: ₹${String.format(java.util.Locale.US, "%.2f", item.cost)}",
+                            fontSize = 12.sp,
+                            color = Color(0xFFB45309),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editPriceText,
+                        onValueChange = { editPriceText = it },
+                        label = { Text("New Selling Price (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (item.cost > 0.0) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("Quick Margin Shortcuts:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(10, 15, 20, 25).forEach { pct ->
+                                val targetP = kotlin.math.round(item.cost * (1.0 + pct / 100.0))
+                                OutlinedButton(
+                                    onClick = { editPriceText = targetP.toInt().toString() },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("+$pct%", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val parsed = editPriceText.trim().toDoubleOrNull() ?: 0.0
+                        viewModel.updateItemSellingPrice(item.id, parsed)
+                        showEditPriceDialog = false
+                    }
+                ) {
+                    Text("Save Price")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditPriceDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
