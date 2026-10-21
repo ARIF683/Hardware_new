@@ -112,23 +112,29 @@ object ItemSearchMatcher {
         if (words.isEmpty()) return 1
 
         val cleanHay = hay.replace(Regex("[^a-z0-9]"), "")
+        val hayWords = hay.split(Regex("[^a-z0-9]+")).filter { it.length >= 2 }
 
-        // Check if all words match the item
-        var allWordsMatch = true
-        for (w in words) {
-            val isMatched = hay.contains(w) ||
-                    (w.endsWith("l") && (hay.contains("${w}tr") || hay.contains("${w}iter"))) ||
-                    (w.endsWith("ltr") && (hay.contains(w.removeSuffix("tr")) || hay.contains(w.removeSuffix("ltr") + "l"))) ||
-                    (Regex("^([a-z]+)(\\d+)$").matches(w) && hay.contains(w.replace(Regex("([a-z]+)(\\d+)"), "$1 $2"))) ||
-                    (cleanHay.contains(w.replace(Regex("[^a-z0-9]"), "")))
+        fun wordMatches(w: String): Boolean {
+            if (hay.contains(w) || cleanHay.contains(w.replace(Regex("[^a-z0-9]"), ""))) return true
+            if (w.endsWith("l") && (hay.contains("${w}tr") || hay.contains("${w}iter"))) return true
+            if (w.endsWith("ltr") && (hay.contains(w.removeSuffix("tr")) || hay.contains(w.removeSuffix("ltr") + "l"))) return true
+            if (Regex("^([a-z]+)(\\d+)$").matches(w) && hay.contains(w.replace(Regex("([a-z]+)(\\d+)"), "$1 $2"))) return true
 
-            if (!isMatched) {
-                allWordsMatch = false
-                break
+            // Fuzzy typo matching against hayWords (Levenshtein distance)
+            if (w.length >= 3) {
+                val maxDist = if (w.length <= 4) 1 else 2
+                for (hw in hayWords) {
+                    if (kotlin.math.abs(hw.length - w.length) <= maxDist) {
+                        if (levenshtein(w, hw) <= maxDist) return true
+                    }
+                }
             }
+            return false
         }
 
-        if (allWordsMatch) {
+        // Check if words match the item
+        val matchCount = words.count { wordMatches(it) }
+        if (matchCount == words.size) {
             val firstWord = words.first()
             val bonus = if (nameLower.startsWith(firstWord) || nameLower.contains(firstWord)) 300 else 100
             return 500 + bonus - (item.name.length.coerceAtMost(40))
@@ -140,12 +146,33 @@ object ItemSearchMatcher {
             return 300 + bonus
         }
 
-        // Single word fallback matching
-        if (words.size == 1) {
-            val single = words.first()
-            if (hay.contains(single)) return 200
+        // Partial word matching for multi-word or single word
+        if (matchCount > 0) {
+            return 180 * matchCount
         }
 
         return 0
+    }
+
+    /**
+     * Levenshtein edit distance for typo tolerance.
+     */
+    fun levenshtein(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+
+        val dp = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..b.length) {
+                val temp = dp[j]
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + cost)
+                prev = temp
+            }
+        }
+        return dp[b.length]
     }
 }

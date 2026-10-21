@@ -91,6 +91,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -873,22 +874,51 @@ fun QuotationFormDialog(
                         val item = lineItems[idx]
                         var isSuggestionsOpen by remember { mutableStateOf(false) }
 
+                        val matchedDbItem = remember(item.itemId, item.name, availableItems) {
+                            if (!item.itemId.isNullOrBlank()) {
+                                availableItems.firstOrNull { it.id == item.itemId }
+                            } else if (item.name.isNotBlank()) {
+                                availableItems.firstOrNull { it.name.trim().equals(item.name.trim(), ignoreCase = true) }
+                            } else null
+                        }
+                        val effectiveCost = if (item.costPrice > 0.0) item.costPrice else (matchedDbItem?.cost ?: 0.0)
+
                         val matchingItems = remember(item.name, item.type, availableItems) {
                             val q = item.name.trim()
                             val curType = item.type.trim()
-                            if (q.isBlank() && curType.isBlank()) {
-                                emptyList()
+                            if (q.isBlank()) {
+                                // When query is empty (user focused on field, tapped dropdown arrow, or clicked clear):
+                                // Show items in curType if filtered, or show all available inventory items!
+                                val baseList = if (curType.isNotBlank() && !curType.equals("All", ignoreCase = true)) {
+                                    val filtered = availableItems.filter { it.type.trim().equals(curType, ignoreCase = true) }
+                                    if (filtered.isNotEmpty()) filtered else availableItems
+                                } else {
+                                    availableItems
+                                }
+                                baseList.take(30)
                             } else {
-                                availableItems.mapNotNull { dbItem ->
-                                    val typeMatch = curType.isBlank() || curType.equals("All", ignoreCase = true) ||
-                                            dbItem.type.trim().equals(curType, ignoreCase = true)
-                                    if (!typeMatch) return@mapNotNull null
+                                // Query is not blank: first search with category constraint if set
+                                val categoryFilterActive = curType.isNotBlank() && !curType.equals("All", ignoreCase = true)
+                                val inCategoryMatches = if (categoryFilterActive) {
+                                    availableItems.mapNotNull { dbItem ->
+                                        if (!dbItem.type.trim().equals(curType, ignoreCase = true)) return@mapNotNull null
+                                        val score = com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
+                                        if (score > 0) Pair(dbItem, score) else null
+                                    }.sortedByDescending { it.second }.map { it.first }
+                                } else emptyList()
 
-                                    val score = if (q.isBlank()) 1 else com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
-                                    if (score > 0) Pair(dbItem, score) else null
-                                }.sortedByDescending { it.second }
-                                .map { it.first }
-                                .take(25)
+                                if (inCategoryMatches.isNotEmpty()) {
+                                    inCategoryMatches.take(25)
+                                } else {
+                                    // Either no category filter OR category filter yielded 0 results (e.g. user typed an item from a different category or mistyped)
+                                    // Search ACROSS ALL ITEMS regardless of category!
+                                    val allMatches = availableItems.mapNotNull { dbItem ->
+                                        val score = com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
+                                        if (score > 0) Pair(dbItem, score) else null
+                                    }.sortedByDescending { it.second }.map { it.first }
+
+                                    allMatches.take(25)
+                                }
                             }
                         }
 
@@ -898,146 +928,369 @@ fun QuotationFormDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                // Item Name Field with instant autocomplete & Voice Search
+                                // Item Name Field with instant autocomplete, Voice Search, Clear button & Dropdown toggle
                                 Box(modifier = Modifier.fillMaxWidth()) {
                                     OutlinedTextField(
                                         value = item.name,
                                         onValueChange = { name ->
-                                            lineItems[idx] = item.copy(name = name)
+                                            // When user changes/edits name, clear itemId so cost & search re-evaluate freshly
+                                            lineItems[idx] = item.copy(name = name, itemId = null)
                                             isSuggestionsOpen = true
                                         },
-                                        label = { Text("Item Name (type or speak to search)") },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onFocusChanged { if (it.isFocused) isSuggestionsOpen = true },
+                                        label = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text("Item Name (type to search)")
+                                                if (effectiveCost > 0.0) {
+                                                    Text(
+                                                        "• Cost: ₹${String.format(Locale.US, "%.2f", effectiveCost)}",
+                                                        color = Color(0xFFB45309),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        },
                                         trailingIcon = {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (item.name.isNotBlank()) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            lineItems[idx] = item.copy(
+                                                                name = "",
+                                                                itemId = null,
+                                                                unitPrice = 0.0,
+                                                                costPrice = 0.0,
+                                                                total = 0.0,
+                                                                type = ""
+                                                            )
+                                                            isSuggestionsOpen = true
+                                                        },
+                                                        modifier = Modifier.size(36.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Close,
+                                                            contentDescription = "Clear item name",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                                IconButton(
+                                                    onClick = { isSuggestionsOpen = !isSuggestionsOpen },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        if (isSuggestionsOpen) Icons.Default.ArrowDropDown else Icons.Default.Search,
+                                                        contentDescription = "Toggle suggestions list",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
                                                 IconButton(
                                                     onClick = {
                                                         voiceTargetIdx = idx
                                                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name (e.g. Socket, Pipe, Elbow)...")
-                                                        }
-                                                        try {
-                                                            speechLauncher.launch(intent)
-                                                        } catch (e: Exception) {
-                                                            // voice not supported
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
-                                                }
-                                                if (lineItems.size > 1) {
-                                                    IconButton(
-                                                        onClick = { lineItems.removeAt(idx) },
-                                                        modifier = Modifier.size(36.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true
-                                    )
-                                }
+                                                             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                                             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                                             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name (e.g. Socket, Pipe, Elbow)...")
+                                                         }
+                                                         try {
+                                                             speechLauncher.launch(intent)
+                                                         } catch (e: Exception) {
+                                                             // voice not supported
+                                                         }
+                                                     },
+                                                     modifier = Modifier.size(36.dp)
+                                                 ) {
+                                                     Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
+                                                 }
+                                                 if (lineItems.size > 1) {
+                                                     IconButton(
+                                                         onClick = { lineItems.removeAt(idx) },
+                                                         modifier = Modifier.size(36.dp)
+                                                     ) {
+                                                         Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                                                     }
+                                                 }
+                                             }
+                                         },
+                                         singleLine = true
+                                     )
+                                 }
 
-                                // Suggestions popup list
-                                if (isSuggestionsOpen && matchingItems.isNotEmpty()) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        shadowElevation = 4.dp,
-                                        color = MaterialTheme.colorScheme.surface,
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 4.dp)
-                                    ) {
-                                        Column {
-                                            matchingItems.forEach { matched ->
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable {
-                                                            val curQty = if (item.qty <= 0.0) 1.0 else item.qty
-                                                            val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
-                                                                "${matched.name} ${matched.size}"
-                                                            } else {
-                                                                matched.name
-                                                            }
-                                                            val updated = item.copy(
-                                                                itemId = matched.id,
-                                                                name = displayName,
-                                                                code = matched.code,
-                                                                type = if (matched.type.isNotBlank()) matched.type else item.type,
-                                                                unit = matched.unit.ifBlank { "pcs" },
-                                                                unitPrice = matched.price,
-                                                                total = curQty * matched.price
-                                                            )
-                                                            lineItems[idx] = updated
-                                                            if (matched.type.isNotBlank()) {
-                                                                lastSelectedType = matched.type
-                                                            }
-                                                            isSuggestionsOpen = false
-                                                        }
-                                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                        ) {
-                                                            Text(matched.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                                            if (matched.size.isNotBlank()) {
-                                                                Surface(
-                                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                                                    shape = RoundedCornerShape(4.dp),
-                                                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                                                                ) {
-                                                                    Text(
-                                                                        text = matched.size,
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.ExtraBold,
-                                                                        color = MaterialTheme.colorScheme.primary,
-                                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                            if (matched.type.isNotBlank()) {
-                                                                Surface(
-                                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                                                    shape = RoundedCornerShape(4.dp)
-                                                                ) {
-                                                                    Text(
-                                                                        text = matched.type,
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = MaterialTheme.colorScheme.primary,
-                                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                            Text("📦 Stock: ${matched.qty} ${matched.unit}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                        }
-                                                    }
-                                                    Text(
-                                                        String.format(Locale.US, "₹%.2f", matched.price),
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 13.sp,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
-                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                            }
-                                        }
-                                    }
-                                }
+                                 // Live Cost & Margin Indicator right below item name
+                                 if (effectiveCost > 0.0) {
+                                     Surface(
+                                         shape = RoundedCornerShape(6.dp),
+                                         color = Color(0xFFFEF3C7),
+                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                         modifier = Modifier
+                                             .fillMaxWidth()
+                                             .padding(top = 6.dp)
+                                     ) {
+                                         Row(
+                                             modifier = Modifier
+                                                 .fillMaxWidth()
+                                                 .padding(horizontal = 8.dp, vertical = 5.dp),
+                                             horizontalArrangement = Arrangement.SpaceBetween,
+                                             verticalAlignment = Alignment.CenterVertically
+                                         ) {
+                                             Row(
+                                                 verticalAlignment = Alignment.CenterVertically,
+                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                             ) {
+                                                 Text(
+                                                     "🏷️ Cost Price: ",
+                                                     fontSize = 11.sp,
+                                                     fontWeight = FontWeight.Bold,
+                                                     color = Color(0xFF92400E)
+                                                 )
+                                                 Text(
+                                                     "₹${String.format(Locale.US, "%.2f", effectiveCost)}",
+                                                     fontSize = 12.sp,
+                                                     fontWeight = FontWeight.ExtraBold,
+                                                     color = Color(0xFFB45309)
+                                                 )
+                                                 if (matchedDbItem?.qty != null) {
+                                                     Text(
+                                                         " • In Stock: ${matchedDbItem.qty} ${matchedDbItem.unit}",
+                                                         fontSize = 10.sp,
+                                                         color = Color(0xFF78350F)
+                                                     )
+                                                 }
+                                             }
+                                             val unitMargin = item.unitPrice - effectiveCost
+                                             val marginPct = if (effectiveCost > 0.0) (unitMargin / effectiveCost) * 100.0 else 0.0
+                                             val isProfit = unitMargin >= 0.0
+                                             Text(
+                                                 text = if (item.unitPrice <= 0.0) "Rate not set" else if (isProfit) "Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+${marginPct.toInt()}%)" else "⚠️ Below Cost by ₹${String.format(Locale.US, "%.2f", -unitMargin)}",
+                                                 fontSize = 11.sp,
+                                                 fontWeight = FontWeight.Bold,
+                                                 color = if (item.unitPrice <= 0.0) Color(0xFF78350F) else if (isProfit) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                             )
+                                         }
+                                     }
+                                 }
 
-                                Spacer(modifier = Modifier.height(6.dp))
+                                 // Suggestions popup list with Cost Price and Selling Price prominently displayed
+                                 if (isSuggestionsOpen) {
+                                     Surface(
+                                         shape = RoundedCornerShape(8.dp),
+                                         shadowElevation = 6.dp,
+                                         color = MaterialTheme.colorScheme.surface,
+                                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                         modifier = Modifier
+                                             .fillMaxWidth()
+                                             .padding(top = 4.dp)
+                                     ) {
+                                         Column {
+                                             Surface(
+                                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                                 modifier = Modifier.fillMaxWidth()
+                                             ) {
+                                                 Row(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                     horizontalArrangement = Arrangement.SpaceBetween,
+                                                     verticalAlignment = Alignment.CenterVertically
+                                                 ) {
+                                                     Text(
+                                                         if (matchingItems.isNotEmpty()) {
+                                                             if (item.name.isBlank()) "📦 All Inventory Items (tap to select)" else "💡 Matching Items (Cost & Selling Rate)"
+                                                         } else "⚠️ No Direct Match for \"${item.name}\"",
+                                                         fontSize = 11.sp,
+                                                         fontWeight = FontWeight.Bold,
+                                                         color = if (matchingItems.isNotEmpty()) MaterialTheme.colorScheme.primary else Color(0xFFB45309)
+                                                     )
+                                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                         Text(
+                                                             "${if (matchingItems.isNotEmpty()) matchingItems.size else availableItems.size} items",
+                                                             fontSize = 10.sp,
+                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                         )
+                                                         IconButton(
+                                                             onClick = { isSuggestionsOpen = false },
+                                                             modifier = Modifier.size(22.dp)
+                                                         ) {
+                                                             Icon(Icons.Default.Close, contentDescription = "Close suggestions", modifier = Modifier.size(14.dp))
+                                                         }
+                                                     }
+                                                 }
+                                             }
+
+                                             if (matchingItems.isEmpty()) {
+                                                 // When mistyped or no item matched query:
+                                                 Column(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                     horizontalAlignment = Alignment.CenterHorizontally
+                                                 ) {
+                                                     Text(
+                                                         text = "No item found matching \"${item.name}\"",
+                                                         fontSize = 12.sp,
+                                                         fontWeight = FontWeight.SemiBold,
+                                                         color = MaterialTheme.colorScheme.onSurface
+                                                     )
+                                                     Spacer(modifier = Modifier.height(4.dp))
+                                                     Text(
+                                                         text = "Choose an item below from inventory or clear search:",
+                                                         fontSize = 11.sp,
+                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                     )
+                                                     Spacer(modifier = Modifier.height(6.dp))
+                                                     OutlinedButton(
+                                                         onClick = {
+                                                             lineItems[idx] = item.copy(
+                                                                 name = "",
+                                                                 itemId = null,
+                                                                 unitPrice = 0.0,
+                                                                 costPrice = 0.0,
+                                                                 total = 0.0,
+                                                                 type = ""
+                                                             )
+                                                         },
+                                                         shape = RoundedCornerShape(6.dp),
+                                                         modifier = Modifier.height(32.dp)
+                                                     ) {
+                                                         Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                         Spacer(modifier = Modifier.width(4.dp))
+                                                         Text("Clear & Browse All Items", fontSize = 11.sp)
+                                                     }
+                                                 }
+                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                             }
+
+                                             val displayList = if (matchingItems.isNotEmpty()) matchingItems else availableItems.take(25)
+                                             displayList.forEach { matched ->
+                                                 Row(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .clickable {
+                                                             val curQty = if (item.qty <= 0.0) 1.0 else item.qty
+                                                             val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
+                                                                 "${matched.name} ${matched.size}"
+                                                             } else {
+                                                                 matched.name
+                                                             }
+                                                             val updated = item.copy(
+                                                                 itemId = matched.id,
+                                                                 name = displayName,
+                                                                 code = matched.code,
+                                                                 type = if (matched.type.isNotBlank()) matched.type else item.type,
+                                                                 unit = matched.unit.ifBlank { "pcs" },
+                                                                 unitPrice = matched.price,
+                                                                 costPrice = matched.cost,
+                                                                 total = curQty * matched.price
+                                                             )
+                                                             lineItems[idx] = updated
+                                                             if (matched.type.isNotBlank()) {
+                                                                 lastSelectedType = matched.type
+                                                             }
+                                                             isSuggestionsOpen = false
+                                                         }
+                                                         .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                     horizontalArrangement = Arrangement.SpaceBetween,
+                                                     verticalAlignment = Alignment.CenterVertically
+                                                 ) {
+                                                     Column(modifier = Modifier.weight(1f)) {
+                                                         Row(
+                                                             verticalAlignment = Alignment.CenterVertically,
+                                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                         ) {
+                                                             Text(matched.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                                             if (matched.size.isNotBlank()) {
+                                                                 Surface(
+                                                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                                                     shape = RoundedCornerShape(4.dp),
+                                                                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                                                                 ) {
+                                                                     Text(
+                                                                         text = matched.size,
+                                                                         fontSize = 10.sp,
+                                                                         fontWeight = FontWeight.ExtraBold,
+                                                                         color = MaterialTheme.colorScheme.primary,
+                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                     )
+                                                                 }
+                                                             }
+                                                             // Item Cost Price badge right beside the item name!
+                                                             if (matched.cost > 0.0) {
+                                                                 Surface(
+                                                                     color = Color(0xFFFEF3C7),
+                                                                     shape = RoundedCornerShape(4.dp),
+                                                                     border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFF59E0B))
+                                                                 ) {
+                                                                     Text(
+                                                                         text = "Cost: ₹${String.format(Locale.US, "%.2f", matched.cost)}",
+                                                                         fontSize = 10.sp,
+                                                                         fontWeight = FontWeight.ExtraBold,
+                                                                         color = Color(0xFFB45309),
+                                                                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                                     )
+                                                                 }
+                                                             }
+                                                         }
+                                                         Spacer(modifier = Modifier.height(2.dp))
+                                                         Row(
+                                                             verticalAlignment = Alignment.CenterVertically,
+                                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                         ) {
+                                                             if (matched.type.isNotBlank()) {
+                                                                 Surface(
+                                                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                                     shape = RoundedCornerShape(4.dp)
+                                                                 ) {
+                                                                     Text(
+                                                                         text = matched.type,
+                                                                         fontSize = 10.sp,
+                                                                         fontWeight = FontWeight.Bold,
+                                                                         color = MaterialTheme.colorScheme.primary,
+                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                     )
+                                                                 }
+                                                             }
+                                                             Text("📦 Stock: ${matched.qty} ${matched.unit}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                             if (matched.cost > 0.0 && matched.price > 0.0) {
+                                                                 val margin = matched.price - matched.cost
+                                                                 val marginPct = (margin / matched.cost * 100).toInt()
+                                                                 Text(
+                                                                     text = "• Margin: +₹${String.format(Locale.US, "%.0f", margin)} (+$marginPct%)",
+                                                                     fontSize = 10.sp,
+                                                                     fontWeight = FontWeight.Bold,
+                                                                     color = if (margin >= 0) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                                                 )
+                                                             }
+                                                         }
+                                                     }
+                                                     Column(horizontalAlignment = Alignment.End) {
+                                                         Text(
+                                                             "Sale: " + String.format(Locale.US, "₹%.2f", matched.price),
+                                                             fontWeight = FontWeight.Bold,
+                                                             fontSize = 13.sp,
+                                                             color = MaterialTheme.colorScheme.primary
+                                                         )
+                                                         if (matched.cost > 0.0) {
+                                                             Text(
+                                                                 "Cost: " + String.format(Locale.US, "₹%.2f", matched.cost),
+                                                                 fontWeight = FontWeight.ExtraBold,
+                                                                 fontSize = 11.sp,
+                                                                 color = Color(0xFFB45309)
+                                                             )
+                                                         }
+                                                     }
+                                                 }
+                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                             }
+                                         }
+                                     }
+                                 }
+
+                                 Spacer(modifier = Modifier.height(6.dp))
 
                                 // Type Selection Row beneath Item Name
                                 Row(
@@ -1142,9 +1395,14 @@ fun QuotationFormDialog(
                                             val tot = item.qty * rVal
                                             lineItems[idx] = item.copy(unitPrice = rVal, total = tot)
                                         },
-                                        label = { Text("Rate (₹)") },
+                                        label = {
+                                            Text(
+                                                if (effectiveCost > 0.0) "Rate (Cost ₹${String.format(Locale.US, "%.0f", effectiveCost)})"
+                                                else "Rate (₹)"
+                                            )
+                                        },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1.1f),
+                                        modifier = Modifier.weight(1.2f),
                                         singleLine = true
                                     )
 
@@ -1236,8 +1494,23 @@ fun QuotationFormDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val totalEstimateCost = lineItems.sumOf { itm ->
+                            val c = if (itm.costPrice > 0.0) itm.costPrice else (availableItems.firstOrNull { it.id == itm.itemId || it.name.trim().equals(itm.name.trim(), ignoreCase = true) }?.cost ?: 0.0)
+                            c * itm.qty
+                        }
+                        val totalEstimateProfit = (grandTotal - totalEstimateCost)
+
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Subtotal: ₹${String.format(Locale.US, "%.2f", subtotal)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (totalEstimateCost > 0.0) {
+                                val isPositive = totalEstimateProfit >= 0
+                                Text(
+                                    "Est. Cost: ₹${String.format(Locale.US, "%.2f", totalEstimateCost)} • Margin: ${if (isPositive) "+" else "-"}₹${String.format(Locale.US, "%.2f", kotlin.math.abs(totalEstimateProfit))}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isPositive) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                )
+                            }
                             if (taxAmount > 0) Text("Tax ($taxPercent%): +₹${String.format(Locale.US, "%.2f", taxAmount)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Grand Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                         }

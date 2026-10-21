@@ -16,7 +16,8 @@ data class QuotationLineItem(
     val qty: Double = 1.0,
     val unitPrice: Double = 0.0,
     val discountPercent: Double = 0.0,
-    val total: Double = 0.0
+    val total: Double = 0.0,
+    val costPrice: Double = 0.0
 )
 
 @Entity(tableName = "quotations")
