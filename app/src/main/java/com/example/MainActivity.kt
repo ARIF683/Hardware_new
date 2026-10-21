@@ -390,7 +390,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
                 }
 
                 is CurrentScreen.GstCalculator -> {
-                    com.example.ui.screens.GstCalculatorScreen(viewModel = viewModel)
+                    com.example.ui.screens.QuickBillingPosScreen(viewModel = viewModel)
                 }
 
                 is CurrentScreen.SmartSynonymSearch -> {

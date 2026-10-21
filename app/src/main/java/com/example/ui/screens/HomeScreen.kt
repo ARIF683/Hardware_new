@@ -667,7 +667,6 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 Text("Tint Machine Report (.XLS / .CSV)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
 
-                            // GST Calculator Button
                             Button(
                                 onClick = { viewModel.openGstCalculator() },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -677,7 +676,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                     .padding(top = 8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 6.dp)
                             ) {
-                                Text("📊 GST & E-Way Calc", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("⚡ Quick POS Billing & GST", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
 
                             // NFC Shelf Radar & Supplier Price Comparison Row

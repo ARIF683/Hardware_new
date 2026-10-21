@@ -118,7 +118,7 @@ fun GstBillsTabContent(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("+ New GST Bill", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("⚡ Quick POS Bill", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -265,7 +265,7 @@ fun GstBillsTabContent(
                     ) {
                         Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Open GST Calculator", fontWeight = FontWeight.Bold)
+                        Text("⚡ Open Quick POS Billing", fontWeight = FontWeight.Bold)
                     }
                 }
             }
