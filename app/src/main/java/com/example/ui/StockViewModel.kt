@@ -1,6 +1,6 @@
 package com.example.ui
 
-import com.example.data.model.SupplierPurchaseRecord
+
 
 import android.app.Application
 import android.util.Log
@@ -47,8 +47,6 @@ sealed class CurrentScreen {
     data class LedgerAccountDetail(val accountId: String) : CurrentScreen()
     object GstCalculator : CurrentScreen()
     object SmartSynonymSearch : CurrentScreen()
-    data class SupplierPriceComparison(val preselectedItemId: String? = null) : CurrentScreen()
-    object NfcShelfBinManager : CurrentScreen()
 }
 
 enum class NavigationTab {
@@ -80,7 +78,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
-    private val _customThemeColor = MutableStateFlow(themePrefs.getString("theme_color", "#007AFF") ?: "#007AFF")
+    private val _customThemeColor = MutableStateFlow(
+        run {
+            val saved = themePrefs.getString("theme_color", null)
+            if (saved == null || saved == "#007AFF") {
+                themePrefs.edit().putString("theme_color", "#10B981").putString("theme_mode", "dark").apply()
+                "#10B981"
+            } else {
+                saved
+            }
+        }
+    )
     val customThemeColor: StateFlow<String> = _customThemeColor.asStateFlow()
 
     private val _themeMode = MutableStateFlow(themePrefs.getString("theme_mode", "dark") ?: "dark")
@@ -246,67 +254,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentScreen = MutableStateFlow<CurrentScreen>(CurrentScreen.Main)
     val currentScreen: StateFlow<CurrentScreen> = _currentScreen.asStateFlow()
 
-    // --- Supplier Price Comparison & Purchase History ---
-    val allSupplierPurchases: StateFlow<List<SupplierPurchaseRecord>> = repository.allSupplierPurchases
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun recordSupplierPurchase(record: SupplierPurchaseRecord) {
-        viewModelScope.launch {
-            repository.recordSupplierPurchase(record)
-            showToast("Saved rate quote from ${record.supplierName}")
-        }
-    }
-
-    fun deleteSupplierPurchase(id: String) {
-        viewModelScope.launch {
-            repository.deleteSupplierPurchase(id)
-            showToast("Removed supplier record")
-        }
-    }
-
-    fun openSupplierPriceComparison(itemId: String? = null) {
-        _currentScreen.value = CurrentScreen.SupplierPriceComparison(itemId)
-    }
-
-    // --- NFC Shelf & Bin Tapping ---
-    private val _scannedNfcTag = MutableStateFlow<String?>(null)
-    val scannedNfcTag: StateFlow<String?> = _scannedNfcTag.asStateFlow()
-
-    fun openNfcShelfBinManager() {
-        _currentScreen.value = CurrentScreen.NfcShelfBinManager
-    }
-
-    fun onNfcTagScanned(tagId: String, payload: String? = null) {
-        _scannedNfcTag.value = tagId
-        viewModelScope.launch {
-            val items = allItems.value
-            val matched = items.find {
-                it.nfcTagId.equals(tagId, ignoreCase = true) ||
-                (payload != null && it.shelfLocation.equals(payload.trim(), ignoreCase = true)) ||
-                (payload != null && it.barcode.equals(payload.trim(), ignoreCase = true)) ||
-                it.shelfLocation.equals(tagId, ignoreCase = true)
-            }
-            if (matched != null) {
-                showToast("🏷️ Scanned Shelf Bin: ${matched.name} (${matched.shelfLocation})")
-                openItemDetail(matched.id)
-            } else {
-                showToast("🏷️ Tag Scanned: $tagId (Unassigned Shelf Bin)")
-                openNfcShelfBinManager()
-            }
-        }
-    }
-
-    fun linkNfcTagToItem(itemId: String, nfcTagId: String, shelfLocation: String) {
-        viewModelScope.launch {
-            val item = allItems.value.find { it.id == itemId } ?: return@launch
-            val updated = item.copy(
-                nfcTagId = nfcTagId,
-                shelfLocation = shelfLocation
-            )
-            repository.updateItem(updated)
-            showToast("Linked to Shelf Bin: $shelfLocation ($nfcTagId)")
-        }
-    }
 
     // --- Multi-Unit & Packaging Converter ---
     fun updateItemPackaging(itemId: String, secondaryUnit: String, conversionFactor: Double, secondaryPrice: Double) {

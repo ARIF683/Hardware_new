@@ -3,7 +3,9 @@ package com.example.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,11 +28,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
@@ -41,10 +45,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -192,61 +199,84 @@ fun LedgerScreen(viewModel: StockViewModel) {
                 ) {
                     // You will get Card
                     Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF16A34A).copy(alpha = 0.12f)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.2.dp, Color(0xFF10B981).copy(alpha = 0.55f)),
                         modifier = Modifier.weight(1f)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("YOU WILL GET", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                                Text("YOU WILL GET", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF10B981))
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = String.format(Locale.US, "₹%.2f", totalReceivable),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF16A34A)
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF10B981)
                             )
+                            Text("Customer Credit Due", fontSize = 9.5.sp, color = Color(0xFF64748B))
                         }
                     }
 
                     // You will pay Card
                     Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFDC2626).copy(alpha = 0.12f)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.2.dp, Color(0xFFEF4444).copy(alpha = 0.55f)),
                         modifier = Modifier.weight(1f)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("YOU WILL PAY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                Text("YOU WILL PAY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = String.format(Locale.US, "₹%.2f", totalPayable),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFFDC2626)
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFEF4444)
                             )
+                            Text("Supplier Balances", fontSize = 9.5.sp, color = Color(0xFF64748B))
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                TabRow(selectedTabIndex = selectedTab) {
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = Color(0xFF0A0D14),
+                    contentColor = Color(0xFF10B981),
+                    divider = { HorizontalDivider(color = Color(0xFF1E2638)) }
+                ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Customers / Contractors (${accounts.count { it.type != "SUPPLIER" }})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        text = {
+                            Text(
+                                "Customers (${accounts.count { it.type != "SUPPLIER" }})",
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 0) FontWeight.Black else FontWeight.Medium,
+                                color = if (selectedTab == 0) Color(0xFF10B981) else Color(0xFF94A3B8)
+                            )
+                        }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Suppliers (${accounts.count { it.type == "SUPPLIER" }})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        text = {
+                            Text(
+                                "Suppliers (${accounts.count { it.type == "SUPPLIER" }})",
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 1) FontWeight.Black else FontWeight.Medium,
+                                color = if (selectedTab == 1) Color(0xFF10B981) else Color(0xFF94A3B8)
+                            )
+                        }
                     )
                 }
 
@@ -387,14 +417,15 @@ fun LedgerAccountCard(
         if (isDue) Color(0xFF16A34A) else Color(0xFFDC2626)
     }
 
-    ElevatedCard(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+        border = BorderStroke(1.dp, Color(0xFF1E2638)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -405,13 +436,14 @@ fun LedgerAccountCard(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(38.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape)
+                            .background(Color(0xFF141923), CircleShape)
+                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), CircleShape)
                     ) {
                         Text(
                             text = account.name.take(1).uppercase(),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 16.sp
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF10B981),
+                            fontSize = 15.sp
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
@@ -419,7 +451,8 @@ fun LedgerAccountCard(
                         Text(
                             text = account.name,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
+                            color = Color(0xFFF3F4F6),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -427,14 +460,14 @@ fun LedgerAccountCard(
                             Text(
                                 text = "📞 ${account.phone}",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = Color(0xFF94A3B8)
                             )
                         }
                         if (account.notes.isNotEmpty()) {
                             Text(
                                 text = "📝 ${account.notes}",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = Color(0xFF64748B),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -445,28 +478,58 @@ fun LedgerAccountCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(horizontalAlignment = Alignment.End) {
                         val statusLabel = if (isSupplier) {
-                            if (account.netBalance > 0) "You Pay" else if (account.netBalance < 0) "Advance" else "Settled"
+                            if (account.netBalance > 0) "YOU PAY" else if (account.netBalance < 0) "ADVANCE" else "SETTLED"
                         } else {
-                            if (account.netBalance > 0) "You Get" else if (account.netBalance < 0) "Advance" else "Settled"
+                            if (account.netBalance > 0) "YOU GET" else if (account.netBalance < 0) "ADVANCE" else "SETTLED"
                         }
-                        Text(text = statusLabel, fontSize = 10.sp, color = balanceColor, fontWeight = FontWeight.SemiBold)
+                        val tacticalBalColor = if (isSupplier) {
+                            if (isDue) Color(0xFFEF4444) else Color(0xFF10B981)
+                        } else {
+                            if (isDue) Color(0xFF10B981) else Color(0xFFEF4444)
+                        }
+                        Text(text = statusLabel, fontSize = 9.sp, color = tacticalBalColor, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
                         Text(
                             text = String.format(Locale.US, "₹%.2f", Math.abs(account.netBalance)),
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                            color = balanceColor
+                            fontWeight = FontWeight.Black,
+                            fontSize = 15.sp,
+                            color = tacticalBalColor,
+                            letterSpacing = 0.3.sp
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete Account", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                    var showAccountMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showAccountMenu = true }, modifier = Modifier.size(30.dp)) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Account Options", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                        }
+                        DropdownMenu(
+                            expanded = showAccountMenu,
+                            onDismissRequest = { showAccountMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open Ledger") },
+                                onClick = {
+                                    showAccountMenu = false
+                                    onClick()
+                                },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = Color(0xFF10B981)) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete Account") },
+                                onClick = {
+                                    showAccountMenu = false
+                                    onDelete()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444)) }
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Quick Actions: GAVE / GOT
+            // Tactical Quick Actions: GAVE / GOT
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -474,19 +537,26 @@ fun LedgerAccountCard(
                 OutlinedButton(
                     onClick = onGive,
                     modifier = Modifier.weight(1f).height(34.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color(0xFF1F1216),
+                        contentColor = Color(0xFFEF4444)
+                    ),
+                    border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("- Gave (Debit)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("- GAVE (DEBIT)", fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
 
                 Button(
                     onClick = onGot,
                     modifier = Modifier.weight(1f).height(34.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF10B981),
+                        contentColor = Color(0xFF022C1A)
+                    ),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("+ Got (Credit)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("+ GOT (CREDIT)", fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -772,6 +842,37 @@ fun LedgerAccountDetailScreen(
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete Entry", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    }
+
+                                    var showEntryMenu by remember { mutableStateOf(false) }
+                                    Box {
+                                        IconButton(
+                                            onClick = { showEntryMenu = true },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.MoreVert, contentDescription = "Entry Options", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                        }
+                                        DropdownMenu(
+                                            expanded = showEntryMenu,
+                                            onDismissRequest = { showEntryMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Edit Entry") },
+                                                onClick = {
+                                                    showEntryMenu = false
+                                                    entryToEdit = entry
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Delete Entry") },
+                                                onClick = {
+                                                    showEntryMenu = false
+                                                    entryToDelete = entry
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                            )
+                                        }
                                     }
                                 }
                             }

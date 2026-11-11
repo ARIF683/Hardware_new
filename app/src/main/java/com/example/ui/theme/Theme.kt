@@ -52,15 +52,15 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun StockManagerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     dynamicColor: Boolean = false,
-    customThemeColor: String = "#007AFF",
+    customThemeColor: String = "#10B981",
     content: @Composable () -> Unit
 ) {
     val baseColor = try {
         Color(android.graphics.Color.parseColor(customThemeColor))
     } catch (e: Exception) {
-        Color(0xFF007AFF)
+        Color(0xFF10B981)
     }
 
     val isLightPrimary = (baseColor.red * 0.299f + baseColor.green * 0.587f + baseColor.blue * 0.114f) > 0.65f
@@ -76,8 +76,12 @@ fun StockManagerTheme(
             onPrimary = onPrimaryColor,
             secondary = baseColor,
             onSecondary = onPrimaryColor,
-            primaryContainer = if (isLightPrimary) Color(0xFF334155) else baseColor.copy(alpha = 0.22f),
-            onPrimaryContainer = if (isLightPrimary) Color.White else Color.White
+            background = TacticalDarkBg,
+            surface = TacticalSurface,
+            surfaceVariant = TacticalCard,
+            outline = TacticalBorder,
+            primaryContainer = baseColor.copy(alpha = 0.25f),
+            onPrimaryContainer = Color.White
         )
         else -> LightColorScheme.copy(
             primary = baseColor,

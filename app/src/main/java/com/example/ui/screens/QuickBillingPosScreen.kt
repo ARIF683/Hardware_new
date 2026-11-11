@@ -388,15 +388,113 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
         viewModel.showToast("✅ Bill #$invoiceNo saved via $paymentMode!")
     }
 
+    var showDiscountDialog by remember { mutableStateOf(false) }
+    var showCustomerDialog by remember { mutableStateOf(false) }
+
+    // Quick Discount Dialog
+    if (showDiscountDialog) {
+        var tempDiscount by remember { mutableStateOf(discountText) }
+        AlertDialog(
+            onDismissRequest = { showDiscountDialog = false },
+            title = { Text("🏷️ Apply POS Bill Discount", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Enter discount amount in ₹ to deduct from current subtotal (₹${String.format(Locale.US, "%.2f", cartSubtotal)}):", fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = tempDiscount,
+                        onValueChange = { tempDiscount = it },
+                        label = { Text("Discount Amount (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("0", "50", "100", "200").forEach { preset ->
+                            OutlinedButton(
+                                onClick = { tempDiscount = preset },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(2.dp)
+                            ) {
+                                Text("₹$preset", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        discountText = tempDiscount.toDoubleOrNull()?.toString() ?: "0"
+                        showDiscountDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("Apply", color = Color(0xFF022C1A), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscountDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Quick Customer Dialog
+    if (showCustomerDialog) {
+        var tempName by remember { mutableStateOf(customerName) }
+        var tempPhone by remember { mutableStateOf(customerPhone) }
+        AlertDialog(
+            onDismissRequest = { showCustomerDialog = false },
+            title = { Text("👤 Customer Details", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = tempName,
+                        onValueChange = { tempName = it },
+                        label = { Text("Customer / Contractor Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = tempPhone,
+                        onValueChange = { tempPhone = it },
+                        label = { Text("Phone Number") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        customerName = tempName.ifBlank { "Cash Customer" }
+                        customerPhone = tempPhone.trim()
+                        showCustomerDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("Save", color = Color(0xFF022C1A), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomerDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 3.dp,
+                color = Color(0xFF0A0D14),
+                shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.statusBarsPadding()) {
-                    // Top App Bar
+                    // Tactical Top Bar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -406,36 +504,53 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { viewModel.navigateBack() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                             }
                             Column {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "⚡ TACTICAL POS REGISTER",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Surface(
+                                        color = Color(0xFF10B981).copy(alpha = 0.18f),
+                                        border = BorderStroke(0.8.dp, Color(0xFF10B981)),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "LIVE",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color(0xFF10B981),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                                 Text(
-                                    text = "⚡ Quick Billing POS",
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "${allItems.size} items ready • Tap to Bill",
+                                    text = "${allItems.size} items in catalog • 1-Tap Fast Billing",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color(0xFF94A3B8)
                                 )
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             // Barcode Scanner button
                             IconButton(
                                 onClick = { showBarcodeDialog = true },
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), CircleShape)
+                                    .size(36.dp)
+                                    .background(Color(0xFF121620), CircleShape)
+                                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), CircleShape)
                             ) {
                                 Icon(
                                     Icons.Default.QrCodeScanner,
                                     contentDescription = "Scan barcode",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
@@ -443,17 +558,19 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                             OutlinedButton(
                                 onClick = { isDetailedGstMode = true },
                                 shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF121620)),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {
-                                Icon(Icons.Default.TableView, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.TableView, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(13.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("GST Table", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("GST Table", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
 
-                    // Search & Voice Field
+                    // Tactical Search & Voice Field
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -463,15 +580,15 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search products, barcodes, sizes...", fontSize = 13.sp) },
+                            placeholder = { Text("Search products, barcodes, sizes...", fontSize = 13.sp, color = Color(0xFF64748B)) },
                             leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF10B981))
                             },
                             trailingIcon = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (searchQuery.isNotEmpty()) {
                                         IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                                         }
                                     }
                                     IconButton(
@@ -485,52 +602,74 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {
-                                        Icon(Icons.Default.Mic, contentDescription = "Voice", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Mic, contentDescription = "Voice", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
                                     }
                                 }
                             },
                             singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFF0E131C),
+                                unfocusedContainerColor = Color(0xFF0E131C),
+                                focusedBorderColor = Color(0xFF10B981),
+                                unfocusedBorderColor = Color(0xFF1E2638),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // Category Filter Pills
+                    // Tactical Category Filter Pills matching mockup
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         items(distinctCategories) { cat ->
                             val isSelected = selectedCategory.equals(cat, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { selectedCategory = cat },
-                                label = {
+                            val catIcon = when {
+                                cat.equals("ALL", ignoreCase = true) -> "📦"
+                                cat.contains("Plumb", true) -> "💧"
+                                cat.contains("Elect", true) -> "⚡"
+                                cat.contains("Paint", true) -> "🎨"
+                                cat.contains("Tool", true) -> "🛠️"
+                                cat.contains("Hardware", true) -> "🔩"
+                                cat.contains("Sanitary", true) -> "🚿"
+                                else -> "🏷️"
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) Color(0xFF10B981) else Color(0xFF10141E),
+                                border = BorderStroke(1.dp, if (isSelected) Color(0xFF10B981) else Color(0xFF1E2638)),
+                                modifier = Modifier.clickable { selectedCategory = cat }
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(text = catIcon, fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = cat,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                                        color = if (isSelected) Color(0xFF022C1A) else Color(0xFF94A3B8)
                                     )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(16.dp)
-                            )
+                                }
+                            }
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    HorizontalDivider(color = Color(0xFF1E2638))
                 }
             }
         },
         bottomBar = {
-            // Express Bottom Cart Dock
+            // Tactical Express Bottom Cart Dock matching Mockup
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 16.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                color = Color(0xFF080C14),
+                shadowElevation = 20.dp,
+                border = BorderStroke(1.dp, Color(0xFF1E2638)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
@@ -540,120 +679,162 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    // Summary Dock Bar
+                    // Quick Action Row: Discount, Customer, Clear Cart
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showCartDrawer = true }
-                            .padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = CircleShape,
-                                modifier = Modifier.size(36.dp)
+                        // Discount Badge Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF121620),
+                            border = BorderStroke(0.8.dp, if (discount > 0) Color(0xFF10B981) else Color(0xFF1E2638)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showDiscountDialog = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.ShoppingCart,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "${cartItems.size} ITEMS",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = " (${totalCartQty.toInt()} pcs)",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
                                 Text(
-                                    text = "TOTAL: ₹${String.format(Locale.US, "%.2f", grandTotal)}",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = if (discount > 0) "🏷️ -₹${discount.toInt()}" else "🏷️ Discount",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (discount > 0) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                    maxLines = 1
                                 )
                             }
                         }
 
-                        TextButton(onClick = { showCartDrawer = true }) {
-                            Text("View Cart ⌃", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        // Customer Badge Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF121620),
+                            border = BorderStroke(0.8.dp, if (customerName != "Cash Customer") Color(0xFF10B981) else Color(0xFF1E2638)),
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .clickable { showCustomerDialog = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "👤 ${customerName.take(12)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (customerName != "Cash Customer") Color(0xFF10B981) else Color(0xFF94A3B8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Clear Cart Button
+                        if (cartItems.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF1F1216),
+                                border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                                modifier = Modifier.clickable { cartItems.clear() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color(0xFFEF4444), modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("CLEAR", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
+                                }
+                            }
                         }
                     }
 
-                    // 1-Tap Checkout Buttons: Cash & UPI
+                    // Tactical Split Checkout Dock
+                    // Tactical Split Checkout Dock matching mockup
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = {
-                                if (cartItems.isEmpty()) {
-                                    viewModel.showToast("Please add items to cart first!")
-                                } else {
-                                    showCashCheckoutDialog = true
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)), // Deep teal
-                            shape = RoundedCornerShape(10.dp),
+                        Column(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
+                                .clickable { showCartDrawer = true }
+                                .padding(horizontal = 4.dp)
                         ) {
-                            Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("₹ CASH", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = "SUBTOTAL: ₹${String.format(Locale.US, "%.2f", cartSubtotal)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "TAX: ₹${String.format(Locale.US, "%.2f", taxAmount)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF94A3B8)
+                            )
                         }
 
-                        Button(
-                            onClick = {
-                                if (cartItems.isEmpty()) {
-                                    viewModel.showToast("Please add items to cart first!")
-                                } else {
-                                    showUpiCheckoutDialog = true
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // View Cart Mini Tag
+                            Surface(
+                                color = Color(0xFF121620),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                                modifier = Modifier.clickable { showCartDrawer = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("${cartItems.size}", fontWeight = FontWeight.Black, fontSize = 12.sp, color = Color.White)
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)), // Vibrant UPI blue
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                        ) {
-                            Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("₹ UPI", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
+                            }
 
-                        Button(
-                            onClick = {
-                                if (cartItems.isEmpty()) {
-                                    viewModel.showToast("Please add items to cart first!")
-                                } else {
-                                    finalizeAndSaveBill("Receipt")
-                                    showThermalDialog = true
+                            // Full Glowing Emerald Checkout Button matching mockup
+                            Button(
+                                onClick = {
+                                    if (cartItems.isEmpty()) {
+                                        viewModel.showToast("Please add items to cart first!")
+                                    } else {
+                                        showCashCheckoutDialog = true
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF10B981),
+                                    contentColor = Color(0xFF022C1A)
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .height(46.dp)
+                                    .padding(start = 4.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "CHECKOUT - ₹${String.format(Locale.US, "%.2f", grandTotal)}",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Text(
+                                        text = "${cartItems.size} Items →",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        color = Color(0xFF022C1A).copy(alpha = 0.85f)
+                                    )
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1.1f)
-                                .height(44.dp)
-                        ) {
-                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("PRINT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -688,10 +869,10 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 155.dp),
-                    contentPadding = PaddingValues(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredItems, key = { it.id }) { dbItem ->
@@ -699,28 +880,49 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         val inCartQty = cartEntry?.qty ?: 0.0
 
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (inCartQty > 0) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                                else MaterialTheme.colorScheme.surface
+                                containerColor = if (inCartQty > 0) Color(0xFF072116) else Color(0xFF0E131C)
                             ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = if (inCartQty > 0) 4.dp else 1.5.dp),
-                            border = if (inCartQty > 0) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                            else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            border = if (inCartQty > 0) BorderStroke(1.5.dp, Color(0xFF10B981))
+                            else BorderStroke(1.dp, Color(0xFF1E2638)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    addItemToCart(dbItem)
-                                }
+                                .clickable { addItemToCart(dbItem) }
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                // Product Image or Category Icon
+                            Column(modifier = Modifier.padding(6.dp)) {
+                                // Top Header Row: SKU tag & Cart multiplier badge
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "#${dbItem.code.ifBlank { dbItem.id.takeLast(4) }}",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF64748B),
+                                        maxLines = 1
+                                    )
+                                    if (inCartQty > 0) {
+                                        Text(
+                                            text = "x${inCartQty.toInt()}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color(0xFF10B981)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                // Product Image or Category Icon Box
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(85.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                                        .height(72.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF141923)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (!dbItem.imageUrl.isNullOrBlank()) {
@@ -741,52 +943,56 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                     dbItem.type.contains("Hardware", true) -> "🔩"
                                                     else -> "📦"
                                                 },
-                                                fontSize = 28.sp
+                                                fontSize = 24.sp
                                             )
                                             Text(
-                                                text = dbItem.type.ifBlank { "General" },
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                text = dbItem.type.ifBlank { "General" }.uppercase(),
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFF64748B),
+                                                letterSpacing = 0.5.sp
                                             )
                                         }
                                     }
 
-                                    // Stock badge at top-right
+                                    // Tactical Stock Fraction Badge at top-right
                                     Surface(
-                                        color = if (dbItem.qty > 0) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) else Color(0xFFFEE2E2),
+                                        color = if (dbItem.qty > 0) Color(0xFF000000).copy(alpha = 0.85f) else Color(0xFF3B0707),
                                         shape = RoundedCornerShape(4.dp),
+                                        border = BorderStroke(0.6.dp, if (dbItem.qty > 0) Color(0xFF10B981) else Color(0xFFEF4444)),
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(4.dp)
                                     ) {
                                         Text(
-                                            text = if (dbItem.qty > 0) "${dbItem.qty.toInt()} ${dbItem.unit}" else "Out of stock",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (dbItem.qty > 0) MaterialTheme.colorScheme.onSurface else Color(0xFFB91C1C),
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            text = if (dbItem.qty > 0) "🟢 ${dbItem.qty.toInt()} ${dbItem.unit}" else "🔴 0 OUT",
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = if (dbItem.qty > 0) Color(0xFF10B981) else Color(0xFFFCA5A5),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
                                 // Product Name
                                 Text(
                                     text = dbItem.name,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 2,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = Color(0xFFF3F4F6)
                                 )
 
-                                if (dbItem.size.isNotBlank()) {
+                                if (dbItem.size.isNotBlank() || dbItem.code.isNotBlank()) {
                                     Text(
-                                        text = dbItem.size,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = listOf(dbItem.size, dbItem.code).filter { it.isNotBlank() }.joinToString(" • "),
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF94A3B8),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
 
@@ -800,7 +1006,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 ) {
                                     Column(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(4.dp))
                                             .clickable {
                                                 val entry = cartItems.find { it.item.id == dbItem.id }
                                                 if (entry != null) {
@@ -811,71 +1017,77 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                     showCustomQtyDialogFor = newEntry
                                                 }
                                             }
-                                            .padding(2.dp)
+                                            .padding(1.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = String.format(Locale.US, "₹%.2f", dbItem.price),
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(3.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Edit,
-                                                contentDescription = "Edit Price",
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                        }
+                                        Text(
+                                            text = "₹${String.format(Locale.US, "%.2f", dbItem.price)}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color(0xFF10B981),
+                                            letterSpacing = 0.3.sp
+                                        )
                                         if (dbItem.cost > 0.0) {
                                             Text(
-                                                text = "Cost: ₹${dbItem.cost.toInt()}",
-                                                fontSize = 10.sp,
-                                                color = Color(0xFFB45309),
+                                                text = "Cost ₹${dbItem.cost.toInt()}",
+                                                fontSize = 9.sp,
+                                                color = Color(0xFFF59E0B),
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
                                     }
 
-                                    // Interactive Tap Counter / Incrementer
+                                    // Tactical Stepper: [-] [qty] [+] or [+ ADD]
                                     if (inCartQty > 0) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            shape = RoundedCornerShape(20.dp),
-                                            modifier = Modifier.clickable {
-                                                if (cartEntry != null) {
-                                                    showCustomQtyDialogFor = cartEntry
-                                                }
-                                            }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .background(Color(0xFF0F172A), RoundedCornerShape(6.dp))
+                                                .border(1.dp, Color(0xFF10B981), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 2.dp, vertical = 1.dp)
                                         ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clickable { decrementItemInCart(dbItem) },
+                                                contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                                Spacer(modifier = Modifier.width(3.dp))
-                                                Text(
-                                                    text = "${inCartQty.toInt()}",
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = 12.sp,
-                                                    color = Color.White
-                                                )
+                                                Icon(Icons.Default.Remove, contentDescription = "Decrement", tint = Color.White, modifier = Modifier.size(12.dp))
+                                            }
+                                            Text(
+                                                text = "${inCartQty.toInt()}",
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF10B981),
+                                                modifier = Modifier
+                                                    .clickable {
+                                                        if (cartEntry != null) showCustomQtyDialogFor = cartEntry
+                                                    }
+                                                    .padding(horizontal = 4.dp)
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clickable { addItemToCart(dbItem) },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = "Increment", tint = Color.White, modifier = Modifier.size(12.dp))
                                             }
                                         }
                                     } else {
                                         Surface(
-                                            color = MaterialTheme.colorScheme.surfaceVariant,
-                                            shape = CircleShape,
-                                            modifier = Modifier.size(32.dp)
+                                            color = Color(0xFF10B981),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier
+                                                .height(26.dp)
+                                                .clickable { addItemToCart(dbItem) }
                                         ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    Icons.Default.Add,
-                                                    contentDescription = "Add to cart",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFF022C1A), modifier = Modifier.size(12.dp))
+                                                Spacer(modifier = Modifier.width(2.dp))
+                                                Text("ADD", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF022C1A))
                                             }
                                         }
                                     }
@@ -1394,15 +1606,15 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         listOf(5, 10, 20, 50).forEach { num ->
                             OutlinedButton(
                                 onClick = {
-                                    val cur = customQtyText.trim().toDoubleOrNull() ?: 0.0
+                                    val cur = customQtyText.replace("₹", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
                                     val next = cur + num
                                     customQtyText = if (next % 1.0 == 0.0) next.toLong().toString() else next.toString()
                                 },
                                 modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp)
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
-                                Text("+$num", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text("+$num", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
                             }
                         }
                     }
@@ -1498,8 +1710,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        val q = customQtyText.trim().toDoubleOrNull() ?: 1.0
-                        val p = customPriceText.trim().toDoubleOrNull() ?: target.customPrice
+                        val q = customQtyText.replace("₹", "").replace(",", "").trim().toDoubleOrNull() ?: 1.0
+                        val p = customPriceText.replace("₹", "").replace(",", "").trim().toDoubleOrNull() ?: target.customPrice
                         val idx = cartItems.indexOfFirst { it.item.id == target.item.id }
                         if (idx >= 0) {
                             if (q > 0) {

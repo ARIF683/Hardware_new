@@ -5,8 +5,11 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -86,7 +89,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -219,169 +225,219 @@ fun ItemsScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header Top Bar matching third mockup image
+            // Tactical Header Top Bar matching mockup
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .background(Color(0xFF0A0D14))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(
-                    onClick = {
-                        if (isInGroup) {
-                            viewModel.selectedGroup.value = null
-                        } else {
-                            viewModel.navigateTo(NavigationTab.HOME)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = {
+                            if (isInGroup) {
+                                viewModel.selectedGroup.value = null
+                            } else {
+                                viewModel.navigateTo(NavigationTab.HOME)
+                            }
                         }
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close to Home", tint = Color.White)
                     }
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close to Home")
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = if (isInGroup) (selectedGroup ?: "GROUP").uppercase() else "INVENTORY & STOCKS",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White,
+                                letterSpacing = 0.5.sp
+                            )
+                            Surface(
+                                color = Color(0xFF10B981).copy(alpha = 0.18f),
+                                border = BorderStroke(0.8.dp, Color(0xFF10B981)),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "${allItemsList.size} SKUS",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF10B981),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Catalog Valuation & SKU Quantities",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
                 }
 
-                Text(
-                    text = if (isInGroup) selectedGroup ?: "Group" else "Items",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 1
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Quick + Add Button matching reference UI
-                    IconButton(
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Tactical + Add Button
+                    Button(
                         onClick = { onOpenItemForm(null) },
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(32.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF10B981),
+                            contentColor = Color(0xFF022C1A)
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Item",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.Add, contentDescription = "Add Item", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("ADD SKU", fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
 
                     Box {
                         var showMenu by remember { mutableStateOf(false) }
                         IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.MoreHoriz, contentDescription = "More options", tint = MaterialTheme.colorScheme.onSurface)
+                            Icon(Icons.Default.MoreHoriz, contentDescription = "More options", tint = Color.White)
                         }
-                        androidx.compose.material3.DropdownMenu(
+                        DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
-                            androidx.compose.material3.DropdownMenuItem(
+                            DropdownMenuItem(
                                 text = { Text(if (itemsViewLayout == "list") "Switch to 2-Column Grid" else "Switch to List View") },
                                 onClick = {
                                     showMenu = false
                                     viewModel.setItemsViewLayout(if (itemsViewLayout == "list") "grid" else "list")
                                 },
-                                leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = Color(0xFF10B981)) }
                             )
-                            androidx.compose.material3.DropdownMenuItem(
+                            DropdownMenuItem(
                                 text = { Text("Color tint import") },
                                 onClick = {
                                     showMenu = false
                                     showColorMachineDialog = true
                                 },
-                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = Color(0xFF10B981)) }
                             )
-                            androidx.compose.material3.DropdownMenuItem(
+                            DropdownMenuItem(
                                 text = { Text("Camera / Scan Bill") },
                                 onClick = {
                                     showMenu = false
                                     viewModel.openBillFlow()
                                 },
-                                leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF10B981)) }
                             )
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("🏷️ NFC Shelf & Bin Radar") },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.openNfcShelfBinManager()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Category, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                            )
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("🏪 Supplier Price Comparison") },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.openSupplierPriceComparison()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                            )
+
                         }
                     }
                 }
             }
 
-            // Search Bar with Filter Icon beside it matching reference mockup
+            // Tactical Search Bar with Filter Icon
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .background(Color(0xFF0A0D14))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.searchQuery.value = it },
-                    placeholder = { Text("Search products...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name, SKU, or type to search...")
-                                    }
-                                    try {
-                                        speechRecognizerLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        viewModel.showToast("Voice recognition not available")
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
+                // Compact Tactical Search Input Box (Height 42.dp matched with filter button)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF0E131C),
+                    border = BorderStroke(1.dp, if (searchQuery.isNotEmpty()) Color(0xFF10B981) else Color(0xFF1E2638)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(42.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Search products, SKU, brands...",
+                                    fontSize = 12.5.sp,
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1
+                                )
                             }
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.searchQuery.value = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.searchQuery.value = it },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                cursorBrush = SolidColor(Color(0xFF10B981)),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // Voice Search Button
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name, SKU, or type to search...")
                                 }
+                                try {
+                                    speechRecognizerLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    viewModel.showToast("Voice recognition not available")
+                                }
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                        }
+
+                        // Clear Button
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { viewModel.searchQuery.value = "" },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(15.dp))
                             }
                         }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
+                    }
+                }
 
-                // Filter button beside search bar with DropdownMenu for Sort, Group, and In Stock
+                // Tactical Filter button (Height 42.dp matched with search box)
                 Box {
                     var showFilterMenu by remember { mutableStateOf(false) }
                     Surface(
                         onClick = { showFilterMenu = true },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(54.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF121620),
+                        border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                        modifier = Modifier.size(42.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 Icons.Default.Tune,
                                 contentDescription = "Filter",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -395,7 +451,7 @@ fun ItemsScreen(
                                 showFilterMenu = false
                                 showSortDialog = true
                             },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, tint = Color(0xFF10B981)) }
                         )
                         DropdownMenuItem(
                             text = { Text("Group by...") },
@@ -403,7 +459,7 @@ fun ItemsScreen(
                                 showFilterMenu = false
                                 showGroupByDialog = true
                             },
-                            leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = Color(0xFF10B981)) }
                         )
                         DropdownMenuItem(
                             text = { Text(if (inStockOnly) "Show All Stock" else "In Stock Only") },
@@ -411,13 +467,13 @@ fun ItemsScreen(
                                 showFilterMenu = false
                                 viewModel.inStockOnly.value = !inStockOnly
                             },
-                            leadingIcon = { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                            leadingIcon = { Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF10B981)) }
                         )
                     }
                 }
             }
 
-            // Category Chips Row matching third mockup image
+            // Tactical Category Pills
             val categories = remember(allItemsList) {
                 listOf("All") + allItemsList.map { it.type.ifBlank { it.brand } }.filter { it.isNotBlank() }.distinct().sorted()
             }
@@ -425,16 +481,19 @@ fun ItemsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(Color(0xFF0A0D14))
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 for (cat in categories) {
                     val isSelected = if (cat == "All") selectedGroup == null && searchQuery.isEmpty() else selectedGroup == cat || searchQuery.equals(cat, true)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) Color(0xFF10B981) else Color(0xFF121620),
+                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF10B981) else Color(0xFF1E2638)),
+                        modifier = Modifier.clickable {
                             if (cat == "All") {
                                 viewModel.selectedGroup.value = null
                                 viewModel.searchQuery.value = ""
@@ -442,15 +501,19 @@ fun ItemsScreen(
                                 viewModel.groupBy.value = "type"
                                 viewModel.selectedGroup.value = cat
                             }
-                        },
-                        label = { Text(cat) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                        }
+                    ) {
+                        Text(
+                            text = cat,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
+                            color = if (isSelected) Color(0xFF022C1A) else Color(0xFF94A3B8),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
-                    )
+                    }
                 }
             }
+            HorizontalDivider(color = Color(0xFF1E2638))
 
             // Main List View
             if (groupBy != "none" && !isInGroup) {
@@ -820,30 +883,24 @@ fun ItemShowcaseListCard(
     onClick: () -> Unit
 ) {
     val isLow = item.qty < 0 || (item.low > 0 && item.qty <= item.low)
-    val isInStock = item.qty > 0 && !isLow
+    val isOutOfStock = item.qty <= 0
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .combinedClickable(
                 onClick = {
-                    if (isSelectionMode) {
-                        onToggleSelect()
-                    } else {
-                        onClick()
-                    }
+                    if (isSelectionMode) onToggleSelect() else onClick()
                 },
-                onLongClick = {
-                    onToggleSelect()
-                }
+                onLongClick = { onToggleSelect() }
             ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) Color(0xFF072116) else Color(0xFF0E131C)
         ),
-        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.2.dp, MaterialTheme.colorScheme.outline),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFF10B981))
+        else BorderStroke(1.dp, Color(0xFF1E2638))
     ) {
         Row(
             modifier = Modifier
@@ -851,12 +908,13 @@ fun ItemShowcaseListCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Thumbnail image with selection checkbox overlay
+            // Left: Thumbnail image or category icon in tactical dark box
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF141923))
+                    .border(0.8.dp, Color(0xFF1E2638), RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (!item.imageUrl.isNullOrBlank()) {
@@ -867,18 +925,24 @@ fun ItemShowcaseListCard(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "ITEM").take(6).uppercase(),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 10.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            text = when {
+                                item.type.contains("Plumb", true) -> "💧"
+                                item.type.contains("Elect", true) -> "⚡"
+                                item.type.contains("Paint", true) -> "🎨"
+                                item.type.contains("Tool", true) -> "🛠️"
+                                item.type.contains("Hardware", true) -> "🔩"
+                                else -> "📦"
+                            },
+                            fontSize = 22.sp
+                        )
+                        Text(
+                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "SKU").take(5).uppercase(),
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF64748B),
+                            fontSize = 8.sp,
+                            letterSpacing = 0.5.sp
                         )
                     }
                 }
@@ -887,116 +951,121 @@ fun ItemShowcaseListCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.35f)),
+                            .background(Color.Black.copy(alpha = 0.5f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Checkbox(
                             checked = isSelected,
                             onCheckedChange = { onToggleSelect() },
-                            colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-            // Center: Title, Brand/Category subtitle, and Price & Stock metrics row
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                // Top row with Item Name and Status Badge
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                }
-
-                // Subtitle: Brand • Category • Size
-                val subtitleParts = listOfNotNull(
-                    item.type.takeIf { it.isNotBlank() },
-                    item.brand.takeIf { it.isNotBlank() },
-                    item.size.takeIf { it.isNotBlank() }
+            // Center Column: SKU, Title, Stock Health Progress Bar, and Location
+            Column(modifier = Modifier.weight(1f)) {
+                // Top SKU line matching mockup
+                Text(
+                    text = "SKU: ${item.code.ifBlank { item.id.takeLast(5) }}",
+                    fontSize = 10.sp,
+                    color = Color(0xFF64748B),
+                    fontWeight = FontWeight.Medium
                 )
-                val subtitleText = if (subtitleParts.isNotEmpty()) subtitleParts.joinToString(" • ") else "General hardware"
 
                 Text(
-                    text = subtitleText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = item.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    color = Color(0xFFF3F4F6)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Bottom metrics: Cost, Selling Price, and Quantity
+                // Tactical Stock Progress Bar & QTY
+                val maxStockRef = (if (item.low > 0) item.low * 4.0 else 50.0).coerceAtLeast(10.0)
+                val progressFraction = (item.qty / maxStockRef).toFloat().coerceIn(0f, 1f)
+                val stockColor = when {
+                    isOutOfStock -> Color(0xFFEF4444)
+                    isLow -> Color(0xFFF59E0B)
+                    else -> Color(0xFF10B981)
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (item.cost > 0.0) {
-                            Column {
-                                Text(
-                                    text = "Cost",
-                                    fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = StockViewModel.formatRupees(item.cost),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Column {
-                            Text(
-                                text = "Selling",
-                                fontSize = 9.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = StockViewModel.formatRupees(item.price),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    // Stock Quantity counter
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                    ) {
-                        val qtyStr = if (item.qty % 1.0 == 0.0) item.qty.toLong().toString() else "%.1f".format(item.qty)
-                        val unitStr = if (item.unit != "pcs" && item.unit.isNotBlank()) " ${item.unit}" else ""
-                        Text(
-                            text = "Stock: $qtyStr$unitStr",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    Text(
+                        text = "QTY: ${item.qty.toInt()} ${if (isOutOfStock) "🔴" else if (isLow) "🟡" else "🟢"} ${item.qty.toInt()}/${maxStockRef.toInt()}",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8)
+                    )
                 }
+
+                Spacer(modifier = Modifier.height(3.dp))
+
+                // Full Width Linear indicator
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF1F2937))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(if (isOutOfStock) 0.05f else progressFraction.coerceAtLeast(0.08f))
+                            .height(3.5.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(stockColor)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Category tag at bottom left and location on bottom right
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = (item.type.takeIf { it.isNotBlank() } ?: "GEAR").uppercase(),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF64748B)
+                    )
+                    Text(
+                        text = if (item.brand.isNotBlank()) "Loc: ${item.brand.take(10)}" else "Aisle 4",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Right Column: Glowing Emerald Price Pill matching mockup
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, Color(0xFF10B981)),
+                modifier = Modifier.align(Alignment.CenterVertically)
+            ) {
+                Text(
+                    text = StockViewModel.formatRupees(item.price),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF10B981),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
             }
         }
     }
@@ -1012,39 +1081,32 @@ fun ItemGridCard(
     onClick: () -> Unit
 ) {
     val isLow = item.qty < 0 || (item.low > 0 && item.qty <= item.low)
+    val isOutOfStock = item.qty <= 0
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .combinedClickable(
                 onClick = {
-                    if (isSelectionMode) {
-                        onToggleSelect()
-                    } else {
-                        onClick()
-                    }
+                    if (isSelectionMode) onToggleSelect() else onClick()
                 },
-                onLongClick = {
-                    onToggleSelect()
-                }
+                onLongClick = { onToggleSelect() }
             ),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) Color(0xFF072116) else Color(0xFF0E131C)
         ),
-        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.2.dp, MaterialTheme.colorScheme.outline),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFF10B981))
+        else BorderStroke(1.dp, Color(0xFF1E2638))
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Top Image Container with Tag
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Top Image Box with Tag
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(115.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .height(105.dp)
+                    .background(Color(0xFF141923))
             ) {
                 if (!item.imageUrl.isNullOrBlank()) {
                     AsyncImage(
@@ -1057,34 +1119,35 @@ fun ItemGridCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                            .background(Color(0xFF121620)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = item.brand.ifBlank { "HARDWARE" },
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "SKU").take(6).uppercase(),
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF64748B),
                             fontSize = 11.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            letterSpacing = 0.5.sp
                         )
                     }
                 }
 
-                // Category / Type / Brand Badge at top right
-                val categoryText = item.type.ifBlank { item.brand.ifBlank { "Item" } }
+                // Tactical Stock Pill at top right
+                val stockPillBg = if (isOutOfStock) Color(0xFFEF4444) else if (isLow) Color(0xFFF59E0B) else Color(0xFF10B981)
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                    color = Color.Black.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(8.dp)
+                        .padding(6.dp),
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(0.6.dp, stockPillBg)
                 ) {
                     Text(
-                        text = categoryText,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        text = if (isOutOfStock) "OUT" else "${item.qty.toInt()} ${item.unit}",
+                        color = stockPillBg,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
 
@@ -1097,7 +1160,7 @@ fun ItemGridCard(
                         Checkbox(
                             checked = isSelected,
                             onCheckedChange = { onToggleSelect() },
-                            colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
                         )
                     }
                 }
@@ -1107,15 +1170,15 @@ fun ItemGridCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(10.dp)
             ) {
                 Text(
                     text = item.name,
-                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 12.5.sp,
                     maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = Color(0xFFF3F4F6)
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1126,62 +1189,24 @@ fun ItemGridCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(
-                            text = "Selling Price",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(1.dp))
+                    Column {
                         Text(
                             text = StockViewModel.formatRupees(item.price),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF10B981),
+                            letterSpacing = 0.3.sp
                         )
                     }
 
                     if (item.cost > 0.0) {
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            modifier = Modifier.padding(start = 4.dp)
-                        ) {
-                            Text(
-                                text = "Cost",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(1.dp))
-                            Text(
-                                text = StockViewModel.formatRupees(item.cost),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = "Cost ₹${item.cost.toInt()}",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFF59E0B)
+                        )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Stock Badge
-                val stockBg = if (isLow) DangerRed.copy(alpha = 0.15f) else SuccessGreen.copy(alpha = 0.15f)
-                val stockColor = if (isLow) DangerRed else SuccessGreen
-                val qtyStr = if (item.qty % 1.0 == 0.0) item.qty.toLong().toString() else "%.1f".format(item.qty)
-                val unitStr = if (item.unit != "pcs" && item.unit.isNotBlank()) " ${item.unit}" else ""
-                Surface(
-                    color = stockBg,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = "In stock: $qtyStr$unitStr",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = stockColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
                 }
             }
         }

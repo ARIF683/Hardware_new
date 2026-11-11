@@ -13,7 +13,6 @@ import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
 import com.example.data.model.GstBillRecord
-import com.example.data.model.SupplierPurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
 
@@ -27,10 +26,9 @@ import com.example.data.model.TransactionRecord
         LedgerEntry::class,
         DailyCashflowRecord::class,
         ColorTintLog::class,
-        GstBillRecord::class,
-        SupplierPurchaseRecord::class
+        GstBillRecord::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,7 +40,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dailyCashflowDao(): DailyCashflowDao
     abstract fun colorTintDao(): ColorTintDao
     abstract fun gstBillDao(): GstBillDao
-    abstract fun supplierPurchaseDao(): SupplierPurchaseDao
 
     companion object {
         @Volatile

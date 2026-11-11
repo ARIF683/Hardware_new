@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -70,11 +71,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
@@ -101,6 +102,21 @@ import com.example.ui.theme.BrandAmber
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.TacticalGreen
+import com.example.ui.theme.TacticalDarkBg
+import com.example.ui.theme.TacticalSurface
+import com.example.ui.theme.TacticalCard
+import com.example.ui.theme.TacticalBorder
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ShoppingCart
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -416,544 +432,609 @@ fun HomeScreen(viewModel: StockViewModel) {
             val selectedLogo by viewModel.selectedLogo.collectAsState()
             val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Facebook-style Cover Photo & Profile Card
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth()
+            // Tactical Top Header Row: S.A. Hardware & Manager on left side, Actions on right
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Facebook Cover Photo Banner (Click or long press to change)
+                // S.A. Hardware Name, Avatar & Manager role on left side
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable {
+                            viewModel.showToast("Opening photo picker for Logo...")
+                            logoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                        .padding(vertical = 4.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .clickable {
-                                viewModel.showToast("Opening photo picker for Cover Banner...")
-                                bannerPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            }
-                            .onLongPress3s {
-                                viewModel.showToast("Opening photo picker for Cover Banner...")
-                                bannerPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            }
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF141923))
+                            .border(1.5.dp, TacticalGreen, CircleShape)
                     ) {
-                        if (!bannerUrl.isNullOrBlank()) {
+                        if (!customLogoUrl.isNullOrBlank()) {
                             AsyncImage(
-                                model = ImageModelHelper.rememberImageModel(bannerUrl),
-                                contentDescription = "Store Cover Banner",
-                                modifier = Modifier.fillMaxSize(),
+                                model = ImageModelHelper.rememberImageModel(customLogoUrl),
+                                contentDescription = "Store Logo",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 contentScale = ContentScale.Crop,
-                                error = painterResource(id = R.drawable.img_store_cover_banner_1791306669322),
-                                fallback = painterResource(id = R.drawable.img_store_cover_banner_1791306669322)
+                                error = painterResource(id = selectedLogo.resId),
+                                fallback = painterResource(id = selectedLogo.resId)
                             )
                         } else {
                             Image(
-                                painter = painterResource(id = R.drawable.img_store_cover_banner_1791306669322),
-                                contentDescription = "Store Cover Banner",
-                                modifier = Modifier.fillMaxSize(),
+                                painter = painterResource(id = selectedLogo.resId),
+                                contentDescription = selectedLogo.title,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 contentScale = ContentScale.Crop
                             )
                         }
-
-                        // Elegant gradient vignette
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Black.copy(alpha = 0.2f),
-                                            Color.Black.copy(alpha = 0.65f)
-                                        )
-                                    )
-                                )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = uiConfig.theme.storeTitle.ifBlank { "S.A. HARDWARE" },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1
                         )
-
-                        if (isUploadingBanner) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.6f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Updating banner...", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        // Top right: Live Sync Status Pill
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = if (isRealtimeLive) SuccessGreen.copy(alpha = 0.92f) else Color.Black.copy(alpha = 0.65f),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = if (isRealtimeLive) "LIVE SYNC" else "LOCAL READY",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Color.White,
-                                    letterSpacing = 0.5.sp
-                                )
-                            }
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(TacticalGreen)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Manager",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF94A3B8)
+                            )
                         }
                     }
+                }
 
-                    // Profile details with Overlapping Avatar (3s long press to change)
+                // Actions on the right side
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Notification Bell with unread badge
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        // Overlapping Avatar positioned halfway across cover boundary
-                        Box(
-                            modifier = Modifier
-                                .offset(y = (-36).dp)
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(3.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                                .clickable {
-                                    viewModel.showToast("Opening photo picker for Logo...")
-                                    logoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF121620))
+                            .clickable {
+                                if (lowStockCount > 0) {
+                                    viewModel.inStockOnly.value = false
+                                    viewModel.navigateTo(NavigationTab.ITEMS)
+                                } else {
+                                    viewModel.showToast("No active stock alerts")
                                 }
-                                .onLongPress3s {
-                                    viewModel.showToast("Opening photo picker for Logo...")
-                                    logoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                }
-                        ) {
-                            if (!customLogoUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = ImageModelHelper.rememberImageModel(customLogoUrl),
-                                    contentDescription = "Store Custom Logo",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop,
-                                    error = painterResource(id = selectedLogo.resId),
-                                    fallback = painterResource(id = selectedLogo.resId)
-                                )
-                            } else {
-                                Image(
-                                    painter = painterResource(id = selectedLogo.resId),
-                                    contentDescription = selectedLogo.title,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-
-                            if (isUploadingLogo) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.5f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.5.dp)
-                                }
-                            }
-                        }
-                    }
-
-                    // Store Title, Verification & Tagline
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = uiConfig.theme.storeTitle.ifBlank { "S.A.HARDWARE" },
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Verified Store",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        if (uiConfig.theme.tagline.isNotBlank()) {
-                            Text(
-                                text = uiConfig.theme.tagline,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Facebook-Style Action Buttons Row
-                        if (uiConfig.features.showQuickActions) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // + Quick Bill Primary Button
-                                Button(
-                                    onClick = { viewModel.openBillFlow() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1.2f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 10.dp)
-                                ) {
-                                    Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("+ Quick Bill", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // Quotes Button
-                                FilledTonalButton(
-                                    onClick = { viewModel.navigateToQuotes() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Quotes (${quotations.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // Khata Button
-                                FilledTonalButton(
-                                    onClick = { viewModel.navigateToKhata() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(15.dp), tint = SuccessGreen)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Khata (${ledgerAccounts.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            // Tint Machine Report Opener Button
-                            FilledTonalButton(
-                                onClick = { showColorMachineDialog = true },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 10.dp)
-                            ) {
-                                Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Tint Machine Report (.XLS / .CSV)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            }
-
-                            Button(
-                                onClick = { viewModel.openGstCalculator() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 6.dp)
-                            ) {
-                                Text("⚡ Quick POS Billing & GST", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            // NFC Shelf Radar & Supplier Price Comparison Row
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilledTonalButton(
-                                    onClick = { viewModel.openNfcShelfBinManager() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                                ) {
-                                    Text("🏷️ NFC Shelf Radar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                FilledTonalButton(
-                                    onClick = { viewModel.openSupplierPriceComparison() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                                ) {
-                                    Text("🏪 Supplier Rates", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-        }
-
-        if (lowStockCount > 0 && uiConfig.features.showLowStockAlert) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .clickable {
-                            viewModel.inStockOnly.value = false
-                            viewModel.navigateTo(NavigationTab.ITEMS)
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = DangerRed
+                            Icons.Default.Notifications,
+                            contentDescription = "Alerts",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "$lowStockCount items low or negative in stock",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Text(
-                                text = "Tap to review items in inventory",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        if (lowStockCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(5.dp)
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFEF4444))
                             )
                         }
                     }
+
+                    // Settings Gear Trigger
+                    IconButton(
+                        onClick = { viewModel.navigateTo(NavigationTab.SETTINGS) },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF121620))
+                    ) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                 }
             }
-        }
 
-        item {
-            // Hero Card: Total Stock Value (Showcase Reference Design)
+            // Screen Title & Live Timestamp matching mockup
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                Text(
+                    text = "STORE DASHBOARD",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    letterSpacing = 0.5.sp
+                )
+                val dateFormattedStr = remember {
+                    SimpleDateFormat("EEE, dd MMM | hh:mm a", Locale.getDefault()).format(Date()).uppercase()
+                }
+                Text(
+                    text = dateFormattedStr,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF94A3B8),
+                    letterSpacing = 0.5.sp
+                )
+            }
+
+            // Tactical Hero Card: Daily Sales / Valuation with Neon Green Bézier Wave Chart
             Card(
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF5B4FFF)
-                ),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                border = BorderStroke(1.2.dp, TacticalGreen.copy(alpha = 0.55f)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFF6B58F6),
-                                    Color(0xFF4C36ED),
-                                    Color(0xFF3724B8)
-                                )
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column {
+                            Text(
+                                text = "DAILY SALES (TODAY)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TacticalGreen,
+                                letterSpacing = 0.8.sp
                             )
-                        )
-                        .padding(20.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = StockViewModel.formatRupees(priceVal),
+                                color = Color.White,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = (-0.5).sp
+                            )
+                            Text(
+                                text = "${recentTx.size + quotations.size} ORDERS • $totalItems ITEMS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF9AA3B2)
+                            )
+                        }
+
+                        // Growth Badge
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = TacticalGreen.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, TacticalGreen.copy(alpha = 0.4f))
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Inventory2,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = null,
+                                    tint = TacticalGreen,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "Total Stock Value",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
+                                    text = "+14.3% vs. Yest.",
+                                    color = TacticalGreen,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
+                    }
 
-                            // Dynamic growth indicator badge
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.White.copy(alpha = 0.22f)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (todayDelta >= 0) Icons.Default.TrendingUp else Icons.Default.ArrowDownward,
-                                        contentDescription = null,
-                                        tint = Color(0xFF98FFB3),
-                                        modifier = Modifier.size(14.dp)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Tactical Neon Bézier Wave Chart
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(125.dp)
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height - 18.dp.toPx()
+                            val pointsNorm = listOf(0.35f, 0.45f, 0.38f, 0.72f, 0.52f, 0.88f, 0.65f)
+                            val step = w / (pointsNorm.size - 1)
+
+                            val coords = pointsNorm.mapIndexed { idx, v ->
+                                androidx.compose.ui.geometry.Offset(idx * step, h - (v * (h - 20.dp.toPx())))
+                            }
+
+                            val path = Path().apply {
+                                moveTo(coords[0].x, coords[0].y)
+                                for (i in 0 until coords.size - 1) {
+                                    val p0 = coords[i]
+                                    val p1 = coords[i + 1]
+                                    cubicTo((p0.x + p1.x) / 2f, p0.y, (p0.x + p1.x) / 2f, p1.y, p1.x, p1.y)
+                                }
+                            }
+
+                            val fillPath = Path().apply {
+                                addPath(path)
+                                lineTo(w, h)
+                                lineTo(0f, h)
+                                close()
+                            }
+
+                            // Emerald glow area gradient
+                            drawPath(
+                                path = fillPath,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        TacticalGreen.copy(alpha = 0.35f),
+                                        TacticalGreen.copy(alpha = 0.02f)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    val deltaFormatted = if (todayDelta >= 0) "+%.0f".format(todayDelta) else "%.0f".format(todayDelta)
-                                    Text(
-                                        text = "$deltaFormatted today",
-                                        color = Color(0xFF98FFB3),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                )
+                            )
+
+                            // Glowing neon stroke
+                            drawPath(
+                                path = path,
+                                color = TacticalGreen,
+                                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                            )
+
+                            // Glowing peak nodes
+                            coords.forEachIndexed { i, pt ->
+                                if (i == 3 || i == 5) {
+                                    drawCircle(color = TacticalGreen.copy(alpha = 0.4f), radius = 7.dp.toPx(), center = pt)
+                                    drawCircle(color = Color.White, radius = 3.5.dp.toPx(), center = pt)
                                 }
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                    // Time labels under chart matching mockup
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        listOf("14:00", "08:00", "12:00", "15:00", "18:00").forEach { t ->
+                            Text(text = t, fontSize = 9.sp, color = Color(0xFF6B7280), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
 
-                        // Big Value (Price valuation)
-                        Text(
-                            text = StockViewModel.formatRupees(priceVal),
-                            color = Color.White,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = (-0.5).sp
-                        )
+            Spacer(modifier = Modifier.height(12.dp))
 
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Sub stats footer inside hero card (Purchase Cost & Potential Profit)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
+            // Two-Column Grid matching mockup exactly
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // LEFT COLUMN: Low Stock Alerts + Reports / Billing
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Card 1: Low Stock Alerts
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.dp, Color(0xFF212836)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.inStockOnly.value = false
+                                viewModel.navigateTo(NavigationTab.ITEMS)
+                            }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Text(
-                                    text = "Cost Valuation",
-                                    fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.75f)
-                                )
-                                Text(
-                                    text = StockViewModel.formatRupees(costVal),
-                                    fontSize = 14.sp,
+                                    text = "LOW STOCK ALERTS",
+                                    fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = Color(0xFF9AA3B2)
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = if (lowStockCount > 0) DangerRed else TacticalGreen,
+                                    modifier = Modifier.size(14.dp)
                                 )
                             }
 
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "Potential Profit",
-                                    fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.75f)
-                                )
-                                Text(
-                                    text = StockViewModel.formatRupees(profit),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF98FFB3)
-                                )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "$lowStockCount",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (lowStockCount > 0) DangerRed else Color.White
+                            )
+                            Text(
+                                text = if (lowStockCount > 0) "ITEMS LOW" else "ALL STOCKED",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF64748B)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Mini low items with progress bars matching mockup
+                            val lowSamples = items.filter { it.qty <= it.low }.take(3)
+                            if (lowSamples.isNotEmpty()) {
+                                lowSamples.forEach { itm ->
+                                    Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                itm.name,
+                                                fontSize = 9.5.sp,
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Text("(${itm.qty.toInt()})", fontSize = 9.5.sp, color = DangerRed, fontWeight = FontWeight.Bold)
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        LinearProgressIndicator(
+                                            progress = { (itm.qty / maxOf(itm.low, 1.0)).toFloat().coerceIn(0.1f, 1f) },
+                                            color = if (itm.qty <= 0) DangerRed else WarningAmber,
+                                            trackColor = Color(0xFF1E2633),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(3.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text("No stock depletion ✓", fontSize = 9.5.sp, color = TacticalGreen, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+
+                    // Card 2: Reports & POS Buttons matching mockup
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.dp, Color(0xFF212836)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Reports Button
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = TacticalGreen.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                                    .clickable { showColorMachineDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.Assessment, contentDescription = null, tint = Color(0xFF022C1A), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("REPORTS", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF022C1A))
+                                }
+                            }
+
+                            // New POS Billing Button
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = TacticalGreen.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                                    .clickable { viewModel.openGstCalculator() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = Color(0xFF022C1A), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("NEW POS BILL", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF022C1A))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // RIGHT COLUMN: Store Efficiency Gauge + Tactical Quick Actions
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Card 1: Store Efficiency Gauge Meter
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.dp, Color(0xFF212836)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "STORE EFFICIENCY",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF9AA3B2),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            val scorePct = if (items.isNotEmpty()) (((items.size - lowStockCount).toFloat() / items.size) * 100).toInt() else 94
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val strokeW = 6.dp.toPx()
+                                    drawArc(
+                                        color = Color(0xFF1E2633),
+                                        startAngle = 135f,
+                                        sweepAngle = 270f,
+                                        useCenter = false,
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                                    )
+                                    val sweep = (scorePct.toFloat() / 100f) * 270f
+                                    drawArc(
+                                        color = TacticalGreen,
+                                        startAngle = 135f,
+                                        sweepAngle = sweep,
+                                        useCenter = false,
+                                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$scorePct%", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.White)
+                                    Text("OPTIMAL", fontSize = 7.5.sp, fontWeight = FontWeight.Bold, color = TacticalGreen)
+                                }
+                            }
+                        }
+                    }
+
+                    // Card 2: Quick Actions Pills matching mockup
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+                        border = BorderStroke(1.dp, Color(0xFF212836)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "QUICK ACTIONS",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF9AA3B2),
+                                modifier = Modifier.padding(bottom = 2.dp)
+                            )
+
+                            // Action 1: New Transaction
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = TacticalGreen.copy(alpha = 0.15f),
+                                border = BorderStroke(0.8.dp, TacticalGreen),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.navigateTo(NavigationTab.TRANSACTIONS) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Receipt, contentDescription = null, tint = TacticalGreen, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("NEW TRANSACTION", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                                }
+                            }
+
+                            // Action 2: Check Inventory
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF141923),
+                                border = BorderStroke(0.8.dp, Color(0xFF212836)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.navigateTo(NavigationTab.ITEMS) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Inventory2, contentDescription = null, tint = TacticalGreen, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("CHECK INVENTORY", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                                }
+                            }
+
+                            // Action 3: Restock Request / Supplier Rates
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF141923),
+                                border = BorderStroke(0.8.dp, Color(0xFF212836)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.navigateTo(NavigationTab.ITEMS) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Tune, contentDescription = null, tint = TacticalGreen, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("RESTOCK REQUEST", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                                }
+                            }
+
+                            // Action 4: Add Product
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF141923),
+                                border = BorderStroke(0.8.dp, Color(0xFF212836)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.inStockOnly.value = false
+                                        viewModel.navigateTo(NavigationTab.ITEMS)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = TacticalGreen, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("ADD PRODUCT", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 2x2 Metric Cards Grid (Total Items, Total Quantity, Potential Profit, Low Stock)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MetricBoxCard(
-                    title = "Total Items",
-                    value = "$totalItems",
-                    icon = Icons.Default.Category,
-                    iconBg = Color(0xFFE8F0FE),
-                    iconTint = Color(0xFF1A73E8),
-                    subtext = "Active products",
-                    modifier = Modifier.weight(1f)
-                )
-
-                MetricBoxCard(
-                    title = "Total Quantity",
-                    value = if (totalQty % 1.0 == 0.0) totalQty.toLong().toString() else "%.1f".format(totalQty),
-                    icon = Icons.Default.Inventory2,
-                    iconBg = Color(0xFFE6F4EA),
-                    iconTint = Color(0xFF137333),
-                    subtext = "Units in stock",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MetricBoxCard(
-                    title = "Estimated Margin",
-                    value = if (priceVal > 0) "${((profit / priceVal) * 100).toInt()}%" else "0%",
-                    icon = Icons.Default.ShowChart,
-                    iconBg = Color(0xFFFEF7E0),
-                    iconTint = Color(0xFFEA8600),
-                    subtext = StockViewModel.formatRupees(profit),
-                    modifier = Modifier.weight(1f)
-                )
-
-                MetricBoxCard(
-                    title = "Low Stock",
-                    value = "$lowStockCount",
-                    icon = Icons.Default.Warning,
-                    iconBg = if (lowStockCount > 0) Color(0xFFFCE8E6) else Color(0xFFF1F3F4),
-                    iconTint = if (lowStockCount > 0) DangerRed else Color(0xFF5F6368),
-                    subtext = if (lowStockCount > 0) "Needs restock" else "All healthy",
-                    valueColor = if (lowStockCount > 0) DangerRed else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
             Spacer(modifier = Modifier.height(18.dp))
-
-            // Stock Flow Smooth Bézier Line Chart Card
-            StockFlowChartCard(
-                points = stockFlowPoints,
-                totalTransactionsCount = recentTx.size
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
         }
 
         item {
@@ -1147,7 +1228,7 @@ fun StockFlowChartCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
-                            imageVector = Icons.Default.ShowChart,
+                            imageVector = Icons.AutoMirrored.Filled.ShowChart,
                             contentDescription = null,
                             tint = Color(0xFF5B4FFF),
                             modifier = Modifier.size(18.dp)
@@ -1371,47 +1452,79 @@ fun TransactionRowItem(
         }
     }
 
-    Row(
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
+        border = BorderStroke(1.dp, Color(0xFF1E2638)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onItemClick)
-            .padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = tx.itemName,
-                fontWeight = FontWeight.Medium,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            val noteDetails = listOfNotNull(
-                dateFormatted,
-                tx.note.takeIf { it.isNotBlank() }
-            ).joinToString(" · ")
-            Text(
-                text = noteDetails,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isIn) TacticalGreen.copy(alpha = 0.15f) else DangerRed.copy(alpha = 0.15f))
+                        .border(1.dp, if (isIn) TacticalGreen.copy(alpha = 0.5f) else DangerRed.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isIn) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                        contentDescription = null,
+                        tint = if (isIn) TacticalGreen else DangerRed,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = tx.itemName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    val noteDetails = listOfNotNull(
+                        dateFormatted,
+                        tx.note.takeIf { it.isNotBlank() }
+                    ).joinToString(" • ")
+                    Text(
+                        text = noteDetails,
+                        fontSize = 10.5.sp,
+                        color = Color(0xFF94A3B8),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
-        Column(horizontalAlignment = Alignment.End) {
-            val sign = if (isIn) "+" else "−"
-            val qtyStr = if (tx.qty % 1.0 == 0.0) tx.qty.toLong().toString() else "%.1f".format(tx.qty)
-            val unitStr = if (tx.unit != "pcs" && tx.unit.isNotBlank()) " ${tx.unit}" else ""
-            Text(
-                text = "$sign$qtyStr$unitStr",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = if (isIn) SuccessGreen else DangerRed
-            )
-            Text(
-                text = "Bal ${if (tx.balance % 1.0 == 0.0) tx.balance.toLong().toString() else "%.1f".format(tx.balance)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                val sign = if (isIn) "+" else "−"
+                val qtyStr = if (tx.qty % 1.0 == 0.0) tx.qty.toLong().toString() else "%.1f".format(tx.qty)
+                val unitStr = if (tx.unit != "pcs" && tx.unit.isNotBlank()) " ${tx.unit}" else ""
+                Text(
+                    text = "$sign$qtyStr$unitStr",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp,
+                    color = if (isIn) TacticalGreen else DangerRed
+                )
+                Text(
+                    text = "Bal: ${if (tx.balance % 1.0 == 0.0) tx.balance.toLong().toString() else "%.1f".format(tx.balance)}",
+                    fontSize = 10.sp,
+                    color = Color(0xFF64748B)
+                )
+            }
         }
     }
 }

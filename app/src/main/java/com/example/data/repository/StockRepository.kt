@@ -13,7 +13,6 @@ import com.example.data.model.PurchaseLine
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
-import com.example.data.model.SupplierPurchaseRecord
 import com.example.data.remote.SupabaseClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -76,23 +75,7 @@ class StockRepository(
 
     suspend fun getAllItemsList(): List<Item> = database.itemDao().getAllItemsList()
 
-    val allSupplierPurchases: Flow<List<SupplierPurchaseRecord>> = database.supplierPurchaseDao().getAllPurchases()
 
-    fun getPurchasesForItem(itemId: String): Flow<List<SupplierPurchaseRecord>> {
-        return database.supplierPurchaseDao().getPurchasesForItem(itemId)
-    }
-
-    suspend fun recordSupplierPurchase(record: SupplierPurchaseRecord) = withContext(Dispatchers.IO) {
-        database.supplierPurchaseDao().insert(record)
-    }
-
-    suspend fun recordSupplierPurchases(records: List<SupplierPurchaseRecord>) = withContext(Dispatchers.IO) {
-        database.supplierPurchaseDao().insertAll(records)
-    }
-
-    suspend fun deleteSupplierPurchase(id: String) = withContext(Dispatchers.IO) {
-        database.supplierPurchaseDao().deletePurchase(id)
-    }
 
     suspend fun updateItem(item: Item) = withContext(Dispatchers.IO) {
         database.itemDao().insert(item)

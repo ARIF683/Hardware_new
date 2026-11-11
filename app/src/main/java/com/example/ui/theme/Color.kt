@@ -46,3 +46,11 @@ val LightCard = Color(0xFFFFFFFF)
 val LightBorder = Color(0xFF000000)
 val LightText = Color(0xFF000000)
 val LightMuted = Color(0xFF262626)
+
+val TacticalGreen = Color(0xFF10B981)
+val TacticalGreenDark = Color(0xFF059669)
+val TacticalDarkBg = Color(0xFF000000)
+val TacticalSurface = Color(0xFF121212)
+val TacticalCard = Color(0xFF1A1A1A)
+val TacticalBorder = Color(0xFF262626)
+

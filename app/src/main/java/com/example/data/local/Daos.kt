@@ -238,29 +238,4 @@ interface GstBillDao {
     suspend fun deleteAll()
 }
 
-@Dao
-interface SupplierPurchaseDao {
-    @Query("SELECT * FROM supplier_purchases ORDER BY purchase_date DESC, id DESC")
-    fun getAllPurchases(): Flow<List<com.example.data.model.SupplierPurchaseRecord>>
 
-    @Query("SELECT * FROM supplier_purchases ORDER BY purchase_date DESC, id DESC")
-    suspend fun getAllPurchasesList(): List<com.example.data.model.SupplierPurchaseRecord>
-
-    @Query("SELECT * FROM supplier_purchases WHERE item_id = :itemId ORDER BY rate ASC, purchase_date DESC")
-    fun getPurchasesForItem(itemId: String): Flow<List<com.example.data.model.SupplierPurchaseRecord>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(record: com.example.data.model.SupplierPurchaseRecord)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(records: List<com.example.data.model.SupplierPurchaseRecord>)
-
-    @Query("DELETE FROM supplier_purchases WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM supplier_purchases WHERE id = :id")
-    suspend fun deletePurchase(id: String)
-
-    @Query("DELETE FROM supplier_purchases")
-    suspend fun deleteAll()
-}

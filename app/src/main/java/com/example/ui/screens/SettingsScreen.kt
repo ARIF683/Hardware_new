@@ -411,6 +411,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.height(14.dp))
                 val customThemeColor by viewModel.customThemeColor.collectAsState()
                 val presetColors = listOf(
+                    Pair("Tactical Emerald", "#10B981"),
                     Pair("iOS Blue", "#007AFF"),
                     Pair("iOS Indigo", "#5856D6"),
                     Pair("iOS Green", "#34C759"),
