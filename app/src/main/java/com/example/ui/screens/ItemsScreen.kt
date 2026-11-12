@@ -967,13 +967,33 @@ fun ItemShowcaseListCard(
 
             // Center Column: SKU, Title, Stock Health Progress Bar, and Location
             Column(modifier = Modifier.weight(1f)) {
-                // Top SKU line matching mockup
-                Text(
-                    text = "SKU: ${item.code.ifBlank { item.id.takeLast(5) }}",
-                    fontSize = 10.sp,
-                    color = Color(0xFF64748B),
-                    fontWeight = FontWeight.Medium
-                )
+                // Top SKU line matching mockup & Size pill
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "SKU: ${item.code.ifBlank { item.id.takeLast(5) }}",
+                        fontSize = 10.sp,
+                        color = Color(0xFF64748B),
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (item.size.isNotBlank()) {
+                        Surface(
+                            color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                            border = BorderStroke(0.6.dp, Color(0xFF3B82F6)),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "Size: ${item.size}",
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF60A5FA),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
 
                 Text(
                     text = item.name,
@@ -995,13 +1015,14 @@ fun ItemShowcaseListCard(
                     else -> Color(0xFF10B981)
                 }
 
+                val formattedQty = if (item.qty % 1.0 == 0.0) item.qty.toInt().toString() else "%.1f".format(item.qty)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "QTY: ${item.qty.toInt()} ${if (isOutOfStock) "🔴" else if (isLow) "🟡" else "🟢"} ${item.qty.toInt()}/${maxStockRef.toInt()}",
+                        text = "QTY: $formattedQty ${item.unit} ${if (isOutOfStock) "🔴" else if (isLow) "🟡" else "🟢"}",
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF94A3B8)
@@ -1041,8 +1062,13 @@ fun ItemShowcaseListCard(
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF64748B)
                     )
+                    val locText = when {
+                        !item.shelfLocation.isNullOrBlank() -> "Loc: ${item.shelfLocation}"
+                        item.brand.isNotBlank() -> "Brand: ${item.brand.take(10)}"
+                        else -> "Unit: ${item.unit}"
+                    }
                     Text(
-                        text = if (item.brand.isNotBlank()) "Loc: ${item.brand.take(10)}" else "Aisle 4",
+                        text = locText,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF64748B)
@@ -1052,19 +1078,32 @@ fun ItemShowcaseListCard(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // Right Column: Glowing Emerald Price Pill matching mockup
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF10B981).copy(alpha = 0.15f),
-                border = BorderStroke(1.dp, Color(0xFF10B981)),
-                modifier = Modifier.align(Alignment.CenterVertically)
+            // Right Column: Glowing Emerald Price Pill & Cost Price with Unit
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.Center
             ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF10B981).copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, Color(0xFF10B981))
+                ) {
+                    Text(
+                        text = "${StockViewModel.formatRupees(item.price)} / ${item.unit}",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color(0xFF10B981),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
-                    text = StockViewModel.formatRupees(item.price),
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFF10B981),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    text = "Cost: ${StockViewModel.formatRupees(item.cost)} / ${item.unit}",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFF59E0B)
                 )
             }
         }
@@ -1134,6 +1173,7 @@ fun ItemGridCard(
 
                 // Tactical Stock Pill at top right
                 val stockPillBg = if (isOutOfStock) Color(0xFFEF4444) else if (isLow) Color(0xFFF59E0B) else Color(0xFF10B981)
+                val gridQtyStr = if (item.qty % 1.0 == 0.0) item.qty.toInt().toString() else "%.1f".format(item.qty)
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -1143,7 +1183,7 @@ fun ItemGridCard(
                     border = BorderStroke(0.6.dp, stockPillBg)
                 ) {
                     Text(
-                        text = if (isOutOfStock) "OUT" else "${item.qty.toInt()} ${item.unit}",
+                        text = if (isOutOfStock) "OUT" else "$gridQtyStr ${item.unit}",
                         color = stockPillBg,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
@@ -1181,32 +1221,42 @@ fun ItemGridCard(
                     color = Color(0xFFF3F4F6)
                 )
 
+                if (item.size.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                        border = BorderStroke(0.6.dp, Color(0xFF3B82F6)),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "Size: ${item.size}",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF60A5FA),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Selling Price & Cost Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
+                // Selling Price & Cost Row with Units
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
-                        Text(
-                            text = StockViewModel.formatRupees(item.price),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF10B981),
-                            letterSpacing = 0.3.sp
-                        )
-                    }
-
-                    if (item.cost > 0.0) {
-                        Text(
-                            text = "Cost ₹${item.cost.toInt()}",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFF59E0B)
-                        )
-                    }
+                    Text(
+                        text = "${StockViewModel.formatRupees(item.price)} / ${item.unit}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color(0xFF10B981),
+                        letterSpacing = 0.3.sp
+                    )
+                    Text(
+                        text = "Cost: ${StockViewModel.formatRupees(item.cost)} / ${item.unit}",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFF59E0B)
+                    )
                 }
             }
         }
