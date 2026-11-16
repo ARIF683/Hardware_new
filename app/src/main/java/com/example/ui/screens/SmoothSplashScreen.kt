@@ -36,7 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.pref.AppLogoStyle
-import com.example.ui.theme.BrandAmber
+import com.example.ui.theme.LocalExtendedColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -78,15 +78,17 @@ fun SmoothSplashScreen(
         onAnimationFinished()
     }
 
+    val ext = LocalExtendedColors.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E293B),
-                        Color(0xFF0B1120)
+                        ext.heroBannerStart,
+                        ext.heroBannerEnd,
+                        ext.heroBannerStart
                     )
                 )
             ),
@@ -107,7 +109,7 @@ fun SmoothSplashScreen(
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                BrandAmber.copy(alpha = 0.25f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                 Color.Transparent
                             )
@@ -124,7 +126,7 @@ fun SmoothSplashScreen(
                         .border(
                             width = 2.dp,
                             brush = Brush.linearGradient(
-                                listOf(BrandAmber.copy(alpha = 0.8f), MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
                             ),
                             shape = RoundedCornerShape(24.dp)
                         ),
@@ -149,7 +151,7 @@ fun SmoothSplashScreen(
                 text = "Hardware • Tools • Invoicing • Khata",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF94A3B8),
+                color = Color.White.copy(alpha = 0.72f),
                 letterSpacing = 0.5.sp,
                 modifier = Modifier.alpha(textAlpha.value)
             )

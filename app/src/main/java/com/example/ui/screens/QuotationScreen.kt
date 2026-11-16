@@ -1,13 +1,12 @@
 package com.example.ui.screens
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,24 +19,18 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -45,16 +38,16 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
-import com.example.ui.theme.SuccessGreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,28 +55,23 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,9 +81,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,8 +96,9 @@ import com.example.data.model.Item
 import com.example.data.model.QuotationLineItem
 import com.example.data.model.QuotationRecord
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandAmber
+import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -115,8 +107,10 @@ import java.util.UUID
 @Composable
 fun QuotationScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
+    val ext = LocalExtendedColors.current
     val quotations by viewModel.allQuotations.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
+    val uiConfig by viewModel.uiConfig.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedStatusFilter by remember { mutableStateOf("ALL") }
@@ -127,148 +121,379 @@ fun QuotationScreen(viewModel: StockViewModel) {
     var quotationToDelete by remember { mutableStateOf<QuotationRecord?>(null) }
     var quotationToConvert by remember { mutableStateOf<QuotationRecord?>(null) }
 
+    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }
+    val inrFormat = remember {
+        NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
+    }
+
+    val draftCount = remember(quotations) { quotations.count { it.status.equals("Draft", ignoreCase = true) } }
+    val sentCount = remember(quotations) { quotations.count { it.status.equals("Sent", ignoreCase = true) } }
+    val acceptedCount = remember(quotations) { quotations.count { it.status.equals("Accepted", ignoreCase = true) } }
+    val convertedCount = remember(quotations) { quotations.count { it.status.equals("Converted", ignoreCase = true) } }
+
     val filtered = remember(quotations, searchQuery, selectedStatusFilter) {
         quotations.filter { q ->
             val matchQuery = searchQuery.isEmpty() ||
-                    q.customerName.contains(searchQuery, ignoreCase = true) ||
-                    q.quotationNo.contains(searchQuery, ignoreCase = true) ||
-                    q.customerPhone.contains(searchQuery, ignoreCase = true)
+                q.customerName.contains(searchQuery, ignoreCase = true) ||
+                q.quotationNo.contains(searchQuery, ignoreCase = true) ||
+                q.customerPhone.contains(searchQuery, ignoreCase = true)
 
             val matchStatus = if (selectedStatusFilter == "ALL") true else q.status.equals(selectedStatusFilter, ignoreCase = true)
             matchQuery && matchStatus
         }
     }
 
-    Scaffold(
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    quotationToEdit = null
-                    showFormDialog = true
-                },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New Estimate") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            )
+    val conversionPct = remember(quotations, convertedCount) {
+        if (quotations.isEmpty()) 0 else ((convertedCount.toFloat() / quotations.size.toFloat()) * 100f).toInt()
+    }
+
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                searchQuery = spoken.trim()
+            }
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Top Bar & Search
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Estimates & Quotations",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // 1. Header Row: Estimates & Quotes + NEW button
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Estimates & Quotes",
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "${quotations.size} total quotes created",
+                            text = "${quotations.size} active records created",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        quotationToEdit = null
+                        showFormDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    modifier = Modifier
+                        .height(44.dp)
+                        .testTag("estimates_new_button")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("NEW", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+                }
+            }
+        }
 
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search by customer, quote #, phone…") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+        // 2. Search Bar
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text(
+                        text = "Search by customer, quote #, phone...",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear")
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak customer name or estimate number...")
+                                }
+                                try {
+                                    voiceSearchLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    viewModel.showToast("Voice input unavailable")
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Voice search estimates",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("estimates_search_input"),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                ),
+                singleLine = true
+            )
+        }
+
+        // 3. Status Filter Chips Row
+        item {
+            val filterSpecs = listOf(
+                Triple("ALL", null, quotations.size),
+                Triple("Draft", ext.warning, draftCount),
+                Triple("Sent", MaterialTheme.colorScheme.primary, sentCount),
+                Triple("Accepted", ext.positive, acceptedCount),
+                Triple("Converted", ext.info, convertedCount)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(filterSpecs) { (statusKey, dotColor, count) ->
+                    val isSelected = selectedStatusFilter == statusKey
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        ),
+                        modifier = Modifier
+                            .height(44.dp)
+                            .clip(CircleShape)
+                            .clickable { selectedStatusFilter = statusKey }
+                            .testTag("estimates_filter_${statusKey.lowercase()}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        ) {
+                            if (dotColor != null && !isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(dotColor)
+                                )
+                            }
+                            Text(
+                                text = statusKey,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
+                            if (count > 0 && statusKey != "ALL") {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isSelected) Color.White.copy(alpha = 0.24f) else MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = "$count",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    )
+                                }
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Status Filter Chips
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val filters = listOf("ALL", "Draft", "Sent", "Accepted", "Converted")
-                    items(filters) { f ->
-                        FilterChip(
-                            selected = selectedStatusFilter == f,
-                            onClick = { selectedStatusFilter = f },
-                            label = { Text(f) }
-                        )
                     }
                 }
             }
+        }
 
-            if (filtered.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+        // 4. Estimates List or Empty State
+        if (filtered.isEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ReceiptLong,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.size(64.dp)
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ReceiptLong,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (quotations.isEmpty()) "No estimates created yet.\nTap '+ New Estimate' to create one." else "No matching estimates found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            text = if (quotations.isEmpty()) "No estimates created yet" else "No matching estimates found",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (quotations.isEmpty()) "Create customer estimates and convert them directly to GST bills or sales." else "Try adjusting your search or filter selection.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        if (quotations.isEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = {
+                                    quotationToEdit = null
+                                    showFormDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(44.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Create First Estimate", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            }
+        } else {
+            items(filtered, key = { it.id }) { quote ->
+                QuotationCard(
+                    quotation = quote,
+                    inrFormat = inrFormat,
+                    onEdit = {
+                        quotationToEdit = quote
+                        showFormDialog = true
+                    },
+                    onDelete = { quotationToDelete = quote },
+                    onConvertToSale = { quotationToConvert = quote },
+                    onStatusChange = { newStatus ->
+                        viewModel.updateQuotationStatus(quote, newStatus)
+                    },
+                    onPrintPdf = {
+                        val pdf = InvoicePrintManager.createQuotationPdf(context, quote, storeName = storeTitle)
+                        InvoicePrintManager.printPdf(context, pdf, "Quote_${quote.quotationNo}")
+                    },
+                    onSharePdf = {
+                        val pdf = InvoicePrintManager.createQuotationPdf(context, quote, storeName = storeTitle)
+                        InvoicePrintManager.sharePdf(context, pdf, "Estimate #${quote.quotationNo}")
+                    },
+                    onThermalPrint = { thermalPrintTarget = quote }
+                )
+            }
+        }
+
+        // 5. Quotations Conversion Rate Summary Card
+        if (quotations.isNotEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(filtered, key = { it.id }) { quote ->
-                        QuotationCard(
-                            quotation = quote,
-                            onEdit = {
-                                quotationToEdit = quote
-                                showFormDialog = true
-                            },
-                            onDelete = { quotationToDelete = quote },
-                            onConvertToSale = { quotationToConvert = quote },
-                            onStatusChange = { newStatus ->
-                                viewModel.updateQuotationStatus(quote, newStatus)
-                            },
-                            onPrintPdf = {
-                                val pdf = InvoicePrintManager.createQuotationPdf(context, quote)
-                                InvoicePrintManager.printPdf(context, pdf, "Quote_${quote.quotationNo}")
-                            },
-                            onSharePdf = {
-                                val pdf = InvoicePrintManager.createQuotationPdf(context, quote)
-                                InvoicePrintManager.sharePdf(context, pdf, "Estimate #${quote.quotationNo}")
-                            },
-                            onThermalPrint = { thermalPrintTarget = quote }
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Quotations Conversion Rate",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "$conversionPct% SUCCESS",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ext.positive
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LinearProgressIndicator(
+                            progress = { (conversionPct / 100f).coerceIn(0f, 1f) },
+                            color = ext.info,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(CircleShape)
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "$draftCount Draft (Pending Approval)",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$convertedCount Converted to Sale/Invoice",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
                 }
             }
         }
@@ -357,7 +582,6 @@ fun QuotationScreen(viewModel: StockViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Option 1: Convert to GST Bill
                     Button(
                         onClick = {
                             val quoteToConvert = q
@@ -372,7 +596,6 @@ fun QuotationScreen(viewModel: StockViewModel) {
                         Text("Convert to GST Tax Bill & Store", fontWeight = FontWeight.Bold)
                     }
 
-                    // Option 2: Regular Stock Sale
                     OutlinedButton(
                         onClick = {
                             viewModel.convertQuotationToSale(q)
@@ -380,7 +603,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp), tint = SuccessGreen)
+                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp), tint = ext.positive)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Regular Stock Sale (Deduct Stock)", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     }
@@ -398,6 +621,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
 @Composable
 fun QuotationCard(
     quotation: QuotationRecord,
+    inrFormat: NumberFormat,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onConvertToSale: () -> Unit,
@@ -406,23 +630,27 @@ fun QuotationCard(
     onSharePdf: () -> Unit,
     onThermalPrint: () -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     val items = remember(quotation.itemsJson) { InvoicePrintManager.parseLineItems(quotation.itemsJson) }
     var showStatusDropdown by remember { mutableStateOf(false) }
 
     val statusColor = when (quotation.status) {
-        "Converted" -> Color(0xFF9333EA)
-        "Accepted" -> Color(0xFF16A34A)
+        "Converted" -> ext.info
+        "Accepted" -> ext.positive
         "Sent" -> MaterialTheme.colorScheme.primary
-        else -> BrandAmber
+        else -> ext.warning
     }
 
-    ElevatedCard(
+    Surface(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("estimate_card_${quotation.quotationNo}")
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Quote # & Top Status Pill
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Header Row: Quote # Pill, Date & Interactive Status Dropdown
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -430,54 +658,58 @@ fun QuotationCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        color = ext.info.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "#${quotation.quotationNo}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            color = ext.info,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = quotation.date,
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 Box {
                     Surface(
-                        color = statusColor.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.45f)),
-                        modifier = Modifier.clickable { showStatusDropdown = true }
+                        color = statusColor.copy(alpha = 0.14f),
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .height(32.dp)
+                            .clip(CircleShape)
+                            .clickable { showStatusDropdown = true }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(7.dp)
                                     .background(statusColor, CircleShape)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = quotation.status,
+                                text = quotation.status.uppercase(),
                                 color = statusColor,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 10.5.sp,
+                                letterSpacing = 0.4.sp
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
                             Icon(
                                 Icons.Default.ArrowDropDown,
                                 contentDescription = "Change Status",
                                 tint = statusColor,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -488,10 +720,10 @@ fun QuotationCard(
                     ) {
                         listOf("Draft", "Sent", "Accepted", "Converted").forEach { s ->
                             val sColor = when (s) {
-                                "Converted" -> Color(0xFF9333EA)
-                                "Accepted" -> Color(0xFF16A34A)
+                                "Converted" -> ext.info
+                                "Accepted" -> ext.positive
                                 "Sent" -> MaterialTheme.colorScheme.primary
-                                else -> BrandAmber
+                                else -> ext.warning
                             }
                             val isCurrent = quotation.status.equals(s, ignoreCase = true)
                             DropdownMenuItem(
@@ -536,59 +768,91 @@ fun QuotationCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Customer Info & Grand Total
+            // Middle Row: Customer Info on left & Grand Total inset card on right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = quotation.customerName,
-                        fontWeight = FontWeight.Bold,
+                        text = quotation.customerName.uppercase(),
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (quotation.customerPhone.isNotEmpty()) {
+                    if (quotation.customerPhone.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Phone,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = quotation.customerPhone,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Inventory2,
+                            contentDescription = null,
+                            tint = ext.info,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = "📞 ${quotation.customerPhone}",
+                            text = "${items.size} item(s)",
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = FontWeight.SemiBold,
+                            color = ext.info
                         )
                     }
-                    Text(
-                        text = "${items.size} item(s)",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    if (quotation.notes.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = quotation.notes,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                    modifier = Modifier.padding(start = 8.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.padding(start = 10.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.End,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "Grand Total",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "GRAND TOTAL",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            letterSpacing = 0.5.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = String.format(Locale.US, "₹%.2f", quotation.grandTotal),
+                            text = "₹${inrFormat.format(quotation.grandTotal)}",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = ext.info
                         )
                     }
                 }
@@ -596,58 +860,112 @@ fun QuotationCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Buttons Row
+            // Bottom Action Row: 5 icon tiles + Convert to Sale button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onPrintPdf, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Print, contentDescription = "Print A4 PDF", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onThermalPrint, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = "Thermal Print", tint = BrandAmber, modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onSharePdf, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Share, contentDescription = "Share PDF", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    EstimateActionIconTile(
+                        icon = Icons.Default.Print,
+                        contentDescription = "Print A4 PDF",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onPrintPdf
+                    )
+                    EstimateActionIconTile(
+                        icon = Icons.Default.ContentCopy,
+                        contentDescription = "Thermal Print",
+                        tint = ext.warning,
+                        onClick = onThermalPrint
+                    )
+                    EstimateActionIconTile(
+                        icon = Icons.Default.Share,
+                        contentDescription = "Share PDF",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onSharePdf
+                    )
+                    EstimateActionIconTile(
+                        icon = Icons.Default.Edit,
+                        contentDescription = "Edit Estimate",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onEdit
+                    )
+                    EstimateActionIconTile(
+                        icon = Icons.Default.Delete,
+                        contentDescription = "Delete Estimate",
+                        tint = ext.danger,
+                        onClick = onDelete
+                    )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 if (quotation.status != "Converted") {
                     Button(
                         onClick = onConvertToSale,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ext.positive,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(42.dp)
                     ) {
-                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Convert to Sale", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Convert to Sale", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
                 } else {
                     Surface(
-                        color = Color(0xFF9333EA).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Color(0xFF9333EA).copy(alpha = 0.4f))
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.height(42.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Converted to Sale", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ext.info, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Converted",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EstimateActionIconTile(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(17.dp)
+            )
         }
     }
 }
@@ -660,6 +978,7 @@ fun QuotationFormDialog(
     onDismiss: () -> Unit,
     onSave: (QuotationRecord) -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
     val nextQuoteNo = remember { "EST-" + (1000..9999).random().toString() }
 
@@ -811,10 +1130,10 @@ fun QuotationFormDialog(
                                 listOf("Draft", "Sent", "Accepted", "Converted").forEach { s ->
                                     val isSelected = status.equals(s, ignoreCase = true)
                                     val chipColor = when (s) {
-                                        "Converted" -> Color(0xFF9333EA)
-                                        "Accepted" -> Color(0xFF16A34A)
+                                        "Converted" -> ext.purple
+                                        "Accepted" -> ext.positive
                                         "Sent" -> MaterialTheme.colorScheme.primary
-                                        else -> BrandAmber
+                                        else -> ext.warning
                                     }
                                     Surface(
                                         color = if (isSelected) chipColor else chipColor.copy(alpha = 0.08f),
@@ -949,7 +1268,7 @@ fun QuotationFormDialog(
                                                 if (effectiveCost > 0.0) {
                                                     Text(
                                                         "• Cost: ₹${String.format(Locale.US, "%.2f", effectiveCost)}",
-                                                        color = Color(0xFFB45309),
+                                                        color = ext.warning,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                 }
@@ -1025,8 +1344,8 @@ fun QuotationFormDialog(
                                  if (effectiveCost > 0.0) {
                                      Surface(
                                          shape = RoundedCornerShape(6.dp),
-                                         color = Color(0xFFFEF3C7),
-                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                         color = ext.warning.copy(alpha = 0.12f),
+                                         border = androidx.compose.foundation.BorderStroke(1.dp, ext.warning.copy(alpha = 0.4f)),
                                          modifier = Modifier
                                              .fillMaxWidth()
                                              .padding(top = 6.dp)
@@ -1046,19 +1365,19 @@ fun QuotationFormDialog(
                                                      "🏷️ Cost Price: ",
                                                      fontSize = 11.sp,
                                                      fontWeight = FontWeight.Bold,
-                                                     color = Color(0xFF92400E)
+                                                     color = MaterialTheme.colorScheme.onSurface
                                                  )
                                                  Text(
                                                      "₹${String.format(Locale.US, "%.2f", effectiveCost)}",
                                                      fontSize = 12.sp,
                                                      fontWeight = FontWeight.ExtraBold,
-                                                     color = Color(0xFFB45309)
+                                                     color = ext.warning
                                                  )
                                                  if (matchedDbItem?.qty != null) {
                                                      Text(
                                                          " • In Stock: ${matchedDbItem.qty} ${matchedDbItem.unit}",
                                                          fontSize = 10.sp,
-                                                         color = Color(0xFF78350F)
+                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                      )
                                                  }
                                              }
@@ -1069,7 +1388,7 @@ fun QuotationFormDialog(
                                                  text = if (item.unitPrice <= 0.0) "Rate not set" else if (isProfit) "Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+${marginPct.toInt()}%)" else "⚠️ Below Cost by ₹${String.format(Locale.US, "%.2f", -unitMargin)}",
                                                  fontSize = 11.sp,
                                                  fontWeight = FontWeight.Bold,
-                                                 color = if (item.unitPrice <= 0.0) Color(0xFF78350F) else if (isProfit) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                                 color = if (item.unitPrice <= 0.0) MaterialTheme.colorScheme.onSurfaceVariant else if (isProfit) ext.positive else ext.danger
                                              )
                                          }
                                      }
@@ -1104,7 +1423,7 @@ fun QuotationFormDialog(
                                                          } else "⚠️ No Direct Match for \"${item.name}\"",
                                                          fontSize = 11.sp,
                                                          fontWeight = FontWeight.Bold,
-                                                         color = if (matchingItems.isNotEmpty()) MaterialTheme.colorScheme.primary else Color(0xFFB45309)
+                                                         color = if (matchingItems.isNotEmpty()) MaterialTheme.colorScheme.primary else ext.warning
                                                      )
                                                      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                          Text(
@@ -1221,15 +1540,15 @@ fun QuotationFormDialog(
                                                              // Item Cost Price badge right beside the item name!
                                                              if (matched.cost > 0.0) {
                                                                  Surface(
-                                                                     color = Color(0xFFFEF3C7),
+                                                                     color = ext.warning.copy(alpha = 0.14f),
                                                                      shape = RoundedCornerShape(4.dp),
-                                                                     border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFF59E0B))
+                                                                     border = androidx.compose.foundation.BorderStroke(0.8.dp, ext.warning.copy(alpha = 0.5f))
                                                                  ) {
                                                                      Text(
                                                                          text = "Cost: ₹${String.format(Locale.US, "%.2f", matched.cost)}",
                                                                          fontSize = 10.sp,
                                                                          fontWeight = FontWeight.ExtraBold,
-                                                                         color = Color(0xFFB45309),
+                                                                         color = ext.warning,
                                                                          modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                                                      )
                                                                  }
@@ -1262,7 +1581,7 @@ fun QuotationFormDialog(
                                                                      text = "• Margin: +₹${String.format(Locale.US, "%.0f", margin)} (+$marginPct%)",
                                                                      fontSize = 10.sp,
                                                                      fontWeight = FontWeight.Bold,
-                                                                     color = if (margin >= 0) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                                                     color = if (margin >= 0) ext.positive else ext.danger
                                                                  )
                                                              }
                                                          }
@@ -1279,7 +1598,7 @@ fun QuotationFormDialog(
                                                                  "Cost: " + String.format(Locale.US, "₹%.2f", matched.cost),
                                                                  fontWeight = FontWeight.ExtraBold,
                                                                  fontSize = 11.sp,
-                                                                 color = Color(0xFFB45309)
+                                                                 color = ext.warning
                                                              )
                                                          }
                                                      }
@@ -1332,7 +1651,7 @@ fun QuotationFormDialog(
                                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                                     labelColor = MaterialTheme.colorScheme.onSurface,
                                                     selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                                    selectedLabelColor = androidx.compose.ui.graphics.Color.White
+                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                                                 )
                                             )
                                         }
@@ -1458,7 +1777,7 @@ fun QuotationFormDialog(
                                             text = if (pct == "0") "0%" else "$pct%",
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                         )
                                     }
@@ -1508,7 +1827,7 @@ fun QuotationFormDialog(
                                     "Est. Cost: ₹${String.format(Locale.US, "%.2f", totalEstimateCost)} • Margin: ${if (isPositive) "+" else "-"}₹${String.format(Locale.US, "%.2f", kotlin.math.abs(totalEstimateProfit))}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isPositive) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                    color = if (isPositive) ext.positive else ext.danger
                                 )
                             }
                             if (taxAmount > 0) Text("Tax ($taxPercent%): +₹${String.format(Locale.US, "%.2f", taxAmount)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

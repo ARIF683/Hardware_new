@@ -26,15 +26,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import com.example.R
 import androidx.compose.ui.text.font.FontWeight
@@ -69,7 +72,6 @@ import com.example.ui.components.InputPromptDialog
 import com.example.ui.screens.AuthGateScreen
 import com.example.ui.screens.BillScreen
 import com.example.ui.screens.HomeScreen
-import androidx.compose.material.icons.filled.ReceiptLong
 import com.example.ui.screens.BillingHubScreen
 import com.example.ui.screens.ItemDetailScreen
 import com.example.ui.screens.ItemFormDialog
@@ -161,6 +163,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
     var itemForForm by remember { mutableStateOf<Item?>(null) }
     var showItemForm by remember { mutableStateOf(false) }
     var itemForTransaction by remember { mutableStateOf<Item?>(null) }
+    var transactionInitialAction by remember { mutableStateOf("in") }
     var showTransactionDialog by remember { mutableStateOf(false) }
     var showAdminPinDialog by remember { mutableStateOf(false) }
 
@@ -196,8 +199,8 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
     BackHandler(enabled = isAuthed) {
         val handled = viewModel.navigateBack()
-        if (!handled && currentTab != NavigationTab.ITEMS) {
-            viewModel.navigateTo(NavigationTab.ITEMS)
+        if (!handled && currentTab != NavigationTab.HOME) {
+            viewModel.navigateTo(NavigationTab.HOME)
         }
     }
 
@@ -208,35 +211,62 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
     val navBarStyle by viewModel.navBarStyle.collectAsState()
 
+    data class NavTabSpec(
+        val tab: NavigationTab,
+        val label: String,
+        val selectedIcon: ImageVector,
+        val unselectedIcon: ImageVector
+    )
+
     Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-                bottomBar = {
+        bottomBar = {
             if (currentScreen is CurrentScreen.Main) {
                 val inSelectionMode = currentTab == NavigationTab.ITEMS && isSelectionMode && selectedItemIds.isNotEmpty()
                 if (!inSelectionMode) {
                     val tabs = listOf(
-                        Triple(NavigationTab.HOME, "Home", Icons.Default.Home),
-                        Triple(NavigationTab.ITEMS, "Stock", Icons.Default.Inventory2),
-                        Triple(NavigationTab.BILLING, "Billing", Icons.AutoMirrored.Filled.ReceiptLong),
-                        Triple(NavigationTab.TRANSACTIONS, "History", Icons.AutoMirrored.Filled.CompareArrows),
-                        Triple(NavigationTab.SETTINGS, "Settings", Icons.Default.Settings)
+                        NavTabSpec(
+                            tab = NavigationTab.HOME,
+                            label = "Home",
+                            selectedIcon = Icons.Filled.GridView,
+                            unselectedIcon = Icons.Outlined.GridView
+                        ),
+                        NavTabSpec(
+                            tab = NavigationTab.ITEMS,
+                            label = "Items",
+                            selectedIcon = Icons.Filled.Inventory2,
+                            unselectedIcon = Icons.Outlined.Inventory2
+                        ),
+                        NavTabSpec(
+                            tab = NavigationTab.BILLING,
+                            label = "Billing",
+                            selectedIcon = Icons.AutoMirrored.Filled.ReceiptLong,
+                            unselectedIcon = Icons.AutoMirrored.Outlined.ReceiptLong
+                        ),
+                        NavTabSpec(
+                            tab = NavigationTab.SETTINGS,
+                            label = "Settings",
+                            selectedIcon = Icons.Filled.Settings,
+                            unselectedIcon = Icons.Outlined.Settings
+                        )
                     )
 
                     val navBarContent: @Composable () -> Unit = {
                         NavigationBar(
-                            modifier = if (navBarStyle == "floating_pill") Modifier.padding(4.dp) else Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                            containerColor = if (navBarStyle == "floating_pill") Color.Transparent else MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                            tonalElevation = if (navBarStyle == "floating_pill") 0.dp else 8.dp
+                            modifier = if (navBarStyle == "floating_pill") Modifier.padding(4.dp) else Modifier,
+                            containerColor = if (navBarStyle == "floating_pill") Color.Transparent else MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp
                         ) {
-                            tabs.forEach { (tab, label, icon) ->
-                                val selected = currentTab == tab
+                            tabs.forEach { spec ->
+                                val selected = currentTab == spec.tab
+                                val icon = if (selected) spec.selectedIcon else spec.unselectedIcon
                                 NavigationBarItem(
                                     selected = selected,
+                                    modifier = Modifier.testTag("nav_tab_${spec.tab.name.lowercase()}"),
                                     onClick = {
-                                        if (tab == NavigationTab.SETTINGS) {
+                                        if (spec.tab == NavigationTab.SETTINGS) {
                                             val now = System.currentTimeMillis()
                                             if (now - lastGearTapTime < 600) {
                                                 gearTapCount++
@@ -254,10 +284,10 @@ fun MainAppRoot(viewModel: StockViewModel) {
                                             }
                                             lastGearTapTime = now
                                         }
-                                        viewModel.navigateTo(tab)
+                                        viewModel.navigateTo(spec.tab)
                                     },
                                     icon = {
-                                        if (tab == NavigationTab.SETTINGS && isAdmin) {
+                                        if (spec.tab == NavigationTab.SETTINGS && isAdmin) {
                                             BadgedBox(
                                                 badge = {
                                                     Badge(
@@ -266,18 +296,24 @@ fun MainAppRoot(viewModel: StockViewModel) {
                                                     )
                                                 }
                                             ) {
-                                                Icon(icon, contentDescription = label)
+                                                Icon(icon, contentDescription = spec.label)
                                             }
                                         } else {
-                                            Icon(icon, contentDescription = label)
+                                            Icon(icon, contentDescription = spec.label)
                                         }
                                     },
-                                    label = { Text(label, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium) },
+                                    label = {
+                                        Text(
+                                            text = spec.label,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                        )
+                                    },
                                     colors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = MaterialTheme.colorScheme.primary,
                                         selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        unselectedIconColor = Color(0xFF8E8E93),
-                                        unselectedTextColor = Color(0xFF8E8E93),
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         indicatorColor = Color.Transparent
                                     )
                                 )
@@ -289,20 +325,28 @@ fun MainAppRoot(viewModel: StockViewModel) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.navigationBars)
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(32.dp),
-                                tonalElevation = 12.dp,
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                tonalElevation = 6.dp,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                             ) {
                                 navBarContent()
                             }
                         }
                     } else {
-                        navBarContent()
+                        androidx.compose.foundation.layout.Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface)
+                        ) {
+                            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline)
+                            navBarContent()
+                        }
                     }
                 }
             }
@@ -322,8 +366,9 @@ fun MainAppRoot(viewModel: StockViewModel) {
                             itemForForm = it
                             showItemForm = true
                         },
-                        onOpenTransactionDialog = {
-                            itemForTransaction = it
+                        onOpenTransactionDialog = { targetItem, action ->
+                            itemForTransaction = targetItem
+                            transactionInitialAction = action
                             showTransactionDialog = true
                         }
                     )
@@ -370,10 +415,15 @@ fun MainAppRoot(viewModel: StockViewModel) {
                             onOpenItemForm = {
                                 itemForForm = it
                                 showItemForm = true
+                            },
+                            onOpenTransactionDialog = { targetItem, action ->
+                                itemForTransaction = targetItem
+                                transactionInitialAction = action
+                                showTransactionDialog = true
                             }
                         )
                         NavigationTab.BILLING -> BillingHubScreen(viewModel = viewModel)
-                        NavigationTab.TRANSACTIONS -> TransactionsScreen(viewModel = viewModel)
+                        NavigationTab.TRANSACTIONS -> TransactionsScreen(viewModel = viewModel, isEmbeddedInHub = false)
                         NavigationTab.SETTINGS -> SettingsScreen(viewModel = viewModel)
                     }
                 }
@@ -398,6 +448,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
         StockTransactionDialog(
             item = itemForTransaction!!,
             viewModel = viewModel,
+            initialAction = transactionInitialAction,
             onDismiss = {
                 showTransactionDialog = false
                 itemForTransaction = null

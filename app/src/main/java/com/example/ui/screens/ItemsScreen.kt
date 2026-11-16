@@ -4,113 +4,117 @@ import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AssignmentTurnedIn
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Warehouse
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
-import com.example.util.ImageModelHelper
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.model.Item
-import com.example.ui.GroupStat
-import com.example.ui.StockViewModel
 import com.example.ui.NavigationTab
-import com.example.ui.components.InputPromptDialog
+import com.example.ui.StockViewModel
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.components.ValuePickerDialog
-import com.example.ui.theme.DangerRed
-import com.example.ui.theme.SuccessGreen
+import com.example.ui.theme.LocalExtendedColors
+import com.example.util.ImageModelHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ItemsScreen(
     viewModel: StockViewModel,
-    onOpenItemForm: (Item?) -> Unit
+    onOpenItemForm: (Item?) -> Unit,
+    onOpenTransactionDialog: (Item, String) -> Unit = { _, _ -> }
 ) {
+    val ext = LocalExtendedColors.current
     val items by viewModel.filteredItems.collectAsState()
     val allItemsList by viewModel.allItems.collectAsState()
     val groupStats by viewModel.groupStats.collectAsState()
@@ -123,6 +127,18 @@ fun ItemsScreen(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
     val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
+    val uiConfig by viewModel.uiConfig.collectAsState()
+    val selectedLogo by viewModel.selectedLogo.collectAsState()
+    val customLogoUrl by viewModel.customLogoUrl.collectAsState()
+
+    var stockStatusFilter by remember { mutableStateOf(if (inStockOnly) "in_stock" else "all") }
+    LaunchedEffect(inStockOnly) {
+        if (inStockOnly && stockStatusFilter != "in_stock") {
+            stockStatusFilter = "in_stock"
+        } else if (!inStockOnly && stockStatusFilter == "in_stock") {
+            stockStatusFilter = "all"
+        }
+    }
 
     var showSortDialog by remember { mutableStateOf(false) }
     var showGroupByDialog by remember { mutableStateOf(false) }
@@ -130,34 +146,11 @@ fun ItemsScreen(
     var showBulkUnitDialog by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
     var showColorMachineDialog by remember { mutableStateOf(false) }
+    var showBarcodeDialog by remember { mutableStateOf(false) }
     var isUploadingBulkImage by remember { mutableStateOf(false) }
-    var scannedBillBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    val billPhotoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val bitmap = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            android.graphics.BitmapFactory.decodeStream(input)
-                        }
-                    }
-                    if (bitmap != null) {
-                        scannedBillBitmap = bitmap
-                    } else {
-                        viewModel.showToast("Could not decode image from URI")
-                    }
-                } catch (e: Exception) {
-                    viewModel.showToast("Failed to load bill image: ${e.message}")
-                }
-            }
-        }
-    }
 
     val bulkPhotoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -221,148 +214,231 @@ fun ItemsScreen(
         }
     }
 
-    val isInGroup = selectedGroup != null
+    val totalCount = allItemsList.size
+    val outOfStockCount = remember(allItemsList) { allItemsList.count { it.qty <= 0.0 } }
+    val lowOnlyCount = remember(allItemsList) { allItemsList.count { it.qty > 0.0 && it.low > 0.0 && it.qty <= it.low } }
+    val inStockCount = remember(allItemsList) { allItemsList.count { it.qty > 0.0 } }
+    val alertCount = outOfStockCount + lowOnlyCount
+    val healthPct = if (totalCount > 0) ((totalCount - alertCount).toDouble() / totalCount.toDouble()) * 100.0 else 100.0
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val displayedItems = remember(items, stockStatusFilter) {
+        when (stockStatusFilter) {
+            "low" -> items.filter { it.qty > 0.0 && it.low > 0.0 && it.qty <= it.low }
+            "out" -> items.filter { it.qty <= 0.0 }
+            "in_stock" -> items.filter { it.qty > 0.0 }
+            else -> items
+        }
+    }
+
+    val categoryEntries = remember(allItemsList) {
+        val grouped = allItemsList
+            .map { it.type.ifBlank { it.brand }.trim() }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .map { it.key to it.value }
+        listOf("All" to allItemsList.size) + grouped
+    }
+
+    val isInGroup = selectedGroup != null
+    val activeFilterCount = (if (stockStatusFilter != "all") 1 else 0) +
+        (if (groupBy != "none" && selectedGroup == null) 1 else 0) +
+        (if (selectedGroup != null) 1 else 0)
+
+    val sortLabel = when (sortOption) {
+        "n" -> "Name (A–Z)"
+        "nz" -> "Name (Z–A)"
+        "q" -> "Quantity (Hi–Lo)"
+        "p" -> "Price (Hi–Lo)"
+        "c" -> "Cost (Hi–Lo)"
+        else -> "Default Order"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Tactical Header Top Bar matching mockup
+            // 1. Top Header Bar (Matched to Home Tab & Items Mockups)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0A0D14))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(
-                        onClick = {
-                            if (isInGroup) {
-                                viewModel.selectedGroup.value = null
-                            } else {
-                                viewModel.navigateTo(NavigationTab.HOME)
-                            }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isInGroup) {
+                        IconButton(
+                            onClick = { viewModel.selectedGroup.value = null },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back to all items",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
                         }
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close to Home", tint = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warehouse,
+                                contentDescription = "Store Icon",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
                     }
 
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = if (isInGroup) (selectedGroup ?: "GROUP").uppercase() else "INVENTORY & STOCKS",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White,
-                                letterSpacing = 0.5.sp
-                            )
-                            Surface(
-                                color = Color(0xFF10B981).copy(alpha = 0.18f),
-                                border = BorderStroke(0.8.dp, Color(0xFF10B981)),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    text = "${allItemsList.size} SKUS",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Color(0xFF10B981),
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
                         Text(
-                            text = "Catalog Valuation & SKU Quantities",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            text = if (isInGroup) (selectedGroup ?: "GROUP").uppercase()
+                            else uiConfig.theme.storeTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (isInGroup) "${displayedItems.size} items in group" else "Items",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Tactical + Add Button
-                    Button(
-                        onClick = { onOpenItemForm(null) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF10B981),
-                            contentColor = Color(0xFF022C1A)
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Alert Bell Icon (tapping filters Low Stock)
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                if (alertCount > 0) {
+                                    stockStatusFilter = if (stockStatusFilter == "low") "all" else "low"
+                                    viewModel.inStockOnly.value = false
+                                } else {
+                                    viewModel.showToast("All inventory levels are healthy")
+                                }
+                            }
+                            .testTag("items_notifications_button"),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Item", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("ADD SKU", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Icon(
+                            imageVector = Icons.Outlined.Notifications,
+                            contentDescription = "Low Stock Alerts",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        if (alertCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = (-6).dp, y = 6.dp)
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(ext.danger),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (alertCount > 99) "99" else "$alertCount",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
 
-                    Box {
-                        var showMenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.MoreHoriz, contentDescription = "More options", tint = Color.White)
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
+                    // Store Profile Avatar
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable { viewModel.navigateTo(NavigationTab.SETTINGS) }
+                            .testTag("items_logo_avatar"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(if (itemsViewLayout == "list") "Switch to 2-Column Grid" else "Switch to List View") },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.setItemsViewLayout(if (itemsViewLayout == "list") "grid" else "list")
-                                },
-                                leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = Color(0xFF10B981)) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Color tint import") },
-                                onClick = {
-                                    showMenu = false
-                                    showColorMachineDialog = true
-                                },
-                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = Color(0xFF10B981)) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Camera / Scan Bill") },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.openBillFlow()
-                                },
-                                leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color(0xFF10B981)) }
-                            )
-
+                            if (!customLogoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageModelHelper.rememberImageModel(customLogoUrl),
+                                    contentDescription = "Store Profile",
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop,
+                                    error = painterResource(id = selectedLogo.resId),
+                                    fallback = painterResource(id = selectedLogo.resId)
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(id = selectedLogo.resId),
+                                    contentDescription = selectedLogo.title,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Tactical Search Bar with Filter Icon
+            // 2. Search Bar + Barcode Scanner Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0A0D14))
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Compact Tactical Search Input Box (Height 42.dp matched with filter button)
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF0E131C),
-                    border = BorderStroke(1.dp, if (searchQuery.isNotEmpty()) Color(0xFF10B981) else Color(0xFF1E2638)),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    ),
                     modifier = Modifier
                         .weight(1f)
-                        .height(42.dp)
+                        .heightIn(min = 46.dp)
                 ) {
                     Row(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 10.dp),
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.Search,
+                            imageVector = Icons.Default.Search,
                             contentDescription = null,
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(17.dp)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(19.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
@@ -371,10 +447,11 @@ fun ItemsScreen(
                         ) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Search products, SKU, brands...",
-                                    fontSize = 12.5.sp,
-                                    color = Color(0xFF64748B),
-                                    maxLines = 1
+                                    text = "Search by SKU, item, or bin...",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             BasicTextField(
@@ -382,152 +459,361 @@ fun ItemsScreen(
                                 onValueChange = { viewModel.searchQuery.value = it },
                                 singleLine = true,
                                 textStyle = TextStyle(
-                                    color = Color.White,
-                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Medium
                                 ),
-                                cursorBrush = SolidColor(Color(0xFF10B981)),
-                                modifier = Modifier.fillMaxWidth()
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("items_search_input")
                             )
                         }
-
-                        // Voice Search Button
                         IconButton(
                             onClick = {
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name, SKU, or type to search...")
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name, SKU, or type...")
                                 }
                                 try {
                                     speechRecognizerLauncher.launch(intent)
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     viewModel.showToast("Voice recognition not available")
                                 }
                             },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice search",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
-
-                        // Clear Button
                         if (searchQuery.isNotEmpty()) {
                             IconButton(
                                 onClick = { viewModel.searchQuery.value = "" },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(15.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(17.dp)
+                                )
                             }
                         }
                     }
                 }
 
-                // Tactical Filter button (Height 42.dp matched with search box)
-                Box {
-                    var showFilterMenu by remember { mutableStateOf(false) }
-                    Surface(
-                        onClick = { showFilterMenu = true },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF121620),
-                        border = BorderStroke(1.dp, Color(0xFF1E2638)),
-                        modifier = Modifier.size(42.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = "Filter",
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = showFilterMenu,
-                        onDismissRequest = { showFilterMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Sort by...") },
-                            onClick = {
-                                showFilterMenu = false
-                                showSortDialog = true
-                            },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, tint = Color(0xFF10B981)) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Group by...") },
-                            onClick = {
-                                showFilterMenu = false
-                                showGroupByDialog = true
-                            },
-                            leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = Color(0xFF10B981)) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (inStockOnly) "Show All Stock" else "In Stock Only") },
-                            onClick = {
-                                showFilterMenu = false
-                                viewModel.inStockOnly.value = !inStockOnly
-                            },
-                            leadingIcon = { Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF10B981)) }
+                // Barcode Scanner Button
+                Surface(
+                    onClick = { showBarcodeDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = if (ext.isDark) 0.16f else 0.10f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+                    modifier = Modifier
+                        .size(46.dp)
+                        .testTag("items_barcode_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Scan or Enter Barcode",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
             }
 
-            // Tactical Category Pills
-            val categories = remember(allItemsList) {
-                listOf("All") + allItemsList.map { it.type.ifBlank { it.brand } }.filter { it.isNotBlank() }.distinct().sorted()
-            }
-
+            // 3. Category Pills with Count Badges
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0A0D14))
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for (cat in categories) {
-                    val isSelected = if (cat == "All") selectedGroup == null && searchQuery.isEmpty() else selectedGroup == cat || searchQuery.equals(cat, true)
+                for ((cat, count) in categoryEntries) {
+                    val isSelected = if (cat == "All") {
+                        selectedGroup == null && groupBy == "none"
+                    } else {
+                        selectedGroup.equals(cat, ignoreCase = true)
+                    }
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) Color(0xFF10B981) else Color(0xFF121620),
-                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF10B981) else Color(0xFF1E2638)),
-                        modifier = Modifier.clickable {
+                        onClick = {
                             if (cat == "All") {
                                 viewModel.selectedGroup.value = null
-                                viewModel.searchQuery.value = ""
+                                viewModel.groupBy.value = "none"
                             } else {
                                 viewModel.groupBy.value = "type"
                                 viewModel.selectedGroup.value = cat
                             }
-                        }
+                        },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        ),
+                        modifier = Modifier.heightIn(min = 44.dp)
                     ) {
-                        Text(
-                            text = cat,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
-                            color = if (isSelected) Color(0xFF022C1A) else Color(0xFF94A3B8),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = cat,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = "$count",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
-            HorizontalDivider(color = Color(0xFF1E2638))
 
-            // Main List View
+            // 4. Filter, Sort & Clear All Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box {
+                    var showToolsMenu by remember { mutableStateOf(false) }
+                    Surface(
+                        onClick = { showToolsMenu = true },
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag("items_filters_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Filters",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (activeFilterCount > 0) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$activeFilterCount",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showToolsMenu,
+                        onDismissRequest = { showToolsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Group by...") },
+                            onClick = {
+                                showToolsMenu = false
+                                showGroupByDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (itemsViewLayout == "list") "Switch to 2-Column Grid" else "Switch to List View") },
+                            onClick = {
+                                showToolsMenu = false
+                                viewModel.setItemsViewLayout(if (itemsViewLayout == "list") "grid" else "list")
+                            },
+                            leadingIcon = { Icon(Icons.Default.Category, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Color Machine Tint Import") },
+                            onClick = {
+                                showToolsMenu = false
+                                showColorMachineDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Camera / Scan Bill") },
+                            onClick = {
+                                showToolsMenu = false
+                                viewModel.openBillFlow()
+                            },
+                            leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                        )
+                    }
+                }
+
+                Surface(
+                    onClick = { showSortDialog = true },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .heightIn(min = 44.dp)
+                        .testTag("items_sort_button")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Sort: ",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = sortLabel,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                if (searchQuery.isNotEmpty() || selectedGroup != null || groupBy != "none" || stockStatusFilter != "all" || sortOption != "o") {
+                    TextButton(
+                        onClick = {
+                            viewModel.searchQuery.value = ""
+                            viewModel.selectedGroup.value = null
+                            viewModel.groupBy.value = "none"
+                            viewModel.inStockOnly.value = false
+                            viewModel.sortOption.value = "o"
+                            stockStatusFilter = "all"
+                        },
+                        modifier = Modifier.heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("Clear", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // 5. Quick Stock Status Chips Row (All, Low Stock, In Stock, Out of Stock)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusFilterChip(
+                    label = "All",
+                    count = null,
+                    icon = null,
+                    accent = MaterialTheme.colorScheme.primary,
+                    selected = stockStatusFilter == "all",
+                    onClick = {
+                        stockStatusFilter = "all"
+                        viewModel.inStockOnly.value = false
+                    }
+                )
+                StatusFilterChip(
+                    label = "Low Stock",
+                    count = lowOnlyCount,
+                    icon = Icons.Outlined.WarningAmber,
+                    accent = ext.warning,
+                    selected = stockStatusFilter == "low",
+                    onClick = {
+                        stockStatusFilter = if (stockStatusFilter == "low") "all" else "low"
+                        viewModel.inStockOnly.value = false
+                    }
+                )
+                StatusFilterChip(
+                    label = "In Stock",
+                    count = inStockCount,
+                    icon = Icons.Default.CheckCircle,
+                    accent = ext.positive,
+                    selected = stockStatusFilter == "in_stock",
+                    onClick = {
+                        val next = if (stockStatusFilter == "in_stock") "all" else "in_stock"
+                        stockStatusFilter = next
+                        viewModel.inStockOnly.value = (next == "in_stock")
+                    }
+                )
+                StatusFilterChip(
+                    label = "Out of Stock",
+                    count = outOfStockCount,
+                    icon = Icons.Default.Block,
+                    accent = ext.danger,
+                    selected = stockStatusFilter == "out",
+                    onClick = {
+                        stockStatusFilter = if (stockStatusFilter == "out") "all" else "out"
+                        viewModel.inStockOnly.value = false
+                    }
+                )
+            }
+
+            // 6. Main List / Grid / Group Content
             if (groupBy != "none" && !isInGroup) {
-                // Group breakdown cards
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .weight(1f),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (groupStats.isEmpty()) {
-                        item {
-                            EmptyStateNotice("No items found for grouping")
-                        }
+                        item { EmptyStateNotice("No items found for grouping") }
                     } else {
                         items(groupStats) { stat ->
                             GroupStatCard(
@@ -537,30 +823,44 @@ fun ItemsScreen(
                                     viewModel.searchQuery.value = ""
                                 }
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
                 }
             } else if (itemsViewLayout == "list") {
-                // Single-Column Showcase List matching user reference image
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .weight(1f),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (items.isEmpty()) {
+                    if (allItemsList.isNotEmpty() && !isInGroup) {
                         item {
-                            EmptyStateNotice("No items found")
+                            StockHealthBannerCard(
+                                healthPct = healthPct,
+                                alertCount = alertCount,
+                                onReviewClick = {
+                                    stockStatusFilter = when {
+                                        lowOnlyCount > 0 -> "low"
+                                        outOfStockCount > 0 -> "out"
+                                        else -> "all"
+                                    }
+                                    viewModel.inStockOnly.value = false
+                                }
+                            )
                         }
+                    }
+
+                    if (displayedItems.isEmpty()) {
+                        item { EmptyStateNotice("No matching items found") }
                     } else {
-                        items(items, key = { it.id }) { item ->
+                        items(displayedItems, key = { it.id }) { item ->
                             ItemShowcaseListCard(
                                 item = item,
                                 isSelectionMode = isSelectionMode,
                                 isSelected = selectedIds.contains(item.id),
                                 onToggleSelect = { viewModel.toggleItemSelection(item.id) },
+                                onQuickAdjust = { onOpenTransactionDialog(item, "in") },
                                 onClick = {
                                     if (isSelectionMode) {
                                         viewModel.toggleItemSelection(item.id)
@@ -569,24 +869,37 @@ fun ItemsScreen(
                                     }
                                 }
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(120.dp)) }
                 }
             } else {
-                // 2-Column Grid Item list
-                val chunkedItems = items.chunked(2)
+                val chunkedItems = displayedItems.chunked(2)
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .weight(1f),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (items.isEmpty()) {
+                    if (allItemsList.isNotEmpty() && !isInGroup) {
                         item {
-                            EmptyStateNotice("No items found")
+                            StockHealthBannerCard(
+                                healthPct = healthPct,
+                                alertCount = alertCount,
+                                onReviewClick = {
+                                    stockStatusFilter = when {
+                                        lowOnlyCount > 0 -> "low"
+                                        outOfStockCount > 0 -> "out"
+                                        else -> "all"
+                                    }
+                                    viewModel.inStockOnly.value = false
+                                }
+                            )
                         }
+                    }
+
+                    if (displayedItems.isEmpty()) {
+                        item { EmptyStateNotice("No matching items found") }
                     } else {
                         items(chunkedItems) { rowItems ->
                             Row(
@@ -614,11 +927,40 @@ fun ItemsScreen(
                                     Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
-                            Spacer(modifier = Modifier.height(12.dp))
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(120.dp)) }
                 }
+            }
+        }
+
+        // Floating "+ Add New Item" Orange Pill Button (matches Dark & Light Mockups)
+        if (!(isSelectionMode && selectedIds.isNotEmpty())) {
+            Button(
+                onClick = { onOpenItemForm(null) },
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp)
+                    .heightIn(min = 50.dp)
+                    .testTag("items_add_new_fab")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Add New Item",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
@@ -633,14 +975,13 @@ fun ItemsScreen(
                 tonalElevation = 8.dp,
                 shadowElevation = 16.dp,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Header Row with count, select-all toggle, and clear button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -652,7 +993,7 @@ fun ItemsScreen(
                         ) {
                             IconButton(
                                 onClick = { viewModel.clearSelection() },
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Cancel selection")
                             }
@@ -671,7 +1012,8 @@ fun ItemsScreen(
                                 } else {
                                     viewModel.selectAllFiltered()
                                 }
-                            }
+                            },
+                            modifier = Modifier.heightIn(min = 44.dp)
                         ) {
                             Text(
                                 text = if (selectedIds.size == items.size) "Deselect All" else "Select All",
@@ -683,7 +1025,6 @@ fun ItemsScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Buttons Row using horizontalScroll so they never wrap, squish or misalign
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -691,14 +1032,14 @@ fun ItemsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Photo button
                         FilledTonalButton(
                             onClick = {
                                 bulkPhotoPickerLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            enabled = !isUploadingBulkImage
+                            enabled = !isUploadingBulkImage,
+                            modifier = Modifier.heightIn(min = 44.dp)
                         ) {
                             if (isUploadingBulkImage) {
                                 CircularProgressIndicator(
@@ -707,64 +1048,109 @@ fun ItemsScreen(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
-                                Icon(
-                                    Icons.Default.CameraAlt,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Photo", fontWeight = FontWeight.Bold)
                             }
                         }
 
-                        // Type button
-                        FilledTonalButton(onClick = { showBulkTypeDialog = true }) {
-                            Icon(
-                                Icons.Default.Category,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        FilledTonalButton(
+                            onClick = { showBulkTypeDialog = true },
+                            modifier = Modifier.heightIn(min = 44.dp)
+                        ) {
+                            Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Type", fontWeight = FontWeight.Bold)
                         }
 
-                        // Unit button
-                        FilledTonalButton(onClick = { showBulkUnitDialog = true }) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        FilledTonalButton(
+                            onClick = { showBulkUnitDialog = true },
+                            modifier = Modifier.heightIn(min = 44.dp)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Unit", fontWeight = FontWeight.Bold)
                         }
 
-                        // Delete button (Only visible in Admin mode)
                         if (isAdmin) {
                             Button(
                                 onClick = { showBulkDeleteDialog = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ext.danger,
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier.heightIn(min = 44.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Color.White
-                                )
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Delete", fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Delete", fontWeight = FontWeight.Bold)
                             }
                         }
-
-                        // Trailing spacer to prevent the last button from being cut off during horizontal scroll
-                        Spacer(modifier = Modifier.width(16.dp))
                     }
                 }
             }
         }
     }
 
-    // Sort Dialog
+    // Barcode / SKU Quick Lookup Dialog
+    if (showBarcodeDialog) {
+        var barcodeInput by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showBarcodeDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Find by Barcode or SKU", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter barcode number or SKU code to open item details:",
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = barcodeInput,
+                        onValueChange = { barcodeInput = it },
+                        placeholder = { Text("e.g. 890123456789") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = barcodeInput.trim()
+                        if (trimmed.isEmpty()) return@Button
+                        val matched = allItemsList.firstOrNull {
+                            it.barcode.equals(trimmed, ignoreCase = true) ||
+                                it.code.equals(trimmed, ignoreCase = true)
+                        }
+                        if (matched != null) {
+                            showBarcodeDialog = false
+                            viewModel.openItemDetail(matched.id)
+                        } else {
+                            viewModel.searchQuery.value = trimmed
+                            showBarcodeDialog = false
+                            viewModel.showToast("Filtering inventory for \"$trimmed\"")
+                        }
+                    }
+                ) {
+                    Text("Lookup")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBarcodeDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (showSortDialog) {
         val sortOptions = listOf(
             Pair("o", "Original order"),
@@ -787,7 +1173,6 @@ fun ItemsScreen(
         )
     }
 
-    // Group By Dialog
     if (showGroupByDialog) {
         val gbOptions = listOf(
             Pair("none", "None"),
@@ -814,7 +1199,6 @@ fun ItemsScreen(
         )
     }
 
-    // Bulk Type Dialog
     if (showBulkTypeDialog) {
         val types = allItemsList.map { it.type }.filter { it.isNotBlank() }.distinct()
             .map { Pair(it, allItemsList.count { item -> item.type == it }) }
@@ -830,7 +1214,6 @@ fun ItemsScreen(
         )
     }
 
-    // Bulk Unit Dialog
     if (showBulkUnitDialog) {
         val units = listOf("pcs", "kg", "g", "L", "ml", "box", "pack", "bag", "m", "ft", "cm", "set", "pair", "dozen", "roll", "sheet")
             .map { Pair(it, allItemsList.count { item -> item.unit == it }) }
@@ -848,7 +1231,6 @@ fun ItemsScreen(
         )
     }
 
-    // Bulk Delete Dialog
     if (showBulkDeleteDialog) {
         SimpleConfirmDialog(
             title = "Delete items",
@@ -869,490 +1251,138 @@ fun ItemsScreen(
             onDismiss = { showColorMachineDialog = false }
         )
     }
-
-
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ItemShowcaseListCard(
-    item: Item,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
-    onToggleSelect: () -> Unit,
+private fun StatusFilterChip(
+    label: String,
+    count: Int?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    accent: Color,
+    selected: Boolean,
     onClick: () -> Unit
 ) {
-    val isLow = item.qty < 0 || (item.low > 0 && item.qty <= item.low)
-    val isOutOfStock = item.qty <= 0
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                onClick = {
-                    if (isSelectionMode) onToggleSelect() else onClick()
-                },
-                onLongClick = { onToggleSelect() }
-            ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFF072116) else Color(0xFF0E131C)
+    val ext = LocalExtendedColors.current
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = when {
+            selected -> accent.copy(alpha = if (ext.isDark) 0.22f else 0.16f)
+            else -> MaterialTheme.colorScheme.surface
+        },
+        border = BorderStroke(
+            width = if (selected) 1.4.dp else 1.dp,
+            color = if (selected) accent else MaterialTheme.colorScheme.outline
         ),
-        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFF10B981))
-        else BorderStroke(1.dp, Color(0xFF1E2638))
+        modifier = Modifier.heightIn(min = 44.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+            }
+            Text(
+                text = label,
+                fontSize = 12.5.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (selected) accent else MaterialTheme.colorScheme.onSurface
+            )
+            if (count != null) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = accent.copy(alpha = if (ext.isDark) 0.20f else 0.14f)
+                ) {
+                    Text(
+                        text = "$count",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StockHealthBannerCard(
+    healthPct: Double,
+    alertCount: Int,
+    onReviewClick: () -> Unit
+) {
+    val ext = LocalExtendedColors.current
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Thumbnail image or category icon in tactical dark box
             Box(
                 modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF141923))
-                    .border(0.8.dp, Color(0xFF1E2638), RoundedCornerShape(10.dp)),
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = if (ext.isDark) 0.18f else 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!item.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageModelHelper.rememberImageModel(item.imageUrl),
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = when {
-                                item.type.contains("Plumb", true) -> "💧"
-                                item.type.contains("Elect", true) -> "⚡"
-                                item.type.contains("Paint", true) -> "🎨"
-                                item.type.contains("Tool", true) -> "🛠️"
-                                item.type.contains("Hardware", true) -> "🔩"
-                                else -> "📦"
-                            },
-                            fontSize = 22.sp
-                        )
-                        Text(
-                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "SKU").take(5).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF64748B),
-                            fontSize = 8.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-
-                if (isSelectionMode) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = { onToggleSelect() },
-                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.AssignmentTurnedIn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            // Center Column: SKU, Title, Stock Health Progress Bar, and Location
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // Top SKU line matching mockup & Size pill
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "SKU: ${item.code.ifBlank { item.id.takeLast(5) }}",
-                        fontSize = 10.sp,
-                        color = Color(0xFF64748B),
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (item.size.isNotBlank()) {
-                        Surface(
-                            color = Color(0xFF3B82F6).copy(alpha = 0.15f),
-                            border = BorderStroke(0.6.dp, Color(0xFF3B82F6)),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "Size: ${item.size}",
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF60A5FA),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-                }
-
                 Text(
-                    text = item.name,
+                    text = "Stock Health: ${"%.1f".format(healthPct)}%",
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    color = Color(0xFFF3F4F6)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Tactical Stock Progress Bar & QTY
-                val maxStockRef = (if (item.low > 0) item.low * 4.0 else 50.0).coerceAtLeast(10.0)
-                val progressFraction = (item.qty / maxStockRef).toFloat().coerceIn(0f, 1f)
-                val stockColor = when {
-                    isOutOfStock -> Color(0xFFEF4444)
-                    isLow -> Color(0xFFF59E0B)
-                    else -> Color(0xFF10B981)
-                }
-
-                val formattedQty = if (item.qty % 1.0 == 0.0) item.qty.toInt().toString() else "%.1f".format(item.qty)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "QTY: $formattedQty ${item.unit} ${if (isOutOfStock) "🔴" else if (isLow) "🟡" else "🟢"}",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(3.dp))
-
-                // Full Width Linear indicator
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.5.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(0xFF1F2937))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(if (isOutOfStock) 0.05f else progressFraction.coerceAtLeast(0.08f))
-                            .height(3.5.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(stockColor)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Category tag at bottom left and location on bottom right
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = (item.type.takeIf { it.isNotBlank() } ?: "GEAR").uppercase(),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF64748B)
-                    )
-                    val locText = when {
-                        !item.shelfLocation.isNullOrBlank() -> "Loc: ${item.shelfLocation}"
-                        item.brand.isNotBlank() -> "Brand: ${item.brand.take(10)}"
-                        else -> "Unit: ${item.unit}"
-                    }
-                    Text(
-                        text = locText,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF64748B)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            // Right Column: Glowing Emerald Price Pill & Cost Price with Unit
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF10B981).copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, Color(0xFF10B981))
-                ) {
-                    Text(
-                        text = "${StockViewModel.formatRupees(item.price)} / ${item.unit}",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color(0xFF10B981),
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Cost: ${StockViewModel.formatRupees(item.cost)} / ${item.unit}",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFF59E0B)
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ItemGridCard(
-    item: Item,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
-    onToggleSelect: () -> Unit,
-    onClick: () -> Unit
-) {
-    val isLow = item.qty < 0 || (item.low > 0 && item.qty <= item.low)
-    val isOutOfStock = item.qty <= 0
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                onClick = {
-                    if (isSelectionMode) onToggleSelect() else onClick()
-                },
-                onLongClick = { onToggleSelect() }
-            ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFF072116) else Color(0xFF0E131C)
-        ),
-        border = if (isSelected) BorderStroke(1.5.dp, Color(0xFF10B981))
-        else BorderStroke(1.dp, Color(0xFF1E2638))
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Top Image Box with Tag
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(105.dp)
-                    .background(Color(0xFF141923))
-            ) {
-                if (!item.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageModelHelper.rememberImageModel(item.imageUrl),
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF121620)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = (item.type.takeIf { it.isNotBlank() } ?: item.brand.takeIf { it.isNotBlank() } ?: "SKU").take(6).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF64748B),
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-
-                // Tactical Stock Pill at top right
-                val stockPillBg = if (isOutOfStock) Color(0xFFEF4444) else if (isLow) Color(0xFFF59E0B) else Color(0xFF10B981)
-                val gridQtyStr = if (item.qty % 1.0 == 0.0) item.qty.toInt().toString() else "%.1f".format(item.qty)
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
-                    shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(0.6.dp, stockPillBg)
-                ) {
-                    Text(
-                        text = if (isOutOfStock) "OUT" else "$gridQtyStr ${item.unit}",
-                        color = stockPillBg,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
-
-                if (isSelectionMode) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(4.dp)
-                    ) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = { onToggleSelect() },
-                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
-                        )
-                    }
-                }
-            }
-
-            // Bottom Content
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp)
-            ) {
-                Text(
-                    text = item.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.5.sp,
+                    text = if (alertCount > 0) "$alertCount items need immediate replenishment"
+                    else "All items at healthy stock levels",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    color = Color(0xFFF3F4F6)
+                    overflow = TextOverflow.Ellipsis
                 )
-
-                if (item.size.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Surface(
-                        color = Color(0xFF3B82F6).copy(alpha = 0.15f),
-                        border = BorderStroke(0.6.dp, Color(0xFF3B82F6)),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "Size: ${item.size}",
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF60A5FA),
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Selling Price & Cost Row with Units
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "${StockViewModel.formatRupees(item.price)} / ${item.unit}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color(0xFF10B981),
-                        letterSpacing = 0.3.sp
-                    )
-                    Text(
-                        text = "Cost: ${StockViewModel.formatRupees(item.cost)} / ${item.unit}",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFF59E0B)
-                    )
-                }
             }
-        }
-    }
-}
-
-@Composable
-fun GroupStatCard(
-    stat: GroupStat,
-    onClick: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stat.groupKey,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-
-                Box(
+            if (alertCount > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(
+                    onClick = onReviewClick,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .heightIn(min = 44.dp)
+                        .testTag("items_review_health_button")
                 ) {
-                    Text(
-                        text = "${stat.percentage}%",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceAround
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "${stat.itemCount}",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Items",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val qtyStr = if (stat.totalQty % 1.0 == 0.0) stat.totalQty.toLong().toString() else "%.1f".format(stat.totalQty)
-                    Text(
-                        text = qtyStr,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Quantity",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("Review", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
-    }
-}
-
-@Composable
-fun EmptyStateNotice(msg: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 48.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = msg,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }

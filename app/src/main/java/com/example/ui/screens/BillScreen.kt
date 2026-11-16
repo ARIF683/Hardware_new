@@ -90,6 +90,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.components.CalculatorDialog
 import com.example.ui.components.ValuePickerDialog
 import com.example.ui.theme.DangerRed
+import com.example.ui.theme.LocalExtendedColors
 import com.example.ui.theme.SuccessGreen
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -1633,6 +1634,7 @@ fun BillRowEditor(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val ext = LocalExtendedColors.current
     var showItemPicker by remember { mutableStateOf(false) }
     var pickerField by remember { mutableStateOf<String?>(null) } // "type", "brand", "size", "unit"
 
@@ -1695,19 +1697,19 @@ fun BillRowEditor(
                         if (matched != null) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF2E7D32).copy(alpha = 0.15f)
+                                color = ext.positive.copy(alpha = 0.15f)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(10.dp))
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = ext.positive, modifier = Modifier.size(10.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = "In Stock (${matched.qty.toInt()} ${matched.unit})",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2E7D32)
+                                        color = ext.positive
                                     )
                                 }
                             }
@@ -1805,22 +1807,22 @@ fun BillRowEditor(
                                         )
                                     }
                                 } else if (diff < -0.05) {
-                                    Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFF2E7D32).copy(alpha = 0.12f)) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = ext.positive.copy(alpha = 0.12f)) {
                                         Text(
                                             text = "🔻 -₹${"%.1f".format(-diff)} (${pct}%)",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF2E7D32),
+                                            color = ext.positive,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
                                 } else {
-                                    Surface(shape = RoundedCornerShape(4.dp), color = Color.Gray.copy(alpha = 0.12f)) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)) {
                                         Text(
                                             text = "Same cost",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = Color.DarkGray,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }

@@ -1,15 +1,19 @@
 package com.example.ui.screens
 
-import android.content.Context
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,20 +30,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,9 +52,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,10 +59,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,47 +75,68 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandAmber
+import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 
 @Composable
 fun LedgerScreen(viewModel: StockViewModel) {
-    val context = LocalContext.current
+    val ext = LocalExtendedColors.current
     val accounts by viewModel.allLedgerAccounts.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) } // 0 = Customers/Contractors, 1 = Suppliers
     var searchQuery by remember { mutableStateOf("") }
+    var sortMode by remember { mutableStateOf("BALANCE_DESC") } // BALANCE_DESC, NAME_ASC, DUE_ONLY
+    var showSortMenu by remember { mutableStateOf(false) }
 
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var selectedAccountForDetail by remember { mutableStateOf<LedgerAccount?>(null) }
     var accountToDelete by remember { mutableStateOf<LedgerAccount?>(null) }
 
-    // Quick transaction dialog state
     var quickEntryAccount by remember { mutableStateOf<LedgerAccount?>(null) }
-    var quickEntryType by remember { mutableStateOf("GAVE") } // "GAVE" or "GOT"
+    var quickEntryType by remember { mutableStateOf("GAVE") }
 
-    val currentType = if (selectedTab == 0) "CUSTOMER" else "SUPPLIER"
-    val filteredAccounts = remember(accounts, selectedTab, searchQuery) {
-        accounts.filter { acc ->
-            val matchType = if (selectedTab == 0) acc.type != "SUPPLIER" else acc.type == "SUPPLIER"
-            val matchQuery = searchQuery.isEmpty() || acc.name.contains(searchQuery, ignoreCase = true) || acc.phone.contains(searchQuery)
-            matchType && matchQuery
+    val inrFormat = remember {
+        NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
         }
     }
 
-    // Totals
+    val customerCount = remember(accounts) { accounts.count { it.type != "SUPPLIER" } }
+    val supplierCount = remember(accounts) { accounts.count { it.type == "SUPPLIER" } }
+
+    val filteredAccounts = remember(accounts, selectedTab, searchQuery, sortMode) {
+        val base = accounts.filter { acc ->
+            val matchType = if (selectedTab == 0) acc.type != "SUPPLIER" else acc.type == "SUPPLIER"
+            val matchQuery = searchQuery.isEmpty() ||
+                acc.name.contains(searchQuery, ignoreCase = true) ||
+                acc.phone.contains(searchQuery, ignoreCase = true) ||
+                acc.notes.contains(searchQuery, ignoreCase = true)
+            val matchDue = if (sortMode == "DUE_ONLY") acc.netBalance > 0.0 else true
+            matchType && matchQuery && matchDue
+        }
+        when (sortMode) {
+            "NAME_ASC" -> base.sortedBy { it.name.lowercase() }
+            else -> base.sortedByDescending { abs(it.netBalance) }
+        }
+    }
+
     val totalReceivable = remember(accounts) {
         accounts.filter { it.type != "SUPPLIER" && it.netBalance > 0 }.sumOf { it.netBalance }
     }
@@ -122,11 +144,25 @@ fun LedgerScreen(viewModel: StockViewModel) {
         accounts.filter { it.type == "SUPPLIER" && it.netBalance > 0 }.sumOf { it.netBalance }
     }
 
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                searchQuery = spoken.trim()
+            }
+        }
+    }
+
     val detailAccount = selectedAccountForDetail
     if (detailAccount != null) {
-        // Account Detail View
+        BackHandler {
+            selectedAccountForDetail = null
+        }
+        val latestAccount = accounts.find { it.id == detailAccount.id } ?: detailAccount
         LedgerAccountDetailScreen(
-            account = detailAccount,
+            account = latestAccount,
             viewModel = viewModel,
             onBack = { selectedAccountForDetail = null },
             onAccountDeleted = { selectedAccountForDetail = null }
@@ -134,220 +170,383 @@ fun LedgerScreen(viewModel: StockViewModel) {
         return
     }
 
-    if (accountToDelete != null) {
-        val target = accountToDelete!!
-        AlertDialog(
-            onDismissRequest = { accountToDelete = null },
-            title = { Text("Delete Khata Account?") },
-            text = {
-                Text(
-                    "Are you sure you want to delete ${target.name} along with its entire transaction history from local storage and DB?\n\nThis action cannot be undone."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteLedgerAccount(target.id)
-                        accountToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete Forever")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { accountToDelete = null }) { Text("Cancel") }
-            }
-        )
-    }
-
-    Scaffold(
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showAddAccountDialog = true },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text(if (selectedTab == 0) "Add Customer / Contractor" else "Add Supplier") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Summary Cards
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text(
-                    text = "Khata & Ledger",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Track customer credit & supplier balances",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            // 1. Header Row: Khata & Ledger + Sort/Filter Button
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Khata & Ledger",
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            text = "Track customer credit & supplier balances",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Box {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { showSortMenu = true }
+                                .testTag("khata_sort_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Sort & Filter Accounts",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
 
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            listOf(
+                                "BALANCE_DESC" to "Highest Balance First",
+                                "NAME_ASC" to "Alphabetical (A–Z)",
+                                "DUE_ONLY" to "Due Balances Only"
+                            ).forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = label,
+                                                fontWeight = if (sortMode == key) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (sortMode == key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (sortMode == key) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        sortMode = key
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Dual Summary Cards: YOU WILL GET | YOU WILL PAY
+            item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // You will get Card
-                    Card(
+                    Surface(
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-                        border = BorderStroke(1.2.dp, Color(0xFF10B981).copy(alpha = 0.55f)),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, ext.positive.copy(alpha = 0.5f)),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("YOU WILL GET", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF10B981))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.TrendingDown,
+                                    contentDescription = null,
+                                    tint = ext.positive,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "YOU WILL GET",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = ext.positive,
+                                    letterSpacing = 0.5.sp
+                                )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = String.format(Locale.US, "₹%.2f", totalReceivable),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFF10B981)
+                                text = "₹${inrFormat.format(totalReceivable)}",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ext.positive,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Text("Customer Credit Due", fontSize = 9.5.sp, color = Color(0xFF64748B))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Customer Credit Due",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
-                    // You will pay Card
-                    Card(
+                    Surface(
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-                        border = BorderStroke(1.2.dp, Color(0xFFEF4444).copy(alpha = 0.55f)),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.5f)),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("YOU WILL PAY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = null,
+                                    tint = ext.danger,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "YOU WILL PAY",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = ext.danger,
+                                    letterSpacing = 0.5.sp
+                                )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = String.format(Locale.US, "₹%.2f", totalPayable),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFEF4444)
+                                text = "₹${inrFormat.format(totalPayable)}",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ext.danger,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Text("Supplier Balances", fontSize = 9.5.sp, color = Color(0xFF64748B))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Supplier Balances",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color(0xFF0A0D14),
-                    contentColor = Color(0xFF10B981),
-                    divider = { HorizontalDivider(color = Color(0xFF1E2638)) }
+            // 3. Pill Segmented Switcher: Customers | Suppliers
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = {
-                            Text(
-                                "Customers (${accounts.count { it.type != "SUPPLIER" }})",
-                                fontSize = 12.sp,
-                                fontWeight = if (selectedTab == 0) FontWeight.Black else FontWeight.Medium,
-                                color = if (selectedTab == 0) Color(0xFF10B981) else Color(0xFF94A3B8)
-                            )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val tabs = listOf(
+                            0 to "Customers ($customerCount)",
+                            1 to "Suppliers ($supplierCount)"
+                        )
+                        tabs.forEach { (tabIdx, title) ->
+                            val isSelected = selectedTab == tabIdx
+                            Surface(
+                                shape = RoundedCornerShape(9.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .clickable { selectedTab = tabIdx }
+                                    .testTag(if (tabIdx == 0) "khata_customers_tab" else "khata_suppliers_tab")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = title,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = {
-                            Text(
-                                "Suppliers (${accounts.count { it.type == "SUPPLIER" }})",
-                                fontSize = 12.sp,
-                                fontWeight = if (selectedTab == 1) FontWeight.Black else FontWeight.Medium,
-                                color = if (selectedTab == 1) Color(0xFF10B981) else Color(0xFF94A3B8)
-                            )
-                        }
-                    )
+                    }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
+            // 4. Search Bar with Voice Icon
+            item {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search account by name or phone…") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    placeholder = {
+                        Text(
+                            text = "Search account by name or phone...",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                                Icon(Icons.Default.Close, contentDescription = "Clear Search")
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak customer or supplier name...")
+                                    }
+                                    try {
+                                        voiceSearchLauncher.launch(intent)
+                                    } catch (_: Exception) {
+                                        viewModel.showToast("Voice input unavailable")
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = "Voice search khata",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("khata_search_input"),
                     shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    ),
                     singleLine = true
                 )
             }
 
+            // 5. Account Cards or Empty State
             if (filteredAccounts.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outlineVariant,
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (accounts.isEmpty()) "No accounts in Khata yet.\nTap below to add your first customer or supplier." else "No matching accounts found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (accounts.isEmpty()) "No accounts in Khata yet" else "No matching accounts found",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Tap below to add a customer, contractor, or supplier ledger.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredAccounts, key = { it.id }) { acc ->
-                        LedgerAccountCard(
-                            account = acc,
-                            onClick = { selectedAccountForDetail = acc },
-                            onGive = {
-                                quickEntryAccount = acc
-                                quickEntryType = "GAVE"
-                            },
-                            onGot = {
-                                quickEntryAccount = acc
-                                quickEntryType = "GOT"
-                            },
-                            onDelete = { accountToDelete = acc }
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(80.dp)) }
+                items(filteredAccounts, key = { it.id }) { acc ->
+                    LedgerAccountCard(
+                        account = acc,
+                        inrFormat = inrFormat,
+                        onClick = { selectedAccountForDetail = acc },
+                        onGive = {
+                            quickEntryAccount = acc
+                            quickEntryType = "GAVE"
+                        },
+                        onGot = {
+                            quickEntryAccount = acc
+                            quickEntryType = "GOT"
+                        },
+                        onDelete = { accountToDelete = acc }
+                    )
                 }
             }
+        }
+
+        // Centered Floating Pill Button matching Khata mockup
+        Button(
+            onClick = { showAddAccountDialog = true },
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+            contentPadding = PaddingValues(horizontal = 22.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .height(48.dp)
+                .testTag("khata_add_account_button")
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (selectedTab == 0) "Add Customer / Contractor" else "Add Supplier",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 
@@ -379,19 +578,22 @@ fun LedgerScreen(viewModel: StockViewModel) {
 
     // Delete Account Confirmation
     if (accountToDelete != null) {
+        val target = accountToDelete!!
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
-            title = { Text("Delete Account") },
-            text = { Text("Are you sure you want to delete ${accountToDelete!!.name}? All transaction history for this account will be erased.") },
+            title = { Text("Delete Khata Account?") },
+            text = {
+                Text("Are you sure you want to delete ${target.name} along with all transaction history? This cannot be undone.")
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.deleteLedgerAccount(accountToDelete!!.id)
+                        viewModel.deleteLedgerAccount(target.id)
                         accountToDelete = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete")
+                    Text("Delete Forever")
                 }
             },
             dismissButton = {
@@ -404,74 +606,81 @@ fun LedgerScreen(viewModel: StockViewModel) {
 @Composable
 fun LedgerAccountCard(
     account: LedgerAccount,
+    inrFormat: NumberFormat,
     onClick: () -> Unit,
     onGive: () -> Unit,
     onGot: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     val isSupplier = account.type == "SUPPLIER"
     val isDue = account.netBalance > 0
     val balanceColor = if (isSupplier) {
-        if (isDue) Color(0xFFDC2626) else Color(0xFF16A34A)
+        if (isDue) ext.danger else ext.positive
     } else {
-        if (isDue) Color(0xFF16A34A) else Color(0xFFDC2626)
+        if (isDue) ext.positive else ext.danger
     }
 
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-        border = BorderStroke(1.dp, Color(0xFF1E2638)),
+    val avatarPalette = listOf(ext.info, ext.positive, MaterialTheme.colorScheme.primary, ext.purple, ext.warning)
+    val avatarColor = avatarPalette[(account.name.hashCode() and 0x7FFFFFFF) % avatarPalette.size]
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() }
+            .testTag("khata_account_card_${account.id}")
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(38.dp)
-                            .background(Color(0xFF141923), CircleShape)
-                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), CircleShape)
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(avatarColor.copy(alpha = 0.16f))
                     ) {
                         Text(
-                            text = account.name.take(1).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF10B981),
-                            fontSize = 15.sp
+                            text = account.name.trim().take(1).uppercase().ifBlank { "?" },
+                            fontWeight = FontWeight.ExtraBold,
+                            color = avatarColor,
+                            fontSize = 16.sp
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = account.name,
+                            text = account.name.uppercase(),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFFF3F4F6),
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (account.phone.isNotEmpty()) {
-                            Text(
-                                text = "📞 ${account.phone}",
-                                fontSize = 11.sp,
-                                color = Color(0xFF94A3B8)
-                            )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        val subtitleText = when {
+                            account.notes.isNotBlank() -> account.notes
+                            account.phone.isNotBlank() -> account.phone
+                            else -> "Balance verified"
                         }
-                        if (account.notes.isNotEmpty()) {
-                            Text(
-                                text = "📝 ${account.notes}",
-                                fontSize = 10.sp,
-                                color = Color(0xFF64748B),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Text(
+                            text = subtitleText,
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
@@ -482,25 +691,30 @@ fun LedgerAccountCard(
                         } else {
                             if (account.netBalance > 0) "YOU GET" else if (account.netBalance < 0) "ADVANCE" else "SETTLED"
                         }
-                        val tacticalBalColor = if (isSupplier) {
-                            if (isDue) Color(0xFFEF4444) else Color(0xFF10B981)
-                        } else {
-                            if (isDue) Color(0xFF10B981) else Color(0xFFEF4444)
-                        }
-                        Text(text = statusLabel, fontSize = 9.sp, color = tacticalBalColor, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
                         Text(
-                            text = String.format(Locale.US, "₹%.2f", Math.abs(account.netBalance)),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 15.sp,
-                            color = tacticalBalColor,
-                            letterSpacing = 0.3.sp
+                            text = statusLabel,
+                            fontSize = 9.5.sp,
+                            color = balanceColor,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "₹${inrFormat.format(abs(account.netBalance))}",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = balanceColor
                         )
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
                     var showAccountMenu by remember { mutableStateOf(false) }
                     Box {
-                        IconButton(onClick = { showAccountMenu = true }, modifier = Modifier.size(30.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Account Options", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                        IconButton(onClick = { showAccountMenu = true }, modifier = Modifier.size(34.dp)) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Account Options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                         DropdownMenu(
                             expanded = showAccountMenu,
@@ -512,7 +726,7 @@ fun LedgerAccountCard(
                                     showAccountMenu = false
                                     onClick()
                                 },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = Color(0xFF10B981)) }
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                             )
                             DropdownMenuItem(
                                 text = { Text("Delete Account") },
@@ -520,43 +734,47 @@ fun LedgerAccountCard(
                                     showAccountMenu = false
                                     onDelete()
                                 },
-                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444)) }
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = ext.danger) }
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Tactical Quick Actions: GAVE / GOT
+            // Quick Actions: - GAVE (DEBIT) | + GOT (CREDIT)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
                     onClick = onGive,
-                    modifier = Modifier.weight(1f).height(34.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color(0xFF1F1216),
-                        contentColor = Color(0xFFEF4444)
+                        containerColor = ext.danger.copy(alpha = 0.14f),
+                        contentColor = ext.danger
                     ),
-                    border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
-                    shape = RoundedCornerShape(8.dp)
+                    border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.45f)),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("- GAVE (DEBIT)", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("- GAVE (DEBIT)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
 
                 Button(
                     onClick = onGot,
-                    modifier = Modifier.weight(1f).height(34.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF10B981),
-                        contentColor = Color(0xFF022C1A)
+                        containerColor = ext.positive,
+                        contentColor = Color.White
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("+ GOT (CREDIT)", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("+ GOT (CREDIT)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
         }
@@ -571,6 +789,8 @@ fun LedgerAccountDetailScreen(
     onAccountDeleted: () -> Unit = onBack
 ) {
     val context = LocalContext.current
+    val ext = LocalExtendedColors.current
+    val uiConfig by viewModel.uiConfig.collectAsState()
     val entriesFlow = remember(account.id) { viewModel.getEntriesForAccount(account.id) }
     val entries by entriesFlow.collectAsState(initial = emptyList())
 
@@ -580,15 +800,15 @@ fun LedgerAccountDetailScreen(
     var entryToDelete by remember { mutableStateOf<LedgerEntry?>(null) }
     var showDeleteAccountConfirm by remember { mutableStateOf(false) }
 
-    val isSupplier = account.type == "SUPPLIER"
-    val balanceColor = if (account.netBalance >= 0) Color(0xFF16A34A) else Color(0xFFDC2626)
+    val balanceColor = if (account.netBalance >= 0) ext.positive else ext.danger
+    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "S.A.HARDWARE" }
 
     if (showDeleteAccountConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteAccountConfirm = false },
             title = { Text("Delete Khata Account?") },
             text = {
-                Text("Delete ${account.name} along with all ${entries.size} transaction records from local storage & DB? This cannot be undone.")
+                Text("Delete ${account.name} along with all ${entries.size} transaction records? This cannot be undone.")
             },
             confirmButton = {
                 Button(
@@ -646,6 +866,7 @@ fun LedgerAccountDetailScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
                 Row(
@@ -659,9 +880,9 @@ fun LedgerAccountDetailScreen(
                     }
                     Spacer(modifier = Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(account.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(account.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            text = if (account.phone.isNotEmpty()) "📞 ${account.phone} • ${account.type}" else account.type,
+                            text = if (account.phone.isNotEmpty()) "${account.phone} • ${account.type}" else account.type,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -696,11 +917,13 @@ fun LedgerAccountDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Balance Banner & Notes
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                shape = RoundedCornerShape(12.dp)
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -711,7 +934,7 @@ fun LedgerAccountDetailScreen(
                         Column {
                             Text("Current Balance", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                text = String.format(Locale.US, "₹%.2f", Math.abs(account.netBalance)),
+                                text = String.format(Locale.US, "₹%.2f", abs(account.netBalance)),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 22.sp,
                                 color = balanceColor
@@ -721,18 +944,20 @@ fun LedgerAccountDetailScreen(
                         if (account.phone.isNotEmpty()) {
                             Button(
                                 onClick = {
-                                    val msg = "Hello ${account.name}, your current ledger balance with S.A.HARDWARE is Rs. ${String.format(Locale.US, "%.2f", Math.abs(account.netBalance))}."
+                                    val msg = "Hello ${account.name}, your current ledger balance with $storeTitle is Rs. ${String.format(Locale.US, "%.2f", abs(account.netBalance))}."
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
                                         data = Uri.parse("https://api.whatsapp.com/send?phone=${account.phone.replace("+", "").replace(" ", "")}&text=${Uri.encode(msg)}")
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     try { context.startActivity(intent) } catch (_: Exception) {}
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                                colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(44.dp)
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("WhatsApp", fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("WhatsApp", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -741,21 +966,20 @@ fun LedgerAccountDetailScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Surface(
                             color = MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "📝 Note: ${account.notes}",
-                                fontSize = 11.sp,
+                                text = "Note: ${account.notes}",
+                                fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
                 }
             }
 
-            // Entries List
             Text(
                 text = "TRANSACTION HISTORY (${entries.size})",
                 fontWeight = FontWeight.Bold,
@@ -774,12 +998,14 @@ fun LedgerAccountDetailScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(entries, key = { it.id }) { entry ->
                         Card(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -790,23 +1016,23 @@ fun LedgerAccountDetailScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Surface(
-                                            color = if (entry.type == "GAVE") Color(0xFFDC2626).copy(alpha = 0.15f) else Color(0xFF16A34A).copy(alpha = 0.15f),
+                                            color = if (entry.type == "GAVE") ext.danger.copy(alpha = 0.15f) else ext.positive.copy(alpha = 0.15f),
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
                                             Text(
                                                 text = if (entry.type == "GAVE") "Gave (-)" else "Got (+)",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.sp,
-                                                color = if (entry.type == "GAVE") Color(0xFFDC2626) else Color(0xFF16A34A),
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                color = if (entry.type == "GAVE") ext.danger else ext.positive,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text(entry.date, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(entry.date, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     if (entry.description.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(entry.description, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(entry.description, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                                     }
                                     if (entry.billRef.isNotEmpty()) {
                                         Text("Bill #${entry.billRef}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
@@ -819,7 +1045,7 @@ fun LedgerAccountDetailScreen(
                                             text = String.format(Locale.US, "%s₹%.2f", if (entry.type == "GAVE") "-" else "+", entry.amount),
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 15.sp,
-                                            color = if (entry.type == "GAVE") Color(0xFFDC2626) else Color(0xFF16A34A)
+                                            color = if (entry.type == "GAVE") ext.danger else ext.positive
                                         )
                                         Text(
                                             text = String.format(Locale.US, "Bal: ₹%.2f", entry.balanceAfter),
@@ -828,27 +1054,13 @@ fun LedgerAccountDetailScreen(
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.width(6.dp))
-
-                                    IconButton(
-                                        onClick = { entryToEdit = entry },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Edit Entry", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                    }
-
-                                    IconButton(
-                                        onClick = { entryToDelete = entry },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete Entry", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
 
                                     var showEntryMenu by remember { mutableStateOf(false) }
                                     Box {
                                         IconButton(
                                             onClick = { showEntryMenu = true },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(34.dp)
                                         ) {
                                             Icon(Icons.Default.MoreVert, contentDescription = "Entry Options", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                                         }
@@ -881,7 +1093,6 @@ fun LedgerAccountDetailScreen(
                 }
             }
 
-            // Bottom Buttons
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 8.dp,
@@ -896,7 +1107,7 @@ fun LedgerAccountDetailScreen(
                             entryType = "GAVE"
                             showEntryDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        colors = ButtonDefaults.buttonColors(containerColor = ext.danger, contentColor = Color.White),
                         modifier = Modifier.weight(1f).height(46.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -908,7 +1119,7 @@ fun LedgerAccountDetailScreen(
                             entryType = "GOT"
                             showEntryDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                        colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                         modifier = Modifier.weight(1f).height(46.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -1137,6 +1348,7 @@ fun AddLedgerEntryDialog(
     onDismiss: () -> Unit,
     onSave: (type: String, amount: Double, date: String, description: String, billRef: String) -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     var type by remember { mutableStateOf(initialType) } // "GAVE" or "GOT"
     var amountText by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -1149,7 +1361,7 @@ fun AddLedgerEntryDialog(
         title = {
             Text(
                 text = if (type == "GAVE") "Record You Gave (Debit)" else "Record You Got (Credit)",
-                color = if (type == "GAVE") Color(0xFFDC2626) else Color(0xFF16A34A),
+                color = if (type == "GAVE") ext.danger else ext.positive,
                 fontWeight = FontWeight.Bold
             )
         },
@@ -1214,7 +1426,7 @@ fun AddLedgerEntryDialog(
                 },
                 enabled = (amountText.toDoubleOrNull() ?: 0.0) > 0,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (type == "GAVE") Color(0xFFDC2626) else Color(0xFF16A34A)
+                    containerColor = if (type == "GAVE") ext.danger else ext.positive
                 )
             ) {
                 Text("Save Entry")

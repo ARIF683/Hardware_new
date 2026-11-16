@@ -30,14 +30,26 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class SupabaseClient(
-    private val baseUrl: String = "https://xkjvcufajsyqbzjjllma.supabase.co",
-    private val apiKey: String = "sb_publishable_sXokssWnrTPWROtmfHjoWA_LRqVPt8V"
+    private val baseUrl: String = com.example.BuildConfig.SUPABASE_URL,
+    private val apiKey: String = com.example.BuildConfig.SUPABASE_KEY,
+    private val okHttpClient: OkHttpClient = defaultOkHttpClient()
 ) {
+    companion object {
+        private fun defaultOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .build()
+    }
+
     private val tag = "SupabaseClient"
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val unsupportedItemColumns = ConcurrentHashMap.newKeySet<String>()
+    private val pgrst204ColumnRegex = Regex("""Could not find the '([^']+)' column""")
 
     class SafeStringAdapter {
         @com.squareup.moshi.FromJson
@@ -79,13 +91,6 @@ class SupabaseClient(
         Types.newParameterizedType(List::class.java, LedgerEntry::class.java)
     ).serializeNulls()
     private val purchaseAdapter = moshi.adapter(PurchaseRecord::class.java).serializeNulls()
-
-    // Standard HTTP client with timeouts
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .build()
 
     // WebSocket client with NO read timeout (0) so it never drops long-lived subscriptions
     private val wsHttpClient = OkHttpClient.Builder()
@@ -137,29 +142,77 @@ class SupabaseClient(
         txListAdapter.fromJson(body) ?: emptyList()
     }
 
+    private fun extractMissingPgrst204Column(errorBody: String): String? {
+        if (!errorBody.contains("PGRST204")) return null
+        return pgrst204ColumnRegex.find(errorBody)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun stripUnsupportedColumns(obj: JSONObject) {
+        for (col in unsupportedItemColumns) {
+            obj.remove(col)
+        }
+    }
+
     suspend fun upsertItems(items: List<Item>): Unit = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext
-        val json = itemListAdapter.toJson(items)
-        val req = newRequestBuilder("items?on_conflict=id")
-            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-            .post(json.toRequestBody(jsonMediaType))
-            .build()
-        val resp = okHttpClient.newCall(req).execute()
-        if (!resp.isSuccessful) {
-            val err = resp.body?.string() ?: "HTTP ${resp.code}"
-            throw Exception("Failed to upsert items: $err")
+        val jsonArray = JSONArray(itemListAdapter.toJson(items))
+        val maxAttempts = 20
+        for (attempt in 1..maxAttempts) {
+            if (unsupportedItemColumns.isNotEmpty()) {
+                for (i in 0 until jsonArray.length()) {
+                    jsonArray.optJSONObject(i)?.let { stripUnsupportedColumns(it) }
+                }
+            }
+            val req = newRequestBuilder("items?on_conflict=id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                .build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) return@withContext
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                val missingCol = extractMissingPgrst204Column(err)
+                if (
+                    missingCol != null &&
+                    missingCol != "id" &&
+                    missingCol != "name" &&
+                    unsupportedItemColumns.add(missingCol)
+                ) {
+                    Log.w(tag, "Supabase 'items' lacks column '$missingCol' (PGRST204); stripping and retrying (attempt $attempt)")
+                } else {
+                    throw Exception("Failed to upsert items: $err")
+                }
+            }
         }
     }
 
     suspend fun patchItem(id: String, patchJson: String): Unit = withContext(Dispatchers.IO) {
-        val req = newRequestBuilder("items?id=eq.${java.net.URLEncoder.encode(id, "UTF-8")}")
-            .addHeader("Prefer", "return=minimal")
-            .patch(patchJson.toRequestBody(jsonMediaType))
-            .build()
-        val resp = okHttpClient.newCall(req).execute()
-        if (!resp.isSuccessful) {
-            val err = resp.body?.string() ?: "HTTP ${resp.code}"
-            throw Exception("Failed to patch item $id: $err")
+        val patchObj = JSONObject(patchJson)
+        val encodedId = java.net.URLEncoder.encode(id, "UTF-8")
+        val maxAttempts = 20
+        for (attempt in 1..maxAttempts) {
+            if (unsupportedItemColumns.isNotEmpty()) {
+                stripUnsupportedColumns(patchObj)
+            }
+            if (patchObj.length() == 0) return@withContext
+            val req = newRequestBuilder("items?id=eq.$encodedId")
+                .addHeader("Prefer", "return=minimal")
+                .patch(patchObj.toString().toRequestBody(jsonMediaType))
+                .build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) return@withContext
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                val missingCol = extractMissingPgrst204Column(err)
+                if (
+                    missingCol != null &&
+                    missingCol != "id" &&
+                    missingCol != "name" &&
+                    unsupportedItemColumns.add(missingCol)
+                ) {
+                    Log.w(tag, "Supabase 'items' lacks column '$missingCol' during patch (PGRST204); stripping and retrying (attempt $attempt)")
+                } else {
+                    throw Exception("Failed to patch item $id: $err")
+                }
+            }
         }
     }
 

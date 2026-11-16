@@ -343,7 +343,7 @@ fun CalculatorDialog(onDismiss: () -> Unit) {
                                 else -> MaterialTheme.colorScheme.surfaceVariant
                             }
                             val contentColor = when {
-                                isEq -> Color.White
+                                isEq -> MaterialTheme.colorScheme.onPrimary
                                 isDel -> DangerRed
                                 isOp -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface

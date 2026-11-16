@@ -1,14 +1,29 @@
 package com.example.ui.theme
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
-val StaticBrandBlue = Color(0xFF4C6FFF)
-val StaticBrandBlueDark = Color(0xFF3855D6)
-val StaticBrandBlueLight = Color(0xFF7B93FF)
-val StaticBrandBlueSoft = Color(0xFFEEF2FF)
+// Primary Brand Hardware Orange
+val HardwareOrange = Color(0xFFEA580C)
+val HardwareOrangeBright = Color(0xFFF97316)
+val HardwareOrangeDark = Color(0xFFC2410C)
+val HardwareOrangeSoft = Color(0xFFFFF7ED)
 
+// Semantic Status & Category Accents
+val SuccessGreen = Color(0xFF16A34A)
+val SuccessGreenBright = Color(0xFF10B981)
+val SuccessGreenLight = Color(0xFFDCFCE7)
+val DangerRed = Color(0xFFEF4444)
+val DangerRedLight = Color(0xFFFEE2E2)
+val WarningAmber = Color(0xFFF59E0B)
+val WarningAmberLight = Color(0xFFFEF3C7)
+val BrandAmber = Color(0xFFF59E0B)
+val InfoBlue = Color(0xFF0EA5E9)
+val InfoBlueBright = Color(0xFF38BDF8)
+val AccentPurple = Color(0xFFA855F7)
+
+// Backward-compatible dynamic references mapped to MaterialTheme
 val BrandBlue: Color
     @Composable
     get() = MaterialTheme.colorScheme.primary
@@ -25,32 +40,30 @@ val BrandBlueSoft: Color
     @Composable
     get() = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
 
-val SuccessGreen = Color(0xFF16A34A)
-val SuccessGreenLight = Color(0xFFDCFCE7)
-val DangerRed = Color(0xFFEF4444)
-val DangerRedLight = Color(0xFFFEE2E2)
-val WarningAmber = Color(0xFFF59E0B)
-val WarningAmberLight = Color(0xFFFEF3C7)
-val BrandAmber = Color(0xFFF59E0B)
+// Dark Mode Surface Palette (matched to dark mockup)
+val DarkBg = Color(0xFF0E1014)
+val DarkSurface = Color(0xFF16191F)
+val DarkCard = Color(0xFF1E222B)
+val DarkBorder = Color(0xFF282D38)
+val DarkText = Color(0xFFF8FAFC)
+val DarkMuted = Color(0xFF94A3B8)
 
-val DarkBg = Color(0xFF12141A)
-val DarkSurface = Color(0xFF1E222B)
-val DarkCard = Color(0xFF252B37)
-val DarkBorder = Color(0xFF2A2F3A)
-val DarkText = Color(0xFFEEF0F5)
-val DarkMuted = Color(0xFF9AA3B2)
-
-val LightBg = Color(0xFFF2F2F7)
+// Light Mode Surface Palette (matched to light mockup)
+val LightBg = Color(0xFFF6F7FA)
 val LightSurface = Color(0xFFFFFFFF)
-val LightCard = Color(0xFFFFFFFF)
-val LightBorder = Color(0xFF000000)
-val LightText = Color(0xFF000000)
-val LightMuted = Color(0xFF262626)
+val LightCard = Color(0xFFF1F5F9)
+val LightBorder = Color(0xFFE2E8F0)
+val LightText = Color(0xFF0F172A)
+val LightMuted = Color(0xFF64748B)
 
-val TacticalGreen = Color(0xFF10B981)
-val TacticalGreenDark = Color(0xFF059669)
-val TacticalDarkBg = Color(0xFF000000)
-val TacticalSurface = Color(0xFF121212)
-val TacticalCard = Color(0xFF1A1A1A)
-val TacticalBorder = Color(0xFF262626)
-
+// Legacy aliases mapped to theme-safe values (kept for non-breaking references during transition)
+val StaticBrandBlue = HardwareOrange
+val StaticBrandBlueDark = HardwareOrangeDark
+val StaticBrandBlueLight = HardwareOrangeBright
+val StaticBrandBlueSoft = HardwareOrangeSoft
+val TacticalGreen = HardwareOrangeBright
+val TacticalGreenDark = HardwareOrangeDark
+val TacticalDarkBg = DarkBg
+val TacticalSurface = DarkSurface
+val TacticalCard = DarkCard
+val TacticalBorder = DarkBorder

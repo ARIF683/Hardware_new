@@ -36,8 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.model.Item
 import com.example.ui.StockViewModel
-import com.example.ui.theme.DangerRed
-import com.example.ui.theme.SuccessGreen
+import com.example.ui.theme.LocalExtendedColors
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -46,9 +45,11 @@ import androidx.compose.foundation.verticalScroll
 fun StockTransactionDialog(
     item: Item,
     viewModel: StockViewModel,
+    initialAction: String = "in",
     onDismiss: () -> Unit
 ) {
-    var action by remember { mutableStateOf("in") } // "in" or "out"
+    val ext = LocalExtendedColors.current
+    var action by remember(item.id, initialAction) { mutableStateOf(initialAction) } // "in" or "out"
     var qtyText by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var negativeWarningAcknowledged by remember { mutableStateOf(false) }
@@ -88,7 +89,7 @@ fun StockTransactionDialog(
                                 action = "in"
                                 negativeWarningAcknowledged = false
                             }
-                            .background(if (action == "in") SuccessGreen else Color.Transparent)
+                            .background(if (action == "in") ext.positive else Color.Transparent)
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -106,7 +107,7 @@ fun StockTransactionDialog(
                                 action = "out"
                                 negativeWarningAcknowledged = false
                             }
-                            .background(if (action == "out") DangerRed else Color.Transparent)
+                            .background(if (action == "out") ext.danger else Color.Transparent)
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -215,7 +216,7 @@ fun StockTransactionDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Only $curQtyStr in stock. Tap Confirm again to go negative.",
-                        color = DangerRed,
+                        color = ext.danger,
                         fontSize = 13.sp
                     )
                 }
@@ -256,7 +257,8 @@ fun StockTransactionDialog(
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (action == "in") SuccessGreen else DangerRed
+                            containerColor = if (action == "in") ext.positive else ext.danger,
+                            contentColor = Color.White
                         )
                     ) {
                         Text("Confirm")

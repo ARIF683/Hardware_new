@@ -3,13 +3,12 @@ package com.example.ui.screens
 import android.app.Activity
 import android.content.Intent
 import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,27 +18,31 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -48,7 +51,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -59,14 +63,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -75,33 +72,42 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.example.data.model.DailyCashflowRecord
+import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.DangerRed
-import com.example.ui.theme.SuccessGreen
+import com.example.ui.theme.LocalExtendedColors
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun TransactionsScreen(viewModel: StockViewModel) {
+fun TransactionsScreen(
+    viewModel: StockViewModel,
+    isEmbeddedInHub: Boolean = false
+) {
+    val ext = LocalExtendedColors.current
     val allCashflow by viewModel.allDailyCashflow.collectAsState()
     val stockTransactions by viewModel.allTransactions.collectAsState()
+    val activeTab by viewModel.transactionsSubTab.collectAsState()
 
-    var activeTab by remember { mutableStateOf(0) } // 0 = Daily P&L Cashflow, 1 = Stock Logs
+    if (!isEmbeddedInHub) {
+        BackHandler {
+            viewModel.navigateTo(NavigationTab.HOME)
+        }
+    }
+
     var filterType by remember { mutableStateOf("ALL") } // "ALL", "SALE", "EXPENSE"
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryFilter by remember { mutableStateOf("All") }
@@ -112,10 +118,9 @@ fun TransactionsScreen(viewModel: StockViewModel) {
     var recordToDelete by remember { mutableStateOf<DailyCashflowRecord?>(null) }
     var showCategoryBreakdownDialog by remember { mutableStateOf(false) }
 
-    // Month Selector state
     val calendar = remember { Calendar.getInstance() }
     var selectedYear by remember { mutableStateOf(calendar.get(Calendar.YEAR)) }
-    var selectedMonthIndex by remember { mutableStateOf(calendar.get(Calendar.MONTH)) } // 0-based
+    var selectedMonthIndex by remember { mutableStateOf(calendar.get(Calendar.MONTH)) }
 
     val selectedMonthKey = remember(selectedYear, selectedMonthIndex) {
         String.format(Locale.US, "%04d-%02d", selectedYear, selectedMonthIndex + 1)
@@ -125,12 +130,11 @@ fun TransactionsScreen(viewModel: StockViewModel) {
         val cal = Calendar.getInstance()
         cal.set(Calendar.YEAR, selectedYear)
         cal.set(Calendar.MONTH, selectedMonthIndex)
-        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+        SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(cal.time)
     }
 
-    val todayDateStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    val todayDateStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
 
-    // Speech Recognizer for Voice Search
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -142,7 +146,19 @@ fun TransactionsScreen(viewModel: StockViewModel) {
         }
     }
 
-    // Monthly Calculation
+    val launchVoiceSearch: () -> Unit = {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak search keyword...")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: Exception) {
+            viewModel.showToast("Voice search not available")
+        }
+    }
+
     val monthlyRecords = remember(allCashflow, selectedMonthKey) {
         allCashflow.filter { it.date.startsWith(selectedMonthKey) }
     }
@@ -159,7 +175,6 @@ fun TransactionsScreen(viewModel: StockViewModel) {
     val isProfit = monthlyNetProfit >= 0
     val profitMarginPercent = if (monthlySales > 0) (monthlyNetProfit / monthlySales) * 100.0 else 0.0
 
-    // Today's summary
     val todayRecords = remember(allCashflow, todayDateStr) {
         allCashflow.filter { it.date == todayDateStr }
     }
@@ -171,7 +186,6 @@ fun TransactionsScreen(viewModel: StockViewModel) {
     }
     val todayNet = todaySales - todayExpenses
 
-    // Filtered cashflow list
     val filteredCashflow = remember(monthlyRecords, filterType, searchQuery, selectedCategoryFilter) {
         val q = searchQuery.trim().lowercase(Locale.ROOT)
         monthlyRecords.filter { rec ->
@@ -181,38 +195,26 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                 else -> true
             }
             val matchesCategory = selectedCategoryFilter.equals("All", ignoreCase = true) ||
-                    rec.category.equals(selectedCategoryFilter, ignoreCase = true)
+                rec.category.equals(selectedCategoryFilter, ignoreCase = true)
             val matchesQuery = q.isEmpty() ||
-                    rec.title.lowercase(Locale.ROOT).contains(q) ||
-                    rec.category.lowercase(Locale.ROOT).contains(q) ||
-                    rec.note.lowercase(Locale.ROOT).contains(q) ||
-                    rec.paymentMode.lowercase(Locale.ROOT).contains(q) ||
-                    rec.amount.toString().contains(q)
+                rec.title.lowercase(Locale.ROOT).contains(q) ||
+                rec.category.lowercase(Locale.ROOT).contains(q) ||
+                rec.note.lowercase(Locale.ROOT).contains(q) ||
+                rec.paymentMode.lowercase(Locale.ROOT).contains(q) ||
+                rec.amount.toString().contains(q)
 
             matchesType && matchesCategory && matchesQuery
         }
     }
 
-    // Group filtered cashflow by date
     val groupedCashflow = remember(filteredCashflow) {
         filteredCashflow.groupBy { it.date }.toSortedMap(compareByDescending { it })
     }
 
-    // Categories in current month for filter chips
     val monthCategories = remember(monthlyRecords) {
         listOf("All") + monthlyRecords.map { it.category.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
     }
 
-    // Stock transaction search filter
-    val filteredStock = remember(stockTransactions, searchQuery) {
-        val q = searchQuery.trim().lowercase(Locale.ROOT)
-        if (q.isEmpty()) stockTransactions
-        else stockTransactions.filter {
-            it.itemName.lowercase(Locale.ROOT).contains(q) || it.note.lowercase(Locale.ROOT).contains(q)
-        }
-    }
-
-    // Carousel state for top balance cards and interactive dots
     val carouselState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val activeCarouselIndex by remember {
@@ -224,114 +226,152 @@ fun TransactionsScreen(viewModel: StockViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // Tactical Top Header
+        // Header: Clean Ledger Title + Breakdown button (and optional back button when standalone)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF0A0D14))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "LEDGER & TRANSACTIONS",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        letterSpacing = 0.5.sp
-                    )
-                    Surface(
-                        color = Color(0xFF10B981).copy(alpha = 0.18f),
-                        border = BorderStroke(0.8.dp, Color(0xFF10B981)),
-                        shape = RoundedCornerShape(4.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                if (!isEmbeddedInHub) {
+                    IconButton(
+                        onClick = { viewModel.navigateTo(NavigationTab.HOME) },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .testTag("transactions_back_button")
                     ) {
-                        Text(
-                            text = "LIVE P&L",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF10B981),
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Home",
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
-                Text(
-                    text = "Cashflow Logs, Daily Sales & Store Expenses",
-                    fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
-                )
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Ledger & Transactions",
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "LIVE P&L",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Cashflow logs, daily sales & warehouse movement",
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
-            IconButton(
-                onClick = { showCategoryBreakdownDialog = true },
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(Color(0xFF121620), CircleShape)
-                    .border(1.dp, Color(0xFF1E2638), CircleShape)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable { showCategoryBreakdownDialog = true }
+                    .testTag("transactions_breakdown_button")
             ) {
-                Icon(Icons.Default.PieChart, contentDescription = "Breakdown", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PieChart,
+                        contentDescription = "Category Breakdown",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
-        // Sub Tabs: 0 = Daily P&L Cashflow, 1 = Stock Logs
-        TabRow(
-            selectedTabIndex = activeTab,
-            containerColor = Color(0xFF0A0D14),
-            contentColor = Color(0xFF10B981),
-            divider = { HorizontalDivider(color = Color(0xFF1E2638)) }
+        // Tactile Segmented Sub-Tab Switcher: Sales & Expenses (P&L) | Stock Movement
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp)
         ) {
-            Tab(
-                selected = activeTab == 0,
-                onClick = { activeTab = 0 },
-                text = {
-                    Text(
-                        "💰 Sales & Expenses (P&L)",
-                        fontWeight = if (activeTab == 0) FontWeight.Black else FontWeight.Medium,
-                        fontSize = 12.sp,
-                        color = if (activeTab == 0) Color(0xFF10B981) else Color(0xFF94A3B8)
-                    )
-                }
-            )
-            Tab(
-                selected = activeTab == 1,
-                onClick = { activeTab = 1 },
-                text = {
-                    Text(
-                        "📦 Stock Logs (${stockTransactions.size})",
-                        fontWeight = if (activeTab == 1) FontWeight.Black else FontWeight.Medium,
-                        fontSize = 12.sp,
-                        color = if (activeTab == 1) Color(0xFF10B981) else Color(0xFF94A3B8)
-                    )
-                }
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                SegmentedLedgerTab(
+                    selected = activeTab == 0,
+                    label = "Sales & Expenses",
+                    badgeText = null,
+                    icon = Icons.Default.Payments,
+                    onClick = { viewModel.setTransactionsSubTab(0) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("transactions_subtab_cashflow")
+                )
+                SegmentedLedgerTab(
+                    selected = activeTab == 1,
+                    label = "Stock Movement",
+                    badgeText = "${stockTransactions.size}",
+                    icon = Icons.Default.Inventory2,
+                    onClick = { viewModel.setTransactionsSubTab(1) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("transactions_subtab_stock")
+                )
+            }
         }
 
         if (activeTab == 0) {
-            // ==================== CASHFLOW & MONTHLY P&L TAB ====================
+            // ==================== TAB 0: DAILY P&L CASHFLOW ====================
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(top = 4.dp)
             ) {
-                // Tactical Account Balance Cards Carousel matching mockup tactical_ledger
+                // Horizontal Balance Carousel + Pager Dots
                 item {
                     LazyRow(
                         state = carouselState,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Card 1: Reserve Fund
+                        // Reserve Fund Card
                         item {
                             Card(
                                 shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.width(220.dp)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -340,29 +380,42 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("RESERVE FUND", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF94A3B8))
-                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF64748B)))
+                                        Text(
+                                            text = "RESERVE FUND",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            letterSpacing = 0.6.sp
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "₹${String.format(Locale.US, "%,.2f", monthlyNetProfit.coerceAtLeast(0.0))}",
-                                        fontSize = 18.sp,
+                                        fontSize = 20.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text("Account ID: 90031102", fontSize = 9.sp, color = Color(0xFF64748B))
-                                    Text("Store Cash Reserves", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                    Text("Account ID: 90031102", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Store Cash Reserves", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
 
-                        // Card 2: Emerald Assets (Hero active glowing card from mockup)
+                        // Primary Revenue Card
                         item {
                             Card(
                                 shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF072116)),
-                                border = BorderStroke(1.5.dp, Color(0xFF10B981)),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = ext.positive.copy(alpha = if (ext.isDark) 0.14f else 0.08f)
+                                ),
+                                border = BorderStroke(1.5.dp, ext.positive.copy(alpha = 0.75f)),
                                 modifier = Modifier.width(240.dp)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -371,21 +424,26 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("EMERALD ASSETS", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF10B981), letterSpacing = 0.5.sp)
-                                        Box(
-                                            modifier = Modifier
-                                                .size(14.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF10B981))
+                                        Text(
+                                            text = "MONTHLY REVENUE",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = ext.positive,
+                                            letterSpacing = 0.6.sp
+                                        )
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                            contentDescription = null,
+                                            tint = ext.positive,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "₹${String.format(Locale.US, "%,.2f", monthlySales)}",
-                                        fontSize = 22.sp,
+                                        fontSize = 20.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color(0xFF10B981),
-                                        letterSpacing = 0.5.sp
+                                        color = ext.positive
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Row(
@@ -394,21 +452,20 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         verticalAlignment = Alignment.Bottom
                                     ) {
                                         Column {
-                                            Text("Account ID: 90031102", fontSize = 9.sp, color = Color(0xFF64748B))
-                                            Text("Primary Revenue", fontSize = 9.sp, color = Color.White)
+                                            Text("Account ID: 90031102", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Primary Revenue", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
                                         }
-                                        // Mini bar sparklines matching mockup
                                         Row(
                                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                                             verticalAlignment = Alignment.Bottom
                                         ) {
-                                            listOf(6.dp, 10.dp, 14.dp, 8.dp, 18.dp, 22.dp).forEach { h ->
+                                            listOf(6.dp, 10.dp, 14.dp, 9.dp, 18.dp, 22.dp).forEach { h ->
                                                 Box(
                                                     modifier = Modifier
                                                         .width(3.dp)
                                                         .height(h)
                                                         .clip(RoundedCornerShape(1.dp))
-                                                        .background(Color(0xFF10B981))
+                                                        .background(ext.positive)
                                                 )
                                             }
                                         }
@@ -417,12 +474,12 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             }
                         }
 
-                        // Card 3: Global Operations / Expenses
+                        // Store Expenses Card
                         item {
                             Card(
                                 shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.45f)),
                                 modifier = Modifier.width(220.dp)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -431,29 +488,39 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("STORE EXPENSES", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
-                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFEF4444)))
+                                        Text(
+                                            text = "STORE EXPENSES",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = ext.danger,
+                                            letterSpacing = 0.6.sp
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(ext.danger)
+                                        )
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "₹${String.format(Locale.US, "%,.2f", monthlyExpenses)}",
-                                        fontSize = 18.sp,
+                                        fontSize = 20.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color(0xFFEF4444)
+                                        color = ext.danger
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text("Account ID: 90031102", fontSize = 9.sp, color = Color(0xFF64748B))
-                                    Text("Total Operations Outflow", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                    Text("Account ID: 90031102", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Operations Outflow", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
                     }
 
-                    // Pager dots indicator matching carousel scroll position
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 6.dp),
+                            .padding(top = 6.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -461,10 +528,13 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             val isActive = (index == activeCarouselIndex)
                             Box(
                                 modifier = Modifier
-                                    .padding(horizontal = 3.dp)
-                                    .size(if (isActive) 8.dp else 5.dp)
+                                    .padding(horizontal = 4.dp)
+                                    .size(width = if (isActive) 18.dp else 6.dp, height = 6.dp)
                                     .clip(CircleShape)
-                                    .background(if (isActive) Color(0xFF10B981) else Color(0xFF64748B))
+                                    .background(
+                                        if (isActive) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
                                     .clickable {
                                         coroutineScope.launch {
                                             carouselState.animateScrollToItem(index)
@@ -475,19 +545,18 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                     }
                 }
 
-                // Tactical Month Selector Bar
+                // Month Selector Bar
                 item {
-                    Spacer(modifier = Modifier.height(6.dp))
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF0E131C),
-                        border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -499,22 +568,35 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                     } else {
                                         selectedMonthIndex -= 1
                                     }
-                                }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .testTag("cashflow_prev_month")
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Month", tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Previous Month",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
                                 Text(
-                                    text = monthDisplayName.uppercase(),
+                                    text = monthDisplayName.uppercase(Locale.ENGLISH),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color(0xFF10B981),
-                                    letterSpacing = 0.5.sp
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 0.6.sp
                                 )
                             }
 
@@ -526,57 +608,73 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                     } else {
                                         selectedMonthIndex += 1
                                     }
-                                }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .testTag("cashflow_next_month")
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Month", tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next Month",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
                 }
 
-                // Tactical Hero Monthly Profit & Loss Card matching mockup
+                // Monthly P&L Overview Card
                 item {
+                    val plAccent = if (isProfit) ext.positive else ext.danger
                     Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-                        border = BorderStroke(
-                            1.2.dp,
-                            if (isProfit) Color(0xFF10B981).copy(alpha = 0.6f) else Color(0xFFEF4444).copy(alpha = 0.6f)
-                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.2.dp, plAccent.copy(alpha = 0.55f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${monthDisplayName.uppercase()} P&L OVERVIEW",
+                                    text = "${monthDisplayName.uppercase(Locale.ENGLISH)} P&L OVERVIEW",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color(0xFF94A3B8),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     letterSpacing = 0.5.sp
                                 )
 
                                 Surface(
-                                    color = if (isProfit) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFEF4444).copy(alpha = 0.2f),
-                                    border = BorderStroke(0.8.dp, if (isProfit) Color(0xFF10B981) else Color(0xFFEF4444)),
-                                    shape = RoundedCornerShape(4.dp)
+                                    color = plAccent.copy(alpha = 0.14f),
+                                    border = BorderStroke(0.8.dp, plAccent),
+                                    shape = RoundedCornerShape(6.dp)
                                 ) {
-                                    Text(
-                                        text = if (isProfit) "● NET PROFIT" else "● NET LOSS",
-                                        color = if (isProfit) Color(0xFF10B981) else Color(0xFFEF4444),
-                                        fontSize = 9.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(plAccent)
+                                        )
+                                        Text(
+                                            text = if (isProfit) "NET PROFIT" else "NET LOSS",
+                                            color = plAccent,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                            // Glowing Net Profit/Loss Display
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -584,109 +682,160 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                             ) {
                                 Column {
                                     Text(
-                                        text = if (isProfit) "+₹${String.format(Locale.US, "%,.2f", monthlyNetProfit)}" else "-₹${String.format(Locale.US, "%,.2f", -monthlyNetProfit)}",
+                                        text = if (isProfit) {
+                                            "+₹${String.format(Locale.US, "%,.2f", monthlyNetProfit)}"
+                                        } else {
+                                            "-₹${String.format(Locale.US, "%,.2f", -monthlyNetProfit)}"
+                                        },
                                         fontWeight = FontWeight.Black,
                                         fontSize = 26.sp,
-                                        color = if (isProfit) Color(0xFF10B981) else Color(0xFFEF4444),
-                                        letterSpacing = 0.5.sp
+                                        color = plAccent
                                     )
                                     Text(
                                         text = if (isProfit) "Net Store Earnings this month" else "Expenses exceeded sales this month",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
                                 if (monthlySales > 0) {
                                     Surface(
-                                        color = Color(0xFF121620),
-                                        shape = RoundedCornerShape(6.dp),
-                                        border = BorderStroke(0.8.dp, Color(0xFF1E2638))
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline)
                                     ) {
                                         Text(
                                             text = "MARGIN ${String.format(Locale.US, "%.1f%%", profitMarginPercent)}",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = if (isProfit) Color(0xFF10B981) else Color(0xFFEF4444),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                            color = plAccent,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                         )
                                     }
                                 }
                             }
 
+                            Spacer(modifier = Modifier.height(14.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                             Spacer(modifier = Modifier.height(12.dp))
-                            HorizontalDivider(color = Color(0xFF1E2638))
-                            Spacer(modifier = Modifier.height(10.dp))
 
-                            // Sales & Expenses Subtotals
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // Total Sales
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(15.dp))
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                            contentDescription = null,
+                                            tint = ext.positive,
+                                            modifier = Modifier.size(15.dp)
+                                        )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("TOTAL REVENUE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF94A3B8))
+                                        Text(
+                                            text = "TOTAL REVENUE",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "₹${String.format(Locale.US, "%,.2f", monthlySales)}",
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp,
-                                        color = Color(0xFF10B981)
+                                        fontSize = 15.5.sp,
+                                        color = ext.positive
                                     )
                                     Text(
-                                        text = "${monthlyRecords.count { it.type == "SALE" }} orders logged",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFF64748B)
+                                        text = "${monthlyRecords.count { it.type.equals("SALE", true) }} orders logged",
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
-                                // Total Expenses
-                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.End
+                                ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(15.dp))
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.TrendingDown,
+                                            contentDescription = null,
+                                            tint = ext.danger,
+                                            modifier = Modifier.size(15.dp)
+                                        )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("TOTAL EXPENSES", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF94A3B8))
+                                        Text(
+                                            text = "TOTAL EXPENSES",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "₹${String.format(Locale.US, "%,.2f", monthlyExpenses)}",
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp,
-                                        color = Color(0xFFEF4444)
+                                        fontSize = 15.5.sp,
+                                        color = ext.danger
                                     )
                                     Text(
-                                        text = "${monthlyRecords.count { it.type == "EXPENSE" }} expense entries",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFF64748B)
+                                        text = "${monthlyRecords.count { it.type.equals("EXPENSE", true) }} expense entries",
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
 
-                            // Today's Live Indicator Pill
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+
                             Surface(
-                                color = Color(0xFF121620),
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(0.8.dp, Color(0xFF1E2638)),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("⚡ TODAY:", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF94A3B8))
-                                    Text("+₹${todaySales.toInt()}", fontSize = 11.sp, color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
-                                    Text("-₹${todayExpenses.toInt()}", fontSize = 11.sp, color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Bolt,
+                                            contentDescription = null,
+                                            tint = ext.warning,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "TODAY",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
-                                        "NET: ${if (todayNet >= 0) "+" else ""}₹${todayNet.toInt()}",
-                                        fontSize = 11.sp,
+                                        text = "+₹${todaySales.toInt()}",
+                                        fontSize = 11.5.sp,
+                                        color = ext.positive,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "-₹${todayExpenses.toInt()}",
+                                        fontSize = 11.5.sp,
+                                        color = ext.danger,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "NET: ${if (todayNet >= 0) "+" else "-"}₹${kotlin.math.abs(todayNet.toInt())}",
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = if (todayNet >= 0) Color(0xFF10B981) else Color(0xFFEF4444)
+                                        color = if (todayNet >= 0) ext.positive else ext.danger
                                     )
                                 }
                             }
@@ -694,7 +843,18 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                     }
                 }
 
-                // Tactical Action Buttons: + Add Sale & + Add Expense
+                // Sales Performance Bar Chart Card (Daily / Monthly Trend)
+                item {
+                    SalesBarChartCard(
+                        monthlyRecords = monthlyRecords,
+                        allCashflow = allCashflow,
+                        selectedYear = selectedYear,
+                        selectedMonthIndex = selectedMonthIndex,
+                        monthDisplayName = monthDisplayName
+                    )
+                }
+
+                // Primary Quick Actions: + Add Sale & + Expense
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -707,17 +867,18 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                 showAddDialog = true
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF10B981),
-                                contentColor = Color(0xFF022C1A)
+                                containerColor = ext.positive,
+                                contentColor = Color.White
                             ),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
+                                .height(48.dp)
+                                .testTag("cashflow_add_sale_btn")
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("+ ADD SALE", fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 0.5.sp)
+                            Text("ADD SALE", fontWeight = FontWeight.Black, fontSize = 12.5.sp, letterSpacing = 0.4.sp)
                         }
 
                         Button(
@@ -727,93 +888,126 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                 showAddDialog = true
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1F1216),
-                                contentColor = Color(0xFFEF4444)
+                                containerColor = ext.danger.copy(alpha = 0.14f),
+                                contentColor = ext.danger
                             ),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                            border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.55f)),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
+                                .height(48.dp)
+                                .testTag("cashflow_add_expense_btn")
                         ) {
-                            Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("+ EXPENSE", fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 0.5.sp)
+                            Text("EXPENSE", fontWeight = FontWeight.Black, fontSize = 12.5.sp, letterSpacing = 0.4.sp)
                         }
                     }
                 }
 
-                // Tactical Search Bar
+                // Search Bar with Voice Input
                 item {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search title, category, note…", fontSize = 13.sp, color = Color(0xFF64748B)) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF10B981)) },
+                        placeholder = {
+                            Text(
+                                "Search title, category, mode, note…",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        },
                         trailingIcon = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(
-                                    onClick = {
-                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak search keyword...")
-                                        }
-                                        try {
-                                            speechLauncher.launch(intent)
-                                        } catch (e: Exception) {
-                                            viewModel.showToast("Voice search not available")
-                                        }
-                                    }
+                                    onClick = launchVoiceSearch,
+                                    modifier = Modifier.size(44.dp)
                                 ) {
-                                    Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Voice search",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                                 if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                                    IconButton(
+                                        onClick = { searchQuery = "" },
+                                        modifier = Modifier.size(44.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                 }
                             }
                         },
                         singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF0E131C),
-                            unfocusedContainerColor = Color(0xFF0E131C),
-                            focusedBorderColor = Color(0xFF10B981),
-                            unfocusedBorderColor = Color(0xFF1E2638),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("cashflow_search_field")
                     )
                 }
 
-                // Tactical Filter Pills: All | Sales | Expenses
+                // Type Filter Pills: All | Sales | Expenses
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    val pills = listOf(
+                        Triple("ALL", "All (${monthlyRecords.size})", primaryColor),
+                        Triple("SALE", "Sales (${monthlyRecords.count { it.type.equals("SALE", true) }})", ext.positive),
+                        Triple("EXPENSE", "Expenses (${monthlyRecords.count { it.type.equals("EXPENSE", true) }})", ext.danger)
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        listOf(
-                            Triple("ALL", "All (${monthlyRecords.size})", Color(0xFF10B981)),
-                            Triple("SALE", "🟢 Sales (${monthlyRecords.count { it.type == "SALE" }})", Color(0xFF10B981)),
-                            Triple("EXPENSE", "🔴 Expenses (${monthlyRecords.count { it.type == "EXPENSE" }})", Color(0xFFEF4444))
-                        ).forEach { (typeKey, label, accentColor) ->
+                        items(pills) { (typeKey, label, accentColor) ->
                             val isSel = filterType == typeKey
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (isSel) accentColor else Color(0xFF121620),
-                                border = BorderStroke(1.dp, if (isSel) accentColor else Color(0xFF1E2638)),
-                                modifier = Modifier.clickable { filterType = typeKey }
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSel) accentColor else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, if (isSel) accentColor else MaterialTheme.colorScheme.outline),
+                                modifier = Modifier
+                                    .heightIn(min = 44.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable { filterType = typeKey }
+                                    .testTag("cashflow_filter_${typeKey.lowercase()}")
                             ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.Black else FontWeight.SemiBold,
-                                    color = if (isSel) Color(0xFF022C1A) else Color(0xFF94A3B8),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    if (typeKey != "ALL") {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isSel) Color.White else accentColor)
+                                        )
+                                    }
+                                    Text(
+                                        text = label,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
+                                        color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -823,7 +1017,7 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                 if (monthCategories.size > 2) {
                     item {
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(monthCategories) { cat ->
@@ -831,11 +1025,12 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                 FilterChip(
                                     selected = isSel,
                                     onClick = { selectedCategoryFilter = cat },
-                                    label = { Text(cat, fontSize = 11.sp) },
+                                    label = { Text(cat, fontSize = 11.5.sp) },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                        selectedLabelColor = Color.White
-                                    )
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    modifier = Modifier.heightIn(min = 44.dp)
                                 )
                             }
                         }
@@ -845,31 +1040,48 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                 // Grouped Daily Entries
                 if (groupedCashflow.isEmpty()) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            contentAlignment = Alignment.Center
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 28.dp, horizontal = 16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Text(
-                                    text = if (monthlyRecords.isEmpty()) "No sales or expenses recorded for $monthDisplayName." else "No transactions match your search.",
+                                    text = if (monthlyRecords.isEmpty()) {
+                                        "No sales or expenses recorded for $monthDisplayName."
+                                    } else {
+                                        "No transactions match your search."
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = {
-                                        addDialogInitialType = "SALE"
-                                        showAddDialog = true
-                                    }) {
-                                        Text("+ Add Today's Sale")
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            addDialogInitialType = "SALE"
+                                            showAddDialog = true
+                                        },
+                                        modifier = Modifier.heightIn(min = 44.dp),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("+ Add Sale")
                                     }
-                                    OutlinedButton(onClick = {
-                                        addDialogInitialType = "EXPENSE"
-                                        showAddDialog = true
-                                    }) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            addDialogInitialType = "EXPENSE"
+                                            showAddDialog = true
+                                        },
+                                        modifier = Modifier.heightIn(min = 44.dp),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
                                         Text("+ Add Expense")
                                     }
                                 }
@@ -878,21 +1090,21 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                     }
                 } else {
                     groupedCashflow.forEach { (dateKey, entries) ->
-                        val daySales = entries.filter { it.type == "SALE" }.sumOf { it.amount }
-                        val dayExpenses = entries.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+                        val daySales = entries.filter { it.type.equals("SALE", true) }.sumOf { it.amount }
+                        val dayExpenses = entries.filter { it.type.equals("EXPENSE", true) }.sumOf { it.amount }
                         val dayNet = daySales - dayExpenses
 
-                        // Date Header
-                        item {
+                        item(key = "cashflow_date_$dateKey") {
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .padding(horizontal = 12.dp, vertical = 7.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -904,21 +1116,34 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        if (daySales > 0) Text("+$daySales", fontSize = 11.sp, color = SuccessGreen, fontWeight = FontWeight.Bold)
-                                        if (dayExpenses > 0) Text("-$dayExpenses", fontSize = 11.sp, color = DangerRed, fontWeight = FontWeight.Bold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (daySales > 0) {
+                                            Text(
+                                                text = "+₹${daySales.toInt()}",
+                                                fontSize = 11.sp,
+                                                color = ext.positive,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (dayExpenses > 0) {
+                                            Text(
+                                                text = "-₹${dayExpenses.toInt()}",
+                                                fontSize = 11.sp,
+                                                color = ext.danger,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                         Text(
-                                            text = "Net: ${if (dayNet >= 0) "+" else ""}₹${String.format(Locale.US, "%.0f", dayNet)}",
+                                            text = "Net: ${if (dayNet >= 0) "+" else "-"}₹${String.format(Locale.US, "%.0f", kotlin.math.abs(dayNet))}",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (dayNet >= 0) SuccessGreen else DangerRed
+                                            color = if (dayNet >= 0) ext.positive else ext.danger
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // Entries for this date
                         items(entries, key = { it.id }) { rec ->
                             CashflowRowCard(
                                 record = rec,
@@ -935,81 +1160,21 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(70.dp))
+                    Spacer(modifier = Modifier.height(96.dp))
                 }
             }
         } else {
-            // ==================== STOCK LOGS TAB ====================
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search stock logs…") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                if (filteredStock.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (stockTransactions.isEmpty()) "No stock transactions yet.\nOpen an item and tap + New to adjust stock." else "No matching stock logs found.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                } else {
-                    items(filteredStock, key = { it.clientId }) { tx ->
-                        TransactionRowItem(
-                            tx = tx,
-                            onItemClick = {
-                                if (!tx.itemId.isNullOrEmpty()) {
-                                    viewModel.openItemDetail(tx.itemId)
-                                }
-                            }
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(80.dp))
-                }
-            }
+            // ==================== TAB 1: STOCK MOVEMENT LOGS ====================
+            StockMovementContent(
+                viewModel = viewModel,
+                stockTransactions = stockTransactions,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                onVoiceSearchClick = launchVoiceSearch
+            )
         }
     }
 
-    // Add / Edit Cashflow Dialog
     if (showAddDialog) {
         AddEditCashflowDialog(
             recordToEdit = recordToEdit,
@@ -1047,11 +1212,10 @@ fun TransactionsScreen(viewModel: StockViewModel) {
         )
     }
 
-    // Delete Confirmation Dialog
     recordToDelete?.let { rec ->
         AlertDialog(
             onDismissRequest = { recordToDelete = null },
-            title = { Text("Delete ${rec.type.lowercase().replaceFirstChar { it.uppercase() }}?") },
+            title = { Text("Delete ${rec.type.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() }}?") },
             text = {
                 Text("Are you sure you want to delete \"${rec.title}\" of ₹${rec.amount} on ${rec.date}? This will update monthly profit/loss calculations.")
             },
@@ -1061,20 +1225,23 @@ fun TransactionsScreen(viewModel: StockViewModel) {
                         viewModel.deleteDailyCashflow(rec.id)
                         recordToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = ext.danger, contentColor = Color.White),
+                    modifier = Modifier.heightIn(min = 44.dp)
                 ) {
                     Text("Delete")
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { recordToDelete = null }) {
+                OutlinedButton(
+                    onClick = { recordToDelete = null },
+                    modifier = Modifier.heightIn(min = 44.dp)
+                ) {
                     Text("Cancel")
                 }
             }
         )
     }
 
-    // Category Breakdown Dialog
     if (showCategoryBreakdownDialog) {
         CategoryBreakdownDialog(
             monthName = monthDisplayName,
@@ -1085,102 +1252,165 @@ fun TransactionsScreen(viewModel: StockViewModel) {
 }
 
 @Composable
+private fun SegmentedLedgerTab(
+    selected: Boolean,
+    label: String,
+    badgeText: String?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)) else null,
+        tonalElevation = if (selected) 2.dp else 0.dp,
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!badgeText.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(5.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                    border = if (selected) null else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Text(
+                        text = badgeText,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun CashflowRowCard(
     record: DailyCashflowRecord,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     val isSale = record.type.equals("SALE", ignoreCase = true)
-    val accentColor = if (isSale) Color(0xFF10B981) else Color(0xFFEF4444)
+    val accentColor = if (isSale) ext.positive else ext.danger
 
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E131C)),
-        border = BorderStroke(1.dp, Color(0xFF1E2638)),
-        modifier = Modifier.fillMaxWidth()
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("cashflow_row_${record.id}")
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Tactical Left Glowing Accent Bar
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .height(64.dp)
+                    .height(68.dp)
                     .background(accentColor)
             )
 
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Icon & Category / Title
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
                     Surface(
-                        color = accentColor.copy(alpha = 0.15f),
-                        border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.5f)),
+                        color = accentColor.copy(alpha = 0.14f),
+                        border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.45f)),
                         shape = CircleShape,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = if (isSale) "↗" else "↘",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = accentColor
+                            Icon(
+                                imageVector = if (isSale) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                                contentDescription = if (isSale) "Sale" else "Expense",
+                                tint = accentColor,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = record.title.ifEmpty { if (isSale) "Cash Sale" else "Store Expense" },
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.5.sp,
-                            color = Color(0xFFF3F4F6),
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.height(3.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Surface(
-                                color = Color(0xFF141923),
-                                border = BorderStroke(0.6.dp, Color(0xFF1E2638)),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outline),
                                 shape = RoundedCornerShape(4.dp)
                             ) {
                                 Text(
-                                    text = record.category.uppercase(),
+                                    text = record.category.uppercase(Locale.ENGLISH),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
                                     color = accentColor,
+                                    maxLines = 1,
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                 )
                             }
 
                             if (record.paymentMode.isNotBlank()) {
                                 Text(
-                                    text = "• ${record.paymentMode}",
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF94A3B8)
+                                    text = record.paymentMode,
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
                                 )
                             }
 
                             if (record.note.isNotBlank()) {
                                 Text(
                                     text = "• ${record.note}",
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF64748B),
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1189,31 +1419,34 @@ fun CashflowRowCard(
                     }
                 }
 
-                // Amount & Actions
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isSale) "+₹${String.format(Locale.US, "%,.2f", record.amount)}" else "-₹${String.format(Locale.US, "%,.2f", record.amount)}",
+                        text = if (isSale) {
+                            "+₹${String.format(Locale.US, "%,.2f", record.amount)}"
+                        } else {
+                            "-₹${String.format(Locale.US, "%,.2f", record.amount)}"
+                        },
                         fontWeight = FontWeight.Black,
-                        fontSize = 14.5.sp,
-                        color = accentColor,
-                        letterSpacing = 0.3.sp
+                        fontSize = 14.sp,
+                        color = accentColor
                     )
-
-                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color(0xFF10B981), modifier = Modifier.size(15.dp))
-                    }
-
-                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFEF4444), modifier = Modifier.size(15.dp))
-                    }
 
                     var dropMenu by remember { mutableStateOf(false) }
                     Box {
-                        IconButton(onClick = { dropMenu = true }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More Options", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                        IconButton(
+                            onClick = { dropMenu = true },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("cashflow_more_${record.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                         DropdownMenu(
                             expanded = dropMenu,
@@ -1225,7 +1458,9 @@ fun CashflowRowCard(
                                     dropMenu = false
                                     onEdit()
                                 },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF10B981)) }
+                                leadingIcon = {
+                                    Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
                             )
                             DropdownMenuItem(
                                 text = { Text("Delete Entry") },
@@ -1233,426 +1468,12 @@ fun CashflowRowCard(
                                     dropMenu = false
                                     onDelete()
                                 },
-                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444)) }
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = ext.danger)
+                                }
                             )
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AddEditCashflowDialog(
-    recordToEdit: DailyCashflowRecord?,
-    initialType: String,
-    onDismiss: () -> Unit,
-    onSave: (type: String, amount: Double, title: String, category: String, paymentMode: String, date: String, note: String) -> Unit
-) {
-    val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
-
-    var type by remember { mutableStateOf(recordToEdit?.type ?: initialType) }
-
-    // Format initial amount without trailing .0 if integer
-    val initialAmountFormatted = recordToEdit?.amount?.let {
-        if (it % 1.0 == 0.0) it.toLong().toString() else it.toString()
-    } ?: ""
-
-    // Separate states for Sale and Expense so amounts never leak across types
-    var saleAmountText by remember {
-        mutableStateOf(if (recordToEdit?.type == "SALE") initialAmountFormatted else "")
-    }
-    var expenseAmountText by remember {
-        mutableStateOf(if (recordToEdit?.type == "EXPENSE") initialAmountFormatted else "")
-    }
-
-    var saleTitle by remember {
-        mutableStateOf(if (recordToEdit?.type == "SALE") recordToEdit.title else "")
-    }
-    var expenseTitle by remember {
-        mutableStateOf(if (recordToEdit?.type == "EXPENSE") recordToEdit.title else "")
-    }
-
-    var saleCategory by remember {
-        mutableStateOf(if (recordToEdit?.type == "SALE") recordToEdit.category else "Counter Sale")
-    }
-    var expenseCategory by remember {
-        mutableStateOf(if (recordToEdit?.type == "EXPENSE") recordToEdit.category else "Shop Rent")
-    }
-
-    var paymentMode by remember { mutableStateOf(recordToEdit?.paymentMode ?: "Cash") }
-    var date by remember { mutableStateOf(recordToEdit?.date ?: todayDate) }
-    var note by remember { mutableStateOf(recordToEdit?.note ?: "") }
-
-    val saleCategories = listOf("Counter Sale", "Wholesale", "Retail", "Services", "Custom Work", "Other Sale")
-    val expenseCategories = listOf("Shop Rent", "Electricity", "Staff Salary", "Transport/Freight", "Tea & Snacks", "Maintenance", "Packaging", "Tools", "Stationery", "Other Expense")
-    val paymentModes = listOf("Cash", "UPI", "Card", "Bank Transfer", "Cheque")
-
-    val activeAmountText = if (type == "SALE") saleAmountText else expenseAmountText
-    val activeTitle = if (type == "SALE") saleTitle else expenseTitle
-    val activeCategory = if (type == "SALE") saleCategory else expenseCategory
-    val parsedAmount = activeAmountText.toDoubleOrNull() ?: 0.0
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (recordToEdit == null) "Add ${if (type == "SALE") "Sale" else "Expense"}" else "Edit Transaction",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Type Toggle: Sale vs Expense
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            type = "SALE"
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (type == "SALE") SuccessGreen else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            "📈 Sale (Revenue)",
-                            color = if (type == "SALE") Color.White else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            type = "EXPENSE"
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (type == "EXPENSE") DangerRed else MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            "📉 Expense (Cost)",
-                            color = if (type == "EXPENSE") Color.White else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Amount
-                OutlinedTextField(
-                    value = activeAmountText,
-                    onValueChange = { newVal ->
-                        // Accept digits and decimal
-                        val cleaned = newVal.filter { it.isDigit() || it == '.' }
-                        if (type == "SALE") {
-                            saleAmountText = cleaned
-                        } else {
-                            expenseAmountText = cleaned
-                        }
-                    },
-                    label = { Text("Amount (₹) *") },
-                    placeholder = { Text("0") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Title / Description
-                OutlinedTextField(
-                    value = activeTitle,
-                    onValueChange = { newVal ->
-                        if (type == "SALE") {
-                            saleTitle = newVal
-                        } else {
-                            expenseTitle = newVal
-                        }
-                    },
-                    label = { Text("Title / Purpose *") },
-                    placeholder = { Text(if (type == "SALE") "e.g. Counter Sale / Customer Name" else "e.g. Electricity Bill / Shop Rent") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Category Selector
-                Text("Category:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(4.dp))
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    val availableCats = if (type == "SALE") saleCategories else expenseCategories
-                    items(availableCats) { catOpt ->
-                        val isSel = activeCategory.equals(catOpt, ignoreCase = true)
-                        FilterChip(
-                            selected = isSel,
-                            onClick = {
-                                if (type == "SALE") {
-                                    saleCategory = catOpt
-                                    if (saleTitle.isBlank()) saleTitle = catOpt
-                                } else {
-                                    expenseCategory = catOpt
-                                    if (expenseTitle.isBlank()) expenseTitle = catOpt
-                                }
-                            },
-                            label = { Text(catOpt, fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = if (type == "SALE") SuccessGreen else DangerRed,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Payment Mode & Date
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = date,
-                        onValueChange = { date = it },
-                        label = { Text("Date (YYYY-MM-DD)") },
-                        modifier = Modifier.weight(1.1f),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = paymentMode,
-                        onValueChange = { paymentMode = it },
-                        label = { Text("Mode") },
-                        modifier = Modifier.weight(0.9f),
-                        singleLine = true
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Quick Payment Mode Chips
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(paymentModes) { pm ->
-                        FilterChip(
-                            selected = paymentMode.equals(pm, ignoreCase = true),
-                            onClick = { paymentMode = pm },
-                            label = { Text(pm, fontSize = 10.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Optional Notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 2
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Save Action Button
-                Button(
-                    onClick = {
-                        if (parsedAmount <= 0.0) return@Button
-                        val finalTitle = activeTitle.ifBlank { activeCategory }
-                        onSave(type, parsedAmount, finalTitle, activeCategory, paymentMode, date, note)
-                    },
-                    enabled = parsedAmount > 0.0,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (type == "SALE") SuccessGreen else DangerRed
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        text = if (recordToEdit == null) "Save ${if (type == "SALE") "Sale" else "Expense"}" else "Update Transaction",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CategoryBreakdownDialog(
-    monthName: String,
-    records: List<DailyCashflowRecord>,
-    onDismiss: () -> Unit
-) {
-    val sales = records.filter { it.type == "SALE" }
-    val expenses = records.filter { it.type == "EXPENSE" }
-    val totalSales = sales.sumOf { it.amount }
-    val totalExpenses = expenses.sumOf { it.amount }
-    val net = totalSales - totalExpenses
-
-    val salesByCategory = sales.groupBy { it.category }.mapValues { it.value.sumOf { item -> item.amount } }
-    val expensesByCategory = expenses.groupBy { it.category }.mapValues { it.value.sumOf { item -> item.amount } }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "📊 $monthName Breakdown",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(360.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Net Summary
-                    item {
-                        Surface(
-                            color = if (net >= 0) SuccessGreen.copy(alpha = 0.12f) else DangerRed.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text("Monthly Summary", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Sales: ₹${String.format(Locale.US, "%,.2f", totalSales)}", color = SuccessGreen, fontWeight = FontWeight.SemiBold)
-                                    Text("Expenses: ₹${String.format(Locale.US, "%,.2f", totalExpenses)}", color = DangerRed, fontWeight = FontWeight.SemiBold)
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Net: ${if (net >= 0) "+" else ""}₹${String.format(Locale.US, "%,.2f", net)} (${if (net >= 0) "Profit" else "Loss"})",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 15.sp,
-                                    color = if (net >= 0) SuccessGreen else DangerRed
-                                )
-                            }
-                        }
-                    }
-
-                    // Expenses Breakdown
-                    item {
-                        Text("📉 EXPENSES BY CATEGORY", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = DangerRed)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (expensesByCategory.isEmpty()) {
-                            Text("No expenses recorded.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                expensesByCategory.entries.sortedByDescending { it.value }.forEach { (cat, amt) ->
-                                    val pct = if (totalExpenses > 0) (amt / totalExpenses) * 100.0 else 0.0
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(6.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(cat, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                            Text("₹${String.format(Locale.US, "%,.2f", amt)} (${String.format(Locale.US, "%.1f%%", pct)})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Sales Breakdown
-                    item {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("📈 SALES BY CATEGORY", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = SuccessGreen)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (salesByCategory.isEmpty()) {
-                            Text("No sales recorded.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                salesByCategory.entries.sortedByDescending { it.value }.forEach { (cat, amt) ->
-                                    val pct = if (totalSales > 0) (amt / totalSales) * 100.0 else 0.0
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(6.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(cat, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                            Text("₹${String.format(Locale.US, "%,.2f", amt)} (${String.format(Locale.US, "%.1f%%", pct)})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SuccessGreen)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text("Close")
                 }
             }
         }

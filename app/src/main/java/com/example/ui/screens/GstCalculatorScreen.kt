@@ -45,9 +45,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import com.example.ui.StockViewModel
-import com.example.ui.theme.DangerRed
-import com.example.ui.theme.SuccessGreen
-import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import java.io.File
 import java.text.SimpleDateFormat
@@ -69,6 +67,7 @@ data class GstInvoiceRow(
 @Composable
 fun GstCalculatorScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
+    val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
     val prefilledQuotation by viewModel.prefilledQuotationForGst.collectAsState()
     var quotationId by remember { mutableStateOf<String?>(null) }
@@ -176,21 +175,21 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         if (!quotationNo.isNullOrBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF9333EA).copy(alpha = 0.12f),
-                                border = BorderStroke(1.dp, Color(0xFF9333EA).copy(alpha = 0.4f)),
+                                color = ext.purple.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, ext.purple.copy(alpha = 0.4f)),
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ext.purple, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Converted from Estimate #$quotationNo",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF9333EA)
+                                        color = ext.purple
                                     )
                                 }
                             }
@@ -270,16 +269,16 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                 Card(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isEWayBillRequired) WarningAmber.copy(alpha = 0.15f) else SuccessGreen.copy(alpha = 0.12f)
+                        containerColor = if (isEWayBillRequired) ext.warning.copy(alpha = 0.15f) else ext.positive.copy(alpha = 0.12f)
                     ),
-                    border = BorderStroke(1.dp, if (isEWayBillRequired) WarningAmber else SuccessGreen)
+                    border = BorderStroke(1.dp, if (isEWayBillRequired) ext.warning else ext.positive)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 if (isEWayBillRequired) Icons.Default.Warning else Icons.Default.Calculate,
                                 contentDescription = null,
-                                tint = if (isEWayBillRequired) WarningAmber else SuccessGreen,
+                                tint = if (isEWayBillRequired) ext.warning else ext.positive,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -287,7 +286,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 text = if (isEWayBillRequired) "⚠️ E-WAY BILL REQUIRED (Value > ₹50,000)" else "✓ E-Way Bill Optional (Invoice Value ≤ ₹50,000)",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = if (isEWayBillRequired) WarningAmber else SuccessGreen
+                                color = if (isEWayBillRequired) ext.warning else ext.positive
                             )
                         }
                         if (isEWayBillRequired) {
@@ -363,7 +362,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = if (isSelected) {
-                                            if (rate == 0.0) SuccessGreen else MaterialTheme.colorScheme.primary
+                                            if (rate == 0.0) ext.positive else MaterialTheme.colorScheme.primary
                                         } else {
                                             MaterialTheme.colorScheme.surface
                                         },
@@ -378,7 +377,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                             text = if (rate == 0.0) "0% (Tax-Free)" else "${rate.toInt()}%",
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                                         )
                                     }
@@ -451,7 +450,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { if (rows.size > 1) rows.removeAt(index) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = DangerRed)
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ext.danger)
                             }
                         }
 
@@ -584,7 +583,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                                     }
                                                 }
                                                 if (matched.price > 0.0) {
-                                                    Text("Sell: ₹${matched.price}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SuccessGreen)
+                                                    Text("Sell: ₹${matched.price}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ext.positive)
                                                 }
                                             }
                                         }
@@ -628,7 +627,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = if (selected) {
-                                            if (slab == 0.0) SuccessGreen else MaterialTheme.colorScheme.primary
+                                            if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
                                         } else MaterialTheme.colorScheme.surfaceVariant,
                                         modifier = Modifier.clickable { rows[index] = row.copy(taxRatePercent = slab) }
                                     ) {
@@ -636,7 +635,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                             text = if (slab == 0.0) "0% (Exempt)" else "${slab.toInt()}%",
                                             fontSize = 10.5.sp,
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                                         )
                                     }
@@ -664,7 +663,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         if (totalTaxAmount == 0.0) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("GST Tax (0% Rate):", fontSize = 13.sp)
-                                Text("₹0.00 (Exempt / Nil-Rated)", fontWeight = FontWeight.Bold, color = SuccessGreen)
+                                Text("₹0.00 (Exempt / Nil-Rated)", fontWeight = FontWeight.Bold, color = ext.positive)
                             }
                         } else if (isInterState) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -879,7 +878,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         modifier = Modifier.weight(1.5f)
                     ) {
                         if (isGeneratingPdf) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Exporting...", fontWeight = FontWeight.Bold)
                         } else {
@@ -942,7 +941,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         },
                         modifier = Modifier.weight(1.2f)
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(15.dp), tint = SuccessGreen)
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(15.dp), tint = ext.positive)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Save Bill", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                     }
@@ -983,9 +982,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp)) {
-                                        Text(viewModel.uiConfig.value.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }.uppercase(), fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                                        Text("GSTIN: $storeGstin  •  TAX INVOICE", fontSize = 10.sp, color = Color(0xFFE2E8F0))
-                                        Text("Inv #: $invoiceNo  |  Date: $invoiceDate", fontSize = 10.sp, color = Color(0xFFE2E8F0))
+                                        Text(viewModel.uiConfig.value.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }.uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp)
+                                        Text("GSTIN: $storeGstin  •  TAX INVOICE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
+                                        Text("Inv #: $invoiceNo  |  Date: $invoiceDate", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -1010,16 +1009,16 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             item {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF334155),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(modifier = Modifier.padding(6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("#", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
-                                        Text("Image", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(42.dp))
-                                        Text("Item", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                        Text("Qty", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp))
-                                        Text("Rate", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
-                                        Text("Total", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
+                                        Text("#", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(18.dp))
+                                        Text("Image", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(42.dp))
+                                        Text("Item", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                        Text("Qty", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp))
+                                        Text("Rate", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
+                                        Text("Total", color = MaterialTheme.colorScheme.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
                                     }
                                 }
                             }
@@ -1177,7 +1176,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                 onDismissRequest = { exportedPdfInfo = null },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = DangerRed)
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = ext.danger)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("PDF Exported Successfully!", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }

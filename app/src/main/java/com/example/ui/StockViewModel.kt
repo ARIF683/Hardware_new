@@ -79,19 +79,11 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
     private val _customThemeColor = MutableStateFlow(
-        run {
-            val saved = themePrefs.getString("theme_color", null)
-            if (saved == null || saved == "#007AFF") {
-                themePrefs.edit().putString("theme_color", "#10B981").putString("theme_mode", "dark").apply()
-                "#10B981"
-            } else {
-                saved
-            }
-        }
+        themePrefs.getString("theme_color", "#EA580C") ?: "#EA580C"
     )
     val customThemeColor: StateFlow<String> = _customThemeColor.asStateFlow()
 
-    private val _themeMode = MutableStateFlow(themePrefs.getString("theme_mode", "dark") ?: "dark")
+    private val _themeMode = MutableStateFlow(themePrefs.getString("theme_mode", "system") ?: "system")
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
     fun setThemeMode(mode: String) {
@@ -116,7 +108,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         showToast(if (layout == "list") "Switched to List View (Showcase)" else "Switched to 2-Column Grid")
     }
 
-    private val _navBarStyle = MutableStateFlow(layoutPrefs.getString("nav_style", "floating_pill") ?: "floating_pill")
+    private val _navBarStyle = MutableStateFlow(layoutPrefs.getString("nav_style", "classic") ?: "classic")
     val navBarStyle: StateFlow<String> = _navBarStyle.asStateFlow()
     fun setNavBarStyle(style: String) {
         _navBarStyle.value = style
@@ -271,7 +263,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
-    private val _currentTab = MutableStateFlow(NavigationTab.ITEMS)
+    private val _currentTab = MutableStateFlow(NavigationTab.HOME)
     val currentTab: StateFlow<NavigationTab> = _currentTab.asStateFlow()
 
     // Filters and UI state
@@ -291,8 +283,20 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        themePrefs.edit().putString("theme_mode", "dark").apply()
-        _themeMode.value = "dark" 
+        // One-time migration if legacy tactical lock was saved without user preference
+        if (!themePrefs.getBoolean("migrated_v2_theme", false)) {
+            val savedColor = themePrefs.getString("theme_color", null)
+            val editor = themePrefs.edit().putBoolean("migrated_v2_theme", true)
+            if (savedColor == "#10B981" || savedColor == null) {
+                editor.putString("theme_color", "#EA580C")
+                _customThemeColor.value = "#EA580C"
+            }
+            if (themePrefs.getString("theme_mode", null) == "dark") {
+                editor.putString("theme_mode", "system")
+                _themeMode.value = "system"
+            }
+            editor.apply()
+        }
         // Trigger initial remote load when ViewModel initializes
         viewModelScope.launch {
             repository.loadFromRemote()
@@ -335,8 +339,19 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val transactionsSubTab = MutableStateFlow(0) // 0 = Sales & Expenses (P&L), 1 = Stock Movement
+
+    fun setTransactionsSubTab(subTab: Int) {
+        transactionsSubTab.value = subTab.coerceIn(0, 1)
+    }
+
     fun navigateTo(tab: NavigationTab) {
-        _currentTab.value = tab
+        if (tab == NavigationTab.TRANSACTIONS) {
+            billingKhataSubTab.value = 4
+            _currentTab.value = NavigationTab.BILLING
+        } else {
+            _currentTab.value = tab
+        }
         _currentScreen.value = CurrentScreen.Main
         selectedGroup.value = null
         groupBy.value = "none"
@@ -344,24 +359,35 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         isSelectionMode.value = false
     }
 
-    val billingKhataSubTab = MutableStateFlow(0) // 0 = Quotes / Estimates, 1 = GST Bills & Invoices, 2 = Khata Ledger
+    val billingKhataSubTab = MutableStateFlow(0) // 0 = POS, 1 = Quotes / Estimates, 2 = GST Bills & Invoices, 3 = Khata Ledger, 4 = Transactions
 
     fun setBillingKhataSubTab(subTab: Int) {
-        billingKhataSubTab.value = subTab
+        billingKhataSubTab.value = subTab.coerceIn(0, 4)
     }
 
-    fun navigateToQuotes() {
+    fun navigateToPos() {
         billingKhataSubTab.value = 0
         navigateTo(NavigationTab.BILLING)
     }
 
-    fun navigateToGstBills() {
+    fun navigateToQuotes() {
         billingKhataSubTab.value = 1
         navigateTo(NavigationTab.BILLING)
     }
 
-    fun navigateToKhata() {
+    fun navigateToGstBills() {
         billingKhataSubTab.value = 2
+        navigateTo(NavigationTab.BILLING)
+    }
+
+    fun navigateToKhata() {
+        billingKhataSubTab.value = 3
+        navigateTo(NavigationTab.BILLING)
+    }
+
+    fun navigateToCashflow(subTab: Int = 0) {
+        transactionsSubTab.value = subTab.coerceIn(0, 1)
+        billingKhataSubTab.value = 4
         navigateTo(NavigationTab.BILLING)
     }
 

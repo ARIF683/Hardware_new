@@ -1084,7 +1084,7 @@ class StockRepository(
             for (op in queue) {
                 try {
                     when (op.type) {
-                        "upsert" -> {
+                        "upsert", "upsertItems" -> {
                             val items = itemListAdapter.fromJson(op.payloadJson) ?: emptyList()
                             supabaseClient.upsertItems(items)
                         }
@@ -1820,7 +1820,7 @@ class StockRepository(
 
             if (updatedItems.isNotEmpty()) {
                 database.itemDao().insertAll(updatedItems)
-                enqueueOp("upsertItems", itemListAdapter.toJson(updatedItems))
+                enqueueOp("upsert", itemListAdapter.toJson(updatedItems))
             }
 
             if (newTransactions.isNotEmpty()) {

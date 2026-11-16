@@ -1357,4 +1357,68 @@ object InvoicePrintManager {
             Result.failure(e)
         }
     }
+
+    /**
+     * Exports filtered GST bills as a GSTR-1 ready CSV report and triggers the Android Share Sheet.
+     */
+    fun exportGstr1CsvAndShare(
+        context: Context,
+        bills: List<GstBillRecord>,
+        storeName: String
+    ): File {
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val csvFile = File(exportDir, "GSTR1_Report_$stamp.csv")
+
+        fun csvEscape(value: String): String {
+            val cleaned = value.replace("\"", "\"\"")
+            return "\"$cleaned\""
+        }
+
+        val sb = StringBuilder()
+        sb.appendLine("Store,${csvEscape(storeName)}")
+        sb.appendLine("Invoice No,Date,Customer Name,Phone,Customer GSTIN,Supply Type,Taxable Value,CGST,SGST,IGST,Total Tax,Grand Total,Status,Estimate Ref")
+        bills.forEach { bill ->
+            val cgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
+            val sgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
+            val igst = if (bill.isInterState) bill.totalTaxAmount else 0.0
+            val supplyType = if (bill.isInterState) "Inter-State (IGST)" else "Intra-State (CGST+SGST)"
+            sb.appendLine(
+                listOf(
+                    csvEscape(bill.invoiceNo),
+                    csvEscape(bill.invoiceDate),
+                    csvEscape(bill.customerName),
+                    csvEscape(bill.customerPhone),
+                    csvEscape(bill.customerGstin),
+                    csvEscape(supplyType),
+                    String.format(Locale.US, "%.2f", bill.taxableTotal),
+                    String.format(Locale.US, "%.2f", cgst),
+                    String.format(Locale.US, "%.2f", sgst),
+                    String.format(Locale.US, "%.2f", igst),
+                    String.format(Locale.US, "%.2f", bill.totalTaxAmount),
+                    String.format(Locale.US, "%.2f", bill.grandTotal),
+                    csvEscape(bill.status),
+                    csvEscape(bill.quotationNo ?: "")
+                ).joinToString(",")
+            )
+        }
+        csvFile.writeText(sb.toString(), Charsets.UTF_8)
+
+        val uri: Uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.provider",
+            csvFile
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "GSTR-1 Sales Register - $storeName")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(Intent.createChooser(intent, "Export GSTR-1 Report").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+        return csvFile
+    }
 }

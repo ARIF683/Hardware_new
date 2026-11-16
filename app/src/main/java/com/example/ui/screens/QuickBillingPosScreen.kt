@@ -116,8 +116,7 @@ import com.example.data.model.GstBillRecord
 import com.example.data.model.Item
 import com.example.data.model.QuotationLineItem
 import com.example.ui.StockViewModel
-import com.example.ui.theme.BrandAmber
-import com.example.ui.theme.SuccessGreen
+import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import com.example.util.ItemSearchMatcher
 import java.io.File
@@ -143,8 +142,12 @@ data class PosCartItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickBillingPosScreen(viewModel: StockViewModel) {
+fun QuickBillingPosScreen(
+    viewModel: StockViewModel,
+    isEmbeddedInHub: Boolean = false
+) {
     val context = LocalContext.current
+    val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
     val prefilledQuotation by viewModel.prefilledQuotationForGst.collectAsState()
 
@@ -152,6 +155,9 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
     var isDetailedGstMode by remember { mutableStateOf(false) }
 
     if (isDetailedGstMode) {
+        BackHandler {
+            isDetailedGstMode = false
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -160,13 +166,13 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
+                        .then(if (!isEmbeddedInHub) Modifier.statusBarsPadding() else Modifier)
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "📋 Detailed GST Table Mode",
+                        text = "Detailed GST Table Mode",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.primary
@@ -175,7 +181,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         onClick = { isDetailedGstMode = false },
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("⚡ Switch to POS Grid", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Switch to POS Grid", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -184,8 +190,10 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
         return
     }
 
-    BackHandler {
-        viewModel.navigateBack()
+    if (!isEmbeddedInHub) {
+        BackHandler {
+            viewModel.navigateBack()
+        }
     }
 
     // POS State
@@ -427,9 +435,12 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         discountText = tempDiscount.toDoubleOrNull()?.toString() ?: "0"
                         showDiscountDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
-                    Text("Apply", color = Color(0xFF022C1A), fontWeight = FontWeight.Bold)
+                    Text("Apply", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -473,9 +484,12 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         customerPhone = tempPhone.trim()
                         showCustomerDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
-                    Text("Save", color = Color(0xFF022C1A), fontWeight = FontWeight.Bold)
+                    Text("Save", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -487,14 +501,16 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Surface(
-                color = Color(0xFF0A0D14),
-                shadowElevation = 6.dp,
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 2.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.statusBarsPadding()) {
-                    // Tactical Top Bar
+                Column(
+                    modifier = if (isEmbeddedInHub) Modifier else Modifier.statusBarsPadding()
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -503,28 +519,34 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { viewModel.navigateBack() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            if (!isEmbeddedInHub) {
+                                IconButton(onClick = { viewModel.navigateBack() }) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
-                                        text = "⚡ TACTICAL POS REGISTER",
+                                        text = "⚡ QUICK POS REGISTER",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         letterSpacing = 0.5.sp
                                     )
                                     Surface(
-                                        color = Color(0xFF10B981).copy(alpha = 0.18f),
-                                        border = BorderStroke(0.8.dp, Color(0xFF10B981)),
+                                        color = ext.positive.copy(alpha = 0.16f),
+                                        border = BorderStroke(0.8.dp, ext.positive),
                                         shape = RoundedCornerShape(4.dp)
                                     ) {
                                         Text(
                                             text = "LIVE",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = Color(0xFF10B981),
+                                            color = ext.positive,
                                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                         )
                                     }
@@ -532,7 +554,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 Text(
                                     text = "${allItems.size} items in catalog • 1-Tap Fast Billing",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -543,13 +565,13 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 onClick = { showBarcodeDialog = true },
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .background(Color(0xFF121620), CircleShape)
-                                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape)
                             ) {
                                 Icon(
                                     Icons.Default.QrCodeScanner,
                                     contentDescription = "Scan barcode",
-                                    tint = Color(0xFF10B981),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -558,19 +580,19 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                             OutlinedButton(
                                 onClick = { isDetailedGstMode = true },
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
-                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF121620)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {
-                                Icon(Icons.Default.TableView, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(13.dp))
+                                Icon(Icons.Default.TableView, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("GST Table", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("GST Table", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
 
-                    // Tactical Search & Voice Field
+                    // Search & Voice Field
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -580,15 +602,15 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search products, barcodes, sizes...", fontSize = 13.sp, color = Color(0xFF64748B)) },
+                            placeholder = { Text("Search products, barcodes, sizes...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF10B981))
+                                Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
                             trailingIcon = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (searchQuery.isNotEmpty()) {
                                         IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                     IconButton(
@@ -602,25 +624,25 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {
-                                        Icon(Icons.Default.Mic, contentDescription = "Voice", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Mic, contentDescription = "Voice", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                     }
                                 }
                             },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFF0E131C),
-                                unfocusedContainerColor = Color(0xFF0E131C),
-                                focusedBorderColor = Color(0xFF10B981),
-                                unfocusedBorderColor = Color(0xFF1E2638),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // Tactical Category Filter Pills matching mockup
+                    // Category Filter Pills
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -640,8 +662,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                             }
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) Color(0xFF10B981) else Color(0xFF10141E),
-                                border = BorderStroke(1.dp, if (isSelected) Color(0xFF10B981) else Color(0xFF1E2638)),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.clickable { selectedCategory = cat }
                             ) {
                                 Column(
@@ -654,25 +676,25 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         text = cat,
                                         fontSize = 10.sp,
                                         fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                                        color = if (isSelected) Color(0xFF022C1A) else Color(0xFF94A3B8)
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
                     }
-                    HorizontalDivider(color = Color(0xFF1E2638))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 }
             }
         },
         bottomBar = {
-            // Tactical Express Bottom Cart Dock matching Mockup
+            // Express Bottom Cart Dock
             Surface(
-                color = Color(0xFF080C14),
-                shadowElevation = 20.dp,
-                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 12.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .then(if (!isEmbeddedInHub) Modifier.navigationBarsPadding() else Modifier)
             ) {
                 Column(
                     modifier = Modifier
@@ -690,8 +712,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         // Discount Badge Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF121620),
-                            border = BorderStroke(0.8.dp, if (discount > 0) Color(0xFF10B981) else Color(0xFF1E2638)),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(0.8.dp, if (discount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { showDiscountDialog = true }
@@ -705,7 +727,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                     text = if (discount > 0) "🏷️ -₹${discount.toInt()}" else "🏷️ Discount",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (discount > 0) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                    color = if (discount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1
                                 )
                             }
@@ -714,8 +736,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         // Customer Badge Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF121620),
-                            border = BorderStroke(0.8.dp, if (customerName != "Cash Customer") Color(0xFF10B981) else Color(0xFF1E2638)),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(0.8.dp, if (customerName != "Cash Customer") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
                             modifier = Modifier
                                 .weight(1.3f)
                                 .clickable { showCustomerDialog = true }
@@ -729,7 +751,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                     text = "👤 ${customerName.take(12)}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (customerName != "Cash Customer") Color(0xFF10B981) else Color(0xFF94A3B8),
+                                    color = if (customerName != "Cash Customer") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -740,24 +762,23 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         if (cartItems.isNotEmpty()) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF1F1216),
-                                border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                                color = ext.danger.copy(alpha = 0.14f),
+                                border = BorderStroke(0.8.dp, ext.danger.copy(alpha = 0.5f)),
                                 modifier = Modifier.clickable { cartItems.clear() }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color(0xFFEF4444), modifier = Modifier.size(13.dp))
+                                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = ext.danger, modifier = Modifier.size(13.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("CLEAR", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
+                                    Text("CLEAR", fontSize = 10.sp, fontWeight = FontWeight.Black, color = ext.danger)
                                 }
                             }
                         }
                     }
 
-                    // Tactical Split Checkout Dock
-                    // Tactical Split Checkout Dock matching mockup
+                    // Split Checkout Dock
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -774,35 +795,35 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 text = "SUBTOTAL: ₹${String.format(Locale.US, "%.2f", cartSubtotal)}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "TAX: ₹${String.format(Locale.US, "%.2f", taxAmount)}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF94A3B8)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             // View Cart Mini Tag
                             Surface(
-                                color = Color(0xFF121620),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color(0xFF1E2638)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.clickable { showCartDrawer = true }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("${cartItems.size}", fontWeight = FontWeight.Black, fontSize = 12.sp, color = Color.White)
+                                    Text("${cartItems.size}", fontWeight = FontWeight.Black, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
 
-                            // Full Glowing Emerald Checkout Button matching mockup
+                            // Primary Checkout Button
                             Button(
                                 onClick = {
                                     if (cartItems.isEmpty()) {
@@ -812,8 +833,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF10B981),
-                                    contentColor = Color(0xFF022C1A)
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
                                 ),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
@@ -831,7 +852,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         text = "${cartItems.size} Items →",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 9.5.sp,
-                                        color = Color(0xFF022C1A).copy(alpha = 0.85f)
+                                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                                     )
                                 }
                             }
@@ -882,10 +903,10 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (inCartQty > 0) Color(0xFF072116) else Color(0xFF0E131C)
+                                containerColor = if (inCartQty > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                             ),
-                            border = if (inCartQty > 0) BorderStroke(1.5.dp, Color(0xFF10B981))
-                            else BorderStroke(1.dp, Color(0xFF1E2638)),
+                            border = if (inCartQty > 0) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                            else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { addItemToCart(dbItem) }
@@ -901,7 +922,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         text = "#${dbItem.code.ifBlank { dbItem.id.takeLast(4) }}",
                                         fontSize = 8.5.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF64748B),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1
                                     )
                                     if (inCartQty > 0) {
@@ -909,7 +930,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                             text = "x${inCartQty.toInt()}",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = Color(0xFF10B981)
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -922,7 +943,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         .fillMaxWidth()
                                         .height(72.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF141923)),
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (!dbItem.imageUrl.isNullOrBlank()) {
@@ -949,26 +970,26 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                 text = dbItem.type.ifBlank { "General" }.uppercase(),
                                                 fontSize = 8.sp,
                                                 fontWeight = FontWeight.Black,
-                                                color = Color(0xFF64748B),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 letterSpacing = 0.5.sp
                                             )
                                         }
                                     }
 
-                                    // Tactical Stock Fraction Badge at top-right
+                                    // Stock Badge at top-right
                                     Surface(
-                                        color = if (dbItem.qty > 0) Color(0xFF000000).copy(alpha = 0.85f) else Color(0xFF3B0707),
+                                        color = if (dbItem.qty > 0) MaterialTheme.colorScheme.surface.copy(alpha = 0.92f) else MaterialTheme.colorScheme.errorContainer,
                                         shape = RoundedCornerShape(4.dp),
-                                        border = BorderStroke(0.6.dp, if (dbItem.qty > 0) Color(0xFF10B981) else Color(0xFFEF4444)),
+                                        border = BorderStroke(0.6.dp, if (dbItem.qty > 0) ext.positive else ext.danger),
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(4.dp)
                                     ) {
                                         Text(
-                                            text = if (dbItem.qty > 0) "🟢 ${dbItem.qty.toInt()} ${dbItem.unit}" else "🔴 0 OUT",
+                                            text = if (dbItem.qty > 0) "${dbItem.qty.toInt()} ${dbItem.unit}" else "0 OUT",
                                             fontSize = 8.5.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = if (dbItem.qty > 0) Color(0xFF10B981) else Color(0xFFFCA5A5),
+                                            color = if (dbItem.qty > 0) ext.positive else ext.danger,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                         )
                                     }
@@ -983,14 +1004,14 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    color = Color(0xFFF3F4F6)
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
 
                                 if (dbItem.size.isNotBlank() || dbItem.code.isNotBlank()) {
                                     Text(
                                         text = listOf(dbItem.size, dbItem.code).filter { it.isNotBlank() }.joinToString(" • "),
                                         fontSize = 10.sp,
-                                        color = Color(0xFF94A3B8),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -1023,26 +1044,26 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                             text = "₹${String.format(Locale.US, "%.2f", dbItem.price)}",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = Color(0xFF10B981),
+                                            color = MaterialTheme.colorScheme.primary,
                                             letterSpacing = 0.3.sp
                                         )
                                         if (dbItem.cost > 0.0) {
                                             Text(
                                                 text = "Cost ₹${dbItem.cost.toInt()}",
                                                 fontSize = 9.sp,
-                                                color = Color(0xFFF59E0B),
+                                                color = ext.warning,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
                                     }
 
-                                    // Tactical Stepper: [-] [qty] [+] or [+ ADD]
+                                    // Stepper: [-] [qty] [+] or [+ ADD]
                                     if (inCartQty > 0) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier
-                                                .background(Color(0xFF0F172A), RoundedCornerShape(6.dp))
-                                                .border(1.dp, Color(0xFF10B981), RoundedCornerShape(6.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
                                                 .padding(horizontal = 2.dp, vertical = 1.dp)
                                         ) {
                                             Box(
@@ -1051,13 +1072,13 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                     .clickable { decrementItemInCart(dbItem) },
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.Remove, contentDescription = "Decrement", tint = Color.White, modifier = Modifier.size(12.dp))
+                                                Icon(Icons.Default.Remove, contentDescription = "Decrement", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(12.dp))
                                             }
                                             Text(
                                                 text = "${inCartQty.toInt()}",
                                                 fontWeight = FontWeight.Black,
                                                 fontSize = 11.sp,
-                                                color = Color(0xFF10B981),
+                                                color = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier
                                                     .clickable {
                                                         if (cartEntry != null) showCustomQtyDialogFor = cartEntry
@@ -1070,12 +1091,12 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                     .clickable { addItemToCart(dbItem) },
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.Add, contentDescription = "Increment", tint = Color.White, modifier = Modifier.size(12.dp))
+                                                Icon(Icons.Default.Add, contentDescription = "Increment", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(12.dp))
                                             }
                                         }
                                     } else {
                                         Surface(
-                                            color = Color(0xFF10B981),
+                                            color = MaterialTheme.colorScheme.primary,
                                             shape = RoundedCornerShape(6.dp),
                                             modifier = Modifier
                                                 .height(26.dp)
@@ -1085,9 +1106,9 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 modifier = Modifier.padding(horizontal = 8.dp)
                                             ) {
-                                                Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFF022C1A), modifier = Modifier.size(12.dp))
+                                                Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(12.dp))
                                                 Spacer(modifier = Modifier.width(2.dp))
-                                                Text("ADD", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF022C1A))
+                                                Text("ADD", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimary)
                                             }
                                         }
                                     }
@@ -1164,7 +1185,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                         Text(
                                             text = "(Cost: ₹${cartItem.item.cost.toInt()})",
                                             fontSize = 11.sp,
-                                            color = Color(0xFFB45309)
+                                            color = ext.warning
                                         )
                                     }
                                 }
@@ -1238,8 +1259,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                         }
                         if (totalCost > 0) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Est. Cost & Margin", fontSize = 11.sp, color = Color(0xFFB45309))
-                                Text("Cost: ₹${totalCost.toInt()} • Margin: +₹${estimatedProfit.toInt()}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF15803D))
+                                Text("Est. Cost & Margin", fontSize = 11.sp, color = ext.warning)
+                                Text("Cost: ₹${totalCost.toInt()} • Margin: +₹${estimatedProfit.toInt()}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = ext.positive)
                             }
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -1259,7 +1280,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                             showCartDrawer = false
                             showCashCheckoutDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                        colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -1273,7 +1294,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                             showCartDrawer = false
                             showUpiCheckoutDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        colors = ButtonDefaults.buttonColors(containerColor = ext.info, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -1296,7 +1317,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             onDismissRequest = { showCashCheckoutDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF0F766E))
+                    Icon(Icons.Default.Payments, contentDescription = null, tint = ext.positive)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Cash Payment", fontWeight = FontWeight.Bold)
                 }
@@ -1334,7 +1355,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
 
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
-                        color = Color(0xFFDCFCE7),
+                        color = ext.positive.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1344,8 +1365,8 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 .padding(10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Change to Return:", fontWeight = FontWeight.Bold, color = Color(0xFF166534))
-                            Text("₹${String.format(Locale.US, "%.2f", changeReturn)}", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Color(0xFF166534))
+                            Text("Change to Return:", fontWeight = FontWeight.Bold, color = ext.positive)
+                            Text("₹${String.format(Locale.US, "%.2f", changeReturn)}", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = ext.positive)
                         }
                     }
                 }
@@ -1353,7 +1374,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = { finalizeAndSaveBill("Cash") },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+                    colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White)
                 ) {
                     Text("Complete & Print Receipt", fontWeight = FontWeight.Bold)
                 }
@@ -1372,7 +1393,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             onDismissRequest = { showUpiCheckoutDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.QrCode, contentDescription = null, tint = Color(0xFF2563EB))
+                    Icon(Icons.Default.QrCode, contentDescription = null, tint = ext.info)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("UPI Payment (QR)", fontWeight = FontWeight.Bold)
                 }
@@ -1389,12 +1410,12 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                     // QR Display Placeholder
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(2.dp, Color(0xFF2563EB)),
+                        border = BorderStroke(2.dp, ext.info),
                         modifier = Modifier.size(160.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(64.dp))
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = ext.info, modifier = Modifier.size(64.dp))
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text("Scan via GPay / PhonePe", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Text("merchant@upi", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1409,7 +1430,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = { finalizeAndSaveBill("UPI") },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    colors = ButtonDefaults.buttonColors(containerColor = ext.info, contentColor = Color.White)
                 ) {
                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -1434,7 +1455,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
             },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen)
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ext.positive)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Bill Completed!", fontWeight = FontWeight.Bold)
                 }
@@ -1633,7 +1654,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 text = "Cost: ₹${String.format(Locale.US, "%.0f", target.item.cost)}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFB45309)
+                                color = ext.warning
                             )
                         }
                     }
@@ -1651,7 +1672,7 @@ fun QuickBillingPosScreen(viewModel: StockViewModel) {
                                 Text(
                                     text = if (unitMargin >= 0) "Profit Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+$marginPct%)"
                                     else "Margin: -₹${String.format(Locale.US, "%.2f", -unitMargin)} ($marginPct%)",
-                                    color = if (unitMargin >= 0) Color(0xFF15803D) else Color(0xFFB91C1C),
+                                    color = if (unitMargin >= 0) ext.positive else ext.danger,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
