@@ -99,7 +99,16 @@ class SupabaseClient(
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
+    fun isConfigured(): Boolean =
+        (baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) &&
+            !baseUrl.contains("YOUR_SUPABASE_URL") &&
+            apiKey.isNotBlank() &&
+            !apiKey.contains("YOUR_SUPABASE_KEY")
+
     private fun newRequestBuilder(path: String): Request.Builder {
+        if (!isConfigured() && !path.startsWith("http")) {
+            throw IllegalStateException("Supabase credentials missing. Configure SUPABASE_URL and SUPABASE_KEY in Secrets.")
+        }
         val url = if (path.startsWith("http")) path else "$baseUrl/rest/v1/$path"
         return Request.Builder()
             .url(url)
@@ -957,7 +966,13 @@ class SupabaseClient(
         onStoreProfileChanged: ((bannerUrl: String?, logoUrl: String?) -> Unit)? = null,
         onClosedOrFailed: () -> Unit
     ): WebSocket? {
-        val wsUrl = baseUrl.replace("https://", "wss://") + "/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
+        if (!isConfigured()) {
+            Log.e(tag, "Supabase URL/Key not configured! Please set SUPABASE_URL and SUPABASE_KEY in AI Studio Secrets.")
+            onStatusChanged(false)
+            return null
+        }
+        val wsUrl = baseUrl.replace("https://", "wss://").replace("http://", "ws://") +
+            "/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
         val request = Request.Builder().url(wsUrl).build()
 
         var webSocket: WebSocket? = null

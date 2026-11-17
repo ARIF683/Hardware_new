@@ -40,6 +40,12 @@ jobs:
             echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
             echo "GEMINI_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
           fi
+          if [ -n "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          fi
+          if [ -n "${{ secrets.SUPABASE_KEY }}" ]; then
+            echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
+          fi
           if [ -f my-upload-key.jks.base64 ]; then
             echo "Decoding permanent release keystore..."
             base64 -d my-upload-key.jks.base64 > my-upload-key.jks

@@ -23,8 +23,6 @@ android {
     versionName = dynamicVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    buildConfigField("String", "SUPABASE_URL", "\"${System.getenv("SUPABASE_URL") ?: "https://xkjvcufajsyqbzjjllma.supabase.co"}\"")
-    buildConfigField("String", "SUPABASE_KEY", "\"${System.getenv("SUPABASE_KEY") ?: "sb_publishable_sXokssWnrTPWROtmfHjoWA_LRqVPt8V"}\"")
   }
 
   signingConfigs {
