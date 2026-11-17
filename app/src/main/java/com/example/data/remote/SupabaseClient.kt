@@ -47,6 +47,8 @@ class SupabaseClient(
     }
 
     private val tag = "SupabaseClient"
+    @Volatile
+    private var loggedUnconfigured = false
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val unsupportedItemColumns = ConcurrentHashMap.newKeySet<String>()
     private val pgrst204ColumnRegex = Regex("""Could not find the '([^']+)' column""")
@@ -967,7 +969,10 @@ class SupabaseClient(
         onClosedOrFailed: () -> Unit
     ): WebSocket? {
         if (!isConfigured()) {
-            Log.e(tag, "Supabase URL/Key not configured! Please set SUPABASE_URL and SUPABASE_KEY in AI Studio Secrets.")
+            if (!loggedUnconfigured) {
+                loggedUnconfigured = true
+                Log.w(tag, "Supabase URL/Key not configured. Running locally until SUPABASE_URL and SUPABASE_KEY are set in AI Studio Secrets.")
+            }
             onStatusChanged(false)
             return null
         }

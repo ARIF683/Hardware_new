@@ -586,19 +586,50 @@ fun HomeScreen(viewModel: StockViewModel) {
                             .fillMaxWidth(0.54f)
                             .align(Alignment.CenterEnd)
                     ) {
+                        // Styled vector & radial gradient fallback when no custom banner is set (or while loading)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                                            ext.heroBannerEnd,
+                                            ext.heroBannerStart
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warehouse,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.14f),
+                                modifier = Modifier
+                                    .size(132.dp)
+                                    .offset(x = 12.dp, y = 10.dp)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.White.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                                modifier = Modifier.padding(end = 22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Inventory2,
+                                    contentDescription = "Hardware Warehouse Banner",
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    modifier = Modifier
+                                        .padding(14.dp)
+                                        .size(32.dp)
+                                )
+                            }
+                        }
+
                         if (!bannerUrl.isNullOrBlank()) {
                             AsyncImage(
                                 model = ImageModelHelper.rememberImageModel(bannerUrl),
                                 contentDescription = "Warehouse Store Banner",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                                error = painterResource(id = R.drawable.img_store_cover_banner_1791306669322),
-                                fallback = painterResource(id = R.drawable.img_store_cover_banner_1791306669322)
-                            )
-                        } else {
-                            Image(
-                                painter = painterResource(id = R.drawable.img_store_cover_banner_1791306669322),
-                                contentDescription = "Hardware Warehouse Banner",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
                             )

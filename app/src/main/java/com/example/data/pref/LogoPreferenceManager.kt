@@ -13,42 +13,6 @@ enum class AppLogoStyle(
     val description: String,
     @DrawableRes val resId: Int
 ) {
-    NANO_BANANA_CIRCUIT(
-        id = "nano_banana_circuit",
-        title = "Nano Banana Circuits",
-        description = "Futuristic neon yellow nano banana with microchip tracks",
-        resId = R.drawable.nano_banana_logo_1791185750609
-    ),
-    NANO_BANANA_NODES(
-        id = "nano_banana_nodes",
-        title = "Digital Nano Banana",
-        description = "Connected geometric nodes with glowing sapphire accents",
-        resId = R.drawable.banana_tech_logo_1791185765354
-    ),
-    NANO_BANANA_CYBER(
-        id = "nano_banana_cyber",
-        title = "Cyber 3D Banana Mascot",
-        description = "Sleek 3D cybernetic visor emblem & metallic finish",
-        resId = R.drawable.cyber_banana_logo_1791185780500
-    ),
-    OPTION_A(
-        id = "option_a",
-        title = "Gear & Bolt Hexagon",
-        description = "Modern amber & slate industrial geometric badge",
-        resId = R.drawable.img_logo_option_a_1791181143165
-    ),
-    OPTION_B(
-        id = "option_b",
-        title = "Wrench & Hammer Shield",
-        description = "Bold metallic gold & cobalt crest emblem",
-        resId = R.drawable.img_logo_option_b_1791181156769
-    ),
-    OPTION_C(
-        id = "option_c",
-        title = "Tech Warehouse Cube",
-        description = "Futuristic neon orange & cyan 3D stock symbol",
-        resId = R.drawable.img_logo_option_c_1791181173362
-    ),
     ORIGINAL(
         id = "original",
         title = "Classic Hardware Logo",
@@ -62,7 +26,7 @@ class LogoPreferenceManager(context: Context) {
 
     companion object {
         private var isInitialized = false
-        private val _selectedLogo = MutableStateFlow(AppLogoStyle.OPTION_A)
+        private val _selectedLogo = MutableStateFlow(AppLogoStyle.ORIGINAL)
         private val _bannerUrl = MutableStateFlow<String?>(null)
         private val _customLogoUrl = MutableStateFlow<String?>(null)
 
@@ -87,8 +51,8 @@ class LogoPreferenceManager(context: Context) {
     val customLogoUrl: StateFlow<String?> = Companion.customLogoUrl
 
     private fun loadLogo(): AppLogoStyle {
-        val savedId = prefs.getString("selected_logo_id", AppLogoStyle.OPTION_A.id)
-        return AppLogoStyle.values().find { it.id == savedId } ?: AppLogoStyle.OPTION_A
+        val savedId = prefs.getString("selected_logo_id", AppLogoStyle.ORIGINAL.id)
+        return AppLogoStyle.values().find { it.id == savedId } ?: AppLogoStyle.ORIGINAL
     }
 
     fun selectLogo(logo: AppLogoStyle) {

@@ -735,6 +735,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retrySync() {
         viewModelScope.launch {
+            if (!repository.isCloudConfigured()) {
+                showToast("Running locally · Set SUPABASE_URL & SUPABASE_KEY in Secrets")
+                return@launch
+            }
             repository.retrySync()
             showToast("Retrying sync…")
         }
@@ -749,6 +753,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun reconnectRealtime() {
         viewModelScope.launch {
+            if (!repository.isCloudConfigured()) {
+                repository.initRealtime(force = true)
+                return@launch
+            }
             repository.initRealtime(force = true)
             showToast("Connecting to Realtime…")
         }
@@ -756,6 +764,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun reloadFromDatabase() {
         viewModelScope.launch {
+            if (!repository.isCloudConfigured()) {
+                showToast("Running locally · Set SUPABASE_URL & SUPABASE_KEY in Secrets")
+                return@launch
+            }
             repository.loadFromRemote()
             showToast("Reloaded from database")
         }
@@ -763,6 +775,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun uploadAllToDatabase() {
         viewModelScope.launch {
+            if (!repository.isCloudConfigured()) {
+                showToast("Set SUPABASE_URL & SUPABASE_KEY in Secrets to enable cloud sync")
+                return@launch
+            }
             repository.uploadAllToDatabase()
             val status = repository.syncStatus.value
             if (status.startsWith("Synced")) {

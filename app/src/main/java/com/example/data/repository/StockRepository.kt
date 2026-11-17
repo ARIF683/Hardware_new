@@ -156,8 +156,22 @@ class StockRepository(
 
     private var reconnectJob: Job? = null
 
+    fun isCloudConfigured(): Boolean = supabaseClient.isConfigured()
+
     @Synchronized
     fun initRealtime(force: Boolean = false) {
+        if (!supabaseClient.isConfigured()) {
+            _isRealtimeLive.value = false
+            _syncStatus.value = "Local only · Set Supabase Secrets"
+            // Call connectRealtime once only if needed to log single startup warning
+            supabaseClient.connectRealtime(
+                coroutineScope = repositoryScope,
+                onStatusChanged = { _isRealtimeLive.value = false },
+                onItemChanged = { _, _, _ -> },
+                onClosedOrFailed = {}
+            )
+            return
+        }
         if (realtimeWs != null && !force) return
         if (force) {
             try { realtimeWs?.close(1000, "reconnect") } catch (e: Exception) {}
@@ -329,7 +343,7 @@ class StockRepository(
         autoSyncJob?.cancel()
         autoSyncJob = repositoryScope.launch {
             while (isActive) {
-                if (isOnline()) {
+                if (isOnline() && supabaseClient.isConfigured()) {
                     flushQueue()
                 }
                 delay(15_000)
@@ -364,6 +378,11 @@ class StockRepository(
     }
 
     suspend fun loadFromRemote() = withContext(Dispatchers.IO) {
+        if (!supabaseClient.isConfigured()) {
+            _isRealtimeLive.value = false
+            _syncStatus.value = "Local only · Set Supabase Secrets"
+            return@withContext
+        }
         _syncStatus.value = "Loading…"
         try {
             val remoteItems = try { supabaseClient.fetchAllItems() } catch (e: Exception) { null }
@@ -977,6 +996,10 @@ class StockRepository(
     }
 
     suspend fun uploadAllToDatabase() = withContext(Dispatchers.IO) {
+        if (!supabaseClient.isConfigured()) {
+            _syncStatus.value = "Local only · Set Supabase Secrets"
+            return@withContext
+        }
         _syncStatus.value = "Uploading to DB..."
         database.syncQueueDao().deleteAll()
 
@@ -1064,6 +1087,14 @@ class StockRepository(
     suspend fun flushQueue(): Unit = withContext(Dispatchers.IO) {
         if (isFlushing) return@withContext
         val queue = database.syncQueueDao().getAll()
+        if (!supabaseClient.isConfigured()) {
+            _syncStatus.value = if (queue.isEmpty()) {
+                "Local only · Set Supabase Secrets"
+            } else {
+                "Local · ${queue.size} pending"
+            }
+            return@withContext
+        }
         if (queue.isEmpty()) {
             _syncStatus.value = "Synced ✓"
             return@withContext
@@ -1584,9 +1615,11 @@ class StockRepository(
         flushQueue()
     }
 
-    suspend fun fetchStoreProfile(): Pair<String?, String?> = supabaseClient.fetchStoreProfile()
+    suspend fun fetchStoreProfile(): Pair<String?, String?> =
+        if (supabaseClient.isConfigured()) supabaseClient.fetchStoreProfile() else (null to null)
 
     suspend fun saveStoreProfile(bannerUrl: String?, logoUrl: String?) {
+        if (!supabaseClient.isConfigured()) return
         supabaseClient.saveStoreProfile(bannerUrl, logoUrl)
     }
 
