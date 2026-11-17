@@ -32,12 +32,16 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class SupabaseClient(
-    private val baseUrl: String = com.example.BuildConfig.SUPABASE_URL,
-    private val apiKey: String = com.example.BuildConfig.SUPABASE_KEY,
+    baseUrl: String = com.example.BuildConfig.SUPABASE_URL,
+    apiKey: String = com.example.BuildConfig.SUPABASE_KEY,
     private val okHttpClient: OkHttpClient = defaultOkHttpClient()
 ) {
+    private val baseUrl: String = baseUrl.trim().trim('"', '\'').trimEnd('/')
+    private val apiKey: String = apiKey.trim().trim('"', '\'')
+    private val realtimeSeq = AtomicLong(0L)
     companion object {
         private fun defaultOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -976,6 +980,7 @@ class SupabaseClient(
             onStatusChanged(false)
             return null
         }
+        val connSeq = realtimeSeq.incrementAndGet()
         val wsUrl = baseUrl.replace("https://", "wss://").replace("http://", "ws://") +
             "/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
         val request = Request.Builder().url(wsUrl).build()
@@ -985,6 +990,10 @@ class SupabaseClient(
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (realtimeSeq.get() != connSeq) {
+                    try { webSocket.close(1000, "superseded") } catch (_: Exception) {}
+                    return
+                }
                 Log.d(tag, "Realtime WS connected to Supabase")
                 val tables = listOf("items", "purchases", "daily_cashflow", "quotations", "ledger_accounts", "ledger_entries")
                 tables.forEach { table ->
@@ -1013,8 +1022,9 @@ class SupabaseClient(
                 heartbeatJob?.cancel()
                 heartbeatJob = coroutineScope.launch {
                     var hbCounter = 1L
-                    while (isActive) {
+                    while (isActive && realtimeSeq.get() == connSeq) {
                         delay(20_000)
+                        if (realtimeSeq.get() != connSeq) break
                         val hbMsg = JSONObject().apply {
                             put("topic", "phoenix")
                             put("event", "heartbeat")
@@ -1027,16 +1037,20 @@ class SupabaseClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (realtimeSeq.get() != connSeq) return
                 try {
                     val root = JSONObject(text)
                     val event = root.optString("event")
                     val payload = root.optJSONObject("payload")
                     val topic = root.optString("topic")
 
-                    if (event == "phx_reply" && payload?.optString("status") == "ok") {
-                        if (topic.contains("items")) {
-                            Log.d(tag, "Subscribed to realtime items successfully")
+                    if (event == "phx_reply" && topic.startsWith("realtime:")) {
+                        val status = payload?.optString("status")
+                        if (status == "ok") {
+                            Log.d(tag, "Subscribed to $topic successfully")
                             onStatusChanged(true)
+                        } else if (status == "error") {
+                            Log.w(tag, "Realtime channel join rejected on $topic: ${payload?.optJSONObject("response")}")
                         }
                     } else if (event == "system" && payload?.optString("status") == "ok") {
                         Log.d(tag, "Realtime system subscription confirmed")
@@ -1134,21 +1148,24 @@ class SupabaseClient(
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(tag, "Realtime WS closing: $code / $reason")
                 heartbeatJob?.cancel()
+                if (realtimeSeq.get() != connSeq) return
+                Log.d(tag, "Realtime WS closing: $code / $reason")
                 onStatusChanged(false)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(tag, "Realtime WS closed: $code / $reason")
                 heartbeatJob?.cancel()
+                if (realtimeSeq.get() != connSeq) return
+                Log.d(tag, "Realtime WS closed: $code / $reason")
                 onStatusChanged(false)
                 onClosedOrFailed()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w(tag, "Realtime WS failure: ${t.message}")
                 heartbeatJob?.cancel()
+                if (realtimeSeq.get() != connSeq) return
+                Log.w(tag, "Realtime WS failure: ${t.message}")
                 onStatusChanged(false)
                 onClosedOrFailed()
             }

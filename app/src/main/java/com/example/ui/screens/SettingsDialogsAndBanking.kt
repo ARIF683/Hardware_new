@@ -73,6 +73,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +93,10 @@ import com.example.data.model.Item
 import com.example.data.remote.UpdateStatus
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.XlsExporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -924,9 +929,16 @@ fun SettingsSyncAndUpdatesDialog(
                         Text("Cloud Sync & Updates", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text("Supabase Realtime & GitHub Releases", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    val isHealthy = viewModel.isCloudConfigured && (isRealtimeLive || syncStatus.startsWith("Synced"))
+                    val badgeLabel = when {
+                        !viewModel.isCloudConfigured -> "No Secrets"
+                        isRealtimeLive -> "Live"
+                        syncStatus.startsWith("Synced") -> "Synced"
+                        else -> "Offline"
+                    }
                     BadgePill(
-                        text = if (isRealtimeLive) "Live" else "Offline",
-                        bgColor = if (isRealtimeLive) ext.positive else ext.warning,
+                        text = badgeLabel,
+                        bgColor = if (isHealthy) ext.positive else ext.warning,
                         textColor = Color.White
                     )
                 }
@@ -940,6 +952,15 @@ fun SettingsSyncAndUpdatesDialog(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text("Status: $syncStatus", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        if (!viewModel.isCloudConfigured) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "SUPABASE_URL and SUPABASE_KEY were not included in this build. Add them to GitHub Actions Secrets or AI Studio Secrets and rebuild.",
+                                fontSize = 11.5.sp,
+                                color = ext.danger,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                         if (pendingCount > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -1219,6 +1240,7 @@ fun SettingsInvoiceSequenceDialog(
 @Composable
 fun SettingsDataBackupDialog(
     itemCount: Int,
+    onOpenExportXls: () -> Unit,
     onOpenExportCsv: () -> Unit,
     onOpenImportFile: () -> Unit,
     onOpenColorTintImport: () -> Unit,
@@ -1244,6 +1266,22 @@ fun SettingsDataBackupDialog(
                 Button(
                     onClick = {
                         onDismiss()
+                        onOpenExportXls()
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("settings_backup_export_xls_button")
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export Excel Sheet (.XLS)", fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
                         onOpenExportCsv()
                     },
                     shape = RoundedCornerShape(10.dp),
@@ -1251,7 +1289,7 @@ fun SettingsDataBackupDialog(
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Export Inventory CSV", fontWeight = FontWeight.Bold)
+                    Text("Export Inventory CSV", fontWeight = FontWeight.SemiBold)
                 }
 
                 OutlinedButton(
@@ -1453,6 +1491,188 @@ fun SettingsExportCsvDialog(
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     OutlinedButton(onClick = onDismiss) { Text("Close") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsExportXlsDialog(
+    viewModel: StockViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val allItems by viewModel.allItems.collectAsState()
+    val allCashflow by viewModel.allDailyCashflow.collectAsState()
+    val allTransactions by viewModel.allTransactions.collectAsState()
+    val allGstBills by viewModel.allGstBills.collectAsState()
+    val allLedgerAccounts by viewModel.allLedgerAccounts.collectAsState()
+    val uiConfig by viewModel.uiConfig.collectAsState()
+    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "S.A. HARDWARE" }
+
+    var exportFullWorkbook by remember { mutableStateOf(false) }
+    var isExporting by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export Excel Sheet (.XLS)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    val invSelected = !exportFullWorkbook
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (invSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, if (invSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { exportFullWorkbook = false }
+                            .testTag("xls_scope_inventory")
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Text(
+                                "Inventory Sheet",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (invSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    val fullSelected = exportFullWorkbook
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (fullSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, if (fullSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { exportFullWorkbook = true }
+                            .testTag("xls_scope_full")
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Text(
+                                "Full Business (5 Tabs)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (fullSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (!exportFullWorkbook) {
+                            Text("1 Sheet: Inventory (${allItems.size} SKUs)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Includes SKU, Barcode, Name, Brand, Qty, Cost, Selling Price, MRP, Stock Value, Retail Value & Totals.",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text("5-Sheet Business Workbook (.XLS)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "• Inventory (${allItems.size} SKUs)\n• Cashflow & P&L (${allCashflow.size} entries)\n• Stock Movements (${allTransactions.size} logs)\n• GST Bills (${allGstBills.size} bills)\n• Khata Accounts (${allLedgerAccounts.size} parties)",
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                fun runXlsAction(share: Boolean) {
+                    if (isExporting) return
+                    isExporting = true
+                    scope.launch {
+                        val (filePrefix, xmlContent) = withContext(Dispatchers.Default) {
+                            if (!exportFullWorkbook) {
+                                "Inventory_Stock" to XlsExporter.buildInventoryWorkbookXml(allItems)
+                            } else {
+                                "Business_Workbook" to XlsExporter.buildFullBusinessWorkbookXml(
+                                    items = allItems,
+                                    cashflow = allCashflow,
+                                    stockMovements = allTransactions,
+                                    gstBills = allGstBills,
+                                    ledgerAccounts = allLedgerAccounts,
+                                    storeName = storeTitle
+                                )
+                            }
+                        }
+                        if (share) {
+                            val res = XlsExporter.shareXlsFile(
+                                context = context,
+                                filePrefix = filePrefix,
+                                xmlContent = xmlContent,
+                                shareTitle = if (exportFullWorkbook) "Share Business Workbook (.XLS)" else "Share Inventory Sheet (.XLS)"
+                            )
+                            res.onFailure { viewModel.showToast("Share failed: ${it.message}") }
+                        } else {
+                            val res = withContext(Dispatchers.IO) {
+                                XlsExporter.saveXlsToDownloads(context, filePrefix, xmlContent)
+                            }
+                            res.onSuccess { path ->
+                                viewModel.showToast("Saved XLS to $path")
+                            }.onFailure { err ->
+                                viewModel.showToast("Save failed: ${err.message}")
+                            }
+                        }
+                        isExporting = false
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { runXlsAction(share = false) },
+                        enabled = !isExporting,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("settings_save_xls_button")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Save .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { runXlsAction(share = true) },
+                        enabled = !isExporting,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("settings_share_xls_button")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Share .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Close") }
                 }
             }
         }

@@ -81,11 +81,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
 import com.example.data.model.GstBillRecord
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import com.example.util.XlsExporter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -111,6 +117,7 @@ fun GstBillsTabContent(
     var billForDetails by remember { mutableStateOf<GstBillRecord?>(null) }
     var billToDelete by remember { mutableStateOf<GstBillRecord?>(null) }
     var isProcessingPdf by remember { mutableStateOf(false) }
+    var showGstrExportDialog by remember { mutableStateOf(false) }
 
     val todayDateStr = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()) }
     val thisMonthPrefix = remember { SimpleDateFormat("MM/yyyy", Locale.getDefault()).format(Date()) }
@@ -813,8 +820,8 @@ fun GstBillsTabContent(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (filteredBills.isEmpty()) "Generate bills to export GSTR-1 CSV"
-                                    else "GSTR-1 report (${filteredBills.size} bills) ready for export",
+                                    text = if (filteredBills.isEmpty()) "Generate bills to export GSTR-1 XLS / CSV"
+                                    else "GSTR-1 Excel (.XLS) & CSV (${filteredBills.size} bills) ready",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -830,16 +837,7 @@ fun GstBillsTabContent(
                                 if (filteredBills.isEmpty()) {
                                     viewModel.showToast("No invoices available to export")
                                 } else {
-                                    try {
-                                        InvoicePrintManager.exportGstr1CsvAndShare(
-                                            context = context,
-                                            bills = filteredBills,
-                                            storeName = storeTitle
-                                        )
-                                        viewModel.showToast("Exported GSTR-1 CSV for ${filteredBills.size} bills")
-                                    } catch (e: Exception) {
-                                        viewModel.showToast("Export failed: ${e.message}")
-                                    }
+                                    showGstrExportDialog = true
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
@@ -1087,6 +1085,115 @@ fun GstBillsTabContent(
                 TextButton(onClick = { billToDelete = null }) { Text("Cancel") }
             }
         )
+    }
+
+    if (showGstrExportDialog) {
+        Dialog(onDismissRequest = { showGstrExportDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export GSTR-1 Register", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        "${filteredBills.size} GST bills ready with CGST, SGST, IGST & taxable totals.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = {
+                            val billsSnapshot = filteredBills
+                            showGstrExportDialog = false
+                            scope.launch {
+                                val xml = withContext(Dispatchers.Default) {
+                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle)
+                                }
+                                XlsExporter.shareXlsFile(
+                                    context = context,
+                                    filePrefix = "GSTR1_Register",
+                                    xmlContent = xml,
+                                    shareTitle = "Share GSTR-1 Excel (.XLS)"
+                                ).onFailure {
+                                    viewModel.showToast("Export failed: ${it.message}")
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("gst_export_share_xls_button")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Share Excel Sheet (.XLS)", fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val billsSnapshot = filteredBills
+                            showGstrExportDialog = false
+                            scope.launch {
+                                val xml = withContext(Dispatchers.Default) {
+                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle)
+                                }
+                                val res = withContext(Dispatchers.IO) {
+                                    XlsExporter.saveXlsToDownloads(context, "GSTR1_Register", xml)
+                                }
+                                res.onSuccess { path ->
+                                    viewModel.showToast("Saved XLS to $path")
+                                }.onFailure {
+                                    viewModel.showToast("Save failed: ${it.message}")
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("gst_export_save_xls_button")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Save .XLS to Downloads", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showGstrExportDialog = false
+                            try {
+                                InvoicePrintManager.exportGstr1CsvAndShare(
+                                    context = context,
+                                    bills = filteredBills,
+                                    storeName = storeTitle
+                                )
+                                viewModel.showToast("Exported GSTR-1 CSV for ${filteredBills.size} bills")
+                            } catch (e: Exception) {
+                                viewModel.showToast("Export failed: ${e.message}")
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("gst_export_share_csv_button")
+                    ) {
+                        Text("Share GSTR-1 (.CSV)", fontWeight = FontWeight.Medium)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showGstrExportDialog = false }) { Text("Close") }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Mic
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -64,6 +67,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -76,17 +80,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.data.model.DailyCashflowRecord
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.XlsExporter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -117,6 +126,8 @@ fun TransactionsScreen(
     var recordToEdit by remember { mutableStateOf<DailyCashflowRecord?>(null) }
     var recordToDelete by remember { mutableStateOf<DailyCashflowRecord?>(null) }
     var showCategoryBreakdownDialog by remember { mutableStateOf(false) }
+    var showExportXlsDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val calendar = remember { Calendar.getInstance() }
     var selectedYear by remember { mutableStateOf(calendar.get(Calendar.YEAR)) }
@@ -290,23 +301,45 @@ fun TransactionsScreen(
                 }
             }
 
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .clickable { showCategoryBreakdownDialog = true }
-                    .testTag("transactions_breakdown_button")
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PieChart,
-                        contentDescription = "Category Breakdown",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .clickable { showExportXlsDialog = true }
+                        .testTag("transactions_export_xls_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Export XLS Sheet",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .clickable { showCategoryBreakdownDialog = true }
+                        .testTag("transactions_breakdown_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PieChart,
+                            contentDescription = "Category Breakdown",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1248,6 +1281,154 @@ fun TransactionsScreen(
             records = monthlyRecords,
             onDismiss = { showCategoryBreakdownDialog = false }
         )
+    }
+
+    if (showExportXlsDialog) {
+        var exportAllHistory by remember { mutableStateOf(false) }
+        var isExporting by remember { mutableStateOf(false) }
+        Dialog(onDismissRequest = { showExportXlsDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Ledger Sheet (.XLS)", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        val monthSelected = !exportAllHistory
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (monthSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (monthSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { exportAllHistory = false }
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                Text(
+                                    monthDisplayName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = if (monthSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        val allSelected = exportAllHistory
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { exportAllHistory = true }
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                Text(
+                                    "All History",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (allSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    val targetCashflow = if (exportAllHistory) allCashflow else monthlyRecords
+                    val targetMovements = if (exportAllHistory) {
+                        stockTransactions
+                    } else {
+                        stockTransactions.filter { it.createdAt.startsWith(selectedMonthKey) }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Includes 2 Excel tabs:\n• Cashflow & P&L (${targetCashflow.size} entries)\n• Stock Movements (${targetMovements.size} logs)",
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+
+                    fun exportLedgerXls(share: Boolean) {
+                        if (isExporting) return
+                        isExporting = true
+                        coroutineScope.launch {
+                            val prefix = if (exportAllHistory) "Ledger_All" else "Ledger_$selectedMonthKey"
+                            val xml = withContext(Dispatchers.Default) {
+                                XlsExporter.buildTransactionsWorkbookXml(targetCashflow, targetMovements)
+                            }
+                            if (share) {
+                                XlsExporter.shareXlsFile(
+                                    context = context,
+                                    filePrefix = prefix,
+                                    xmlContent = xml,
+                                    shareTitle = "Share Ledger Sheet (.XLS)"
+                                ).onFailure { viewModel.showToast("Share failed: ${it.message}") }
+                            } else {
+                                val res = withContext(Dispatchers.IO) {
+                                    XlsExporter.saveXlsToDownloads(context, prefix, xml)
+                                }
+                                res.onSuccess { viewModel.showToast("Saved XLS to $it") }
+                                    .onFailure { viewModel.showToast("Save failed: ${it.message}") }
+                            }
+                            isExporting = false
+                            showExportXlsDialog = false
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { exportLedgerXls(share = false) },
+                            enabled = !isExporting,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("transactions_save_xls_button")
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Save .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { exportLedgerXls(share = true) },
+                            enabled = !isExporting,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("transactions_share_xls_button")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showExportXlsDialog = false }) { Text("Close") }
+                    }
+                }
+            }
+        }
     }
 }
 

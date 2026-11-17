@@ -177,6 +177,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showExportXlsDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showColorMachineDialog by remember { mutableStateOf(false) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
@@ -671,10 +672,11 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val isSyncHealthy = isRealtimeLive || syncStatus.startsWith("Synced")
                                 Icon(
                                     imageVector = Icons.Filled.Sync,
                                     contentDescription = null,
-                                    tint = if (isRealtimeLive) ext.positive else ext.warning,
+                                    tint = if (isSyncHealthy && viewModel.isCloudConfigured) ext.positive else ext.warning,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -685,8 +687,11 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     val healthLabel = when {
+                                        !viewModel.isCloudConfigured -> "No Secrets"
                                         pendingCount > 0 -> "$pendingCount Pending"
                                         isRealtimeLive -> "Live ✓"
+                                        syncStatus.startsWith("Synced") -> "Synced ✓"
+                                        syncStatus.startsWith("Loading") || syncStatus.startsWith("Syncing") -> "Syncing…"
                                         else -> "Offline"
                                     }
                                     Text(
@@ -1035,7 +1040,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     icon = Icons.Filled.Download,
                     iconTint = MaterialTheme.colorScheme.primary,
                     title = "Inventory Data Export",
-                    subtitle = "${allItems.size} SKUs • Generate .CSV or import .XLSX",
+                    subtitle = "${allItems.size} SKUs • Export .XLS / .CSV or import .XLSX",
                     onClick = { showDataBackupDialog = true },
                     testTag = "settings_export_button",
                     trailingContent = {
@@ -1308,6 +1313,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
     if (showDataBackupDialog) {
         SettingsDataBackupDialog(
             itemCount = allItems.size,
+            onOpenExportXls = { showExportXlsDialog = true },
             onOpenExportCsv = { showExportDialog = true },
             onOpenImportFile = { showImportDialog = true },
             onOpenColorTintImport = { showColorMachineDialog = true },
@@ -1455,6 +1461,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 showLogoutDialog = false
             },
             onDismiss = { showLogoutDialog = false }
+        )
+    }
+
+    if (showExportXlsDialog) {
+        SettingsExportXlsDialog(
+            viewModel = viewModel,
+            onDismiss = { showExportXlsDialog = false }
         )
     }
 

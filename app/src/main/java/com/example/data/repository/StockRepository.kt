@@ -385,12 +385,28 @@ class StockRepository(
         }
         _syncStatus.value = "Loading…"
         try {
-            val remoteItems = try { supabaseClient.fetchAllItems() } catch (e: Exception) { null }
-            val remoteTx = try { supabaseClient.fetchRecentTransactions(500) } catch (e: Exception) { null }
-            val remoteCashflow = try { supabaseClient.fetchAllCashflow() } catch (e: Exception) { null }
-            val remoteQuotations = try { supabaseClient.fetchAllQuotations() } catch (e: Exception) { null }
-            val remoteLedgerAcc = try { supabaseClient.fetchAllLedgerAccounts() } catch (e: Exception) { null }
-            val remoteLedgerEntries = try { supabaseClient.fetchAllLedgerEntries() } catch (e: Exception) { null }
+            var firstFetchError: String? = null
+            fun <T> recordFetchError(e: Exception): T? {
+                if (firstFetchError == null) {
+                    firstFetchError = e.message ?: e.javaClass.simpleName
+                }
+                return null
+            }
+            val remoteItems = try { supabaseClient.fetchAllItems() } catch (e: Exception) { recordFetchError(e) }
+            val remoteTx = try { supabaseClient.fetchRecentTransactions(500) } catch (e: Exception) { recordFetchError(e) }
+            val remoteCashflow = try { supabaseClient.fetchAllCashflow() } catch (e: Exception) { recordFetchError(e) }
+            val remoteQuotations = try { supabaseClient.fetchAllQuotations() } catch (e: Exception) { recordFetchError(e) }
+            val remoteLedgerAcc = try { supabaseClient.fetchAllLedgerAccounts() } catch (e: Exception) { recordFetchError(e) }
+            val remoteLedgerEntries = try { supabaseClient.fetchAllLedgerEntries() } catch (e: Exception) { recordFetchError(e) }
+
+            if (remoteItems == null && remoteTx == null && remoteCashflow == null &&
+                remoteQuotations == null && remoteLedgerAcc == null && remoteLedgerEntries == null &&
+                firstFetchError != null
+            ) {
+                _syncStatus.value = "Offline · $firstFetchError"
+                initRealtime(force = false)
+                return@withContext
+            }
 
             val pendingQueue = database.syncQueueDao().getAll()
 
@@ -518,11 +534,11 @@ class StockRepository(
 
             _syncStatus.value = "Synced ✓"
             flushQueue()
-            initRealtime(force = true)
+            initRealtime(force = false)
         } catch (e: Exception) {
             Log.e(tag, "Failed to load from remote", e)
             _syncStatus.value = "Offline · ${e.message ?: "Sync error"}"
-            initRealtime()
+            initRealtime(force = false)
         }
     }
 

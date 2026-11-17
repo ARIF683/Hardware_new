@@ -179,7 +179,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
     LaunchedEffect(isAuthed) {
         if (isAuthed) {
-            viewModel.reconnectRealtime()
+            viewModel.ensureRealtimeConnected()
         }
     }
 
@@ -187,7 +187,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, isAuthed) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isAuthed) {
-                viewModel.reconnectRealtime()
+                viewModel.ensureRealtimeConnected()
                 viewModel.reloadFromDatabase()
             }
         }

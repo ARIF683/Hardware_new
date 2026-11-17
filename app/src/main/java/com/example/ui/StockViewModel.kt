@@ -177,6 +177,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val isAdmin: StateFlow<Boolean> = authManager.isAdmin
     val lockRemainingSeconds: StateFlow<Int> = authManager.lockRemainingSeconds
 
+    val isCloudConfigured: Boolean = repository.isCloudConfigured()
     val syncStatus: StateFlow<String> = repository.syncStatus
     val isRealtimeLive: StateFlow<Boolean> = repository.isRealtimeLive
     val pendingQueueCount: StateFlow<Int> = repository.pendingQueueCount
@@ -751,10 +752,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun ensureRealtimeConnected() {
+        viewModelScope.launch {
+            repository.initRealtime(force = false)
+        }
+    }
+
     fun reconnectRealtime() {
         viewModelScope.launch {
             if (!repository.isCloudConfigured()) {
                 repository.initRealtime(force = true)
+                showToast("Supabase Secrets not set in this build")
                 return@launch
             }
             repository.initRealtime(force = true)
