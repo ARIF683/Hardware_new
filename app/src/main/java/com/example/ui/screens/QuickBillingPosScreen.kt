@@ -119,6 +119,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import com.example.util.ItemSearchMatcher
+import com.example.util.rememberAppHaptics
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -147,6 +148,7 @@ fun QuickBillingPosScreen(
     isEmbeddedInHub: Boolean = false
 ) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
     val prefilledQuotation by viewModel.prefilledQuotationForGst.collectAsState()
@@ -310,6 +312,7 @@ fun QuickBillingPosScreen(
 
     // Helper functions for cart
     fun addItemToCart(item: Item) {
+        haptics.tick()
         val existingIndex = cartItems.indexOfFirst { it.item.id == item.id }
         if (existingIndex >= 0) {
             val cur = cartItems[existingIndex]
@@ -322,6 +325,7 @@ fun QuickBillingPosScreen(
     fun decrementItemInCart(item: Item) {
         val existingIndex = cartItems.indexOfFirst { it.item.id == item.id }
         if (existingIndex >= 0) {
+            haptics.tick()
             val cur = cartItems[existingIndex]
             if (cur.qty > 1.0) {
                 cartItems[existingIndex] = cur.copy(qty = cur.qty - 1.0)
@@ -333,6 +337,7 @@ fun QuickBillingPosScreen(
 
     fun finalizeAndSaveBill(paymentMode: String) {
         if (cartItems.isEmpty()) {
+            haptics.reject()
             viewModel.showToast("Cart is empty! Add products to bill.")
             return
         }
@@ -383,6 +388,7 @@ fun QuickBillingPosScreen(
             createdAt = nowIso
         )
 
+        haptics.confirm()
         viewModel.saveGstBill(billRecord)
         if (prefilledQuotation != null) {
             viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
@@ -764,7 +770,10 @@ fun QuickBillingPosScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 color = ext.danger.copy(alpha = 0.14f),
                                 border = BorderStroke(0.8.dp, ext.danger.copy(alpha = 0.5f)),
-                                modifier = Modifier.clickable { cartItems.clear() }
+                                modifier = Modifier.clickable {
+                                    haptics.reject()
+                                    cartItems.clear()
+                                }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
@@ -1143,7 +1152,10 @@ fun QuickBillingPosScreen(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    TextButton(onClick = { cartItems.clear() }) {
+                    TextButton(onClick = {
+                        haptics.reject()
+                        cartItems.clear()
+                    }) {
                         Text("Clear All", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                     }
                 }

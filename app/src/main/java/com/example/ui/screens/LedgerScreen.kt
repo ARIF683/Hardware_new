@@ -87,6 +87,7 @@ import com.example.data.model.LedgerEntry
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import com.example.util.rememberAppHaptics
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -96,6 +97,7 @@ import kotlin.math.abs
 
 @Composable
 fun LedgerScreen(viewModel: StockViewModel) {
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val accounts by viewModel.allLedgerAccounts.collectAsState()
 
@@ -556,6 +558,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
             defaultType = if (selectedTab == 0) "CUSTOMER" else "SUPPLIER",
             onDismiss = { showAddAccountDialog = false },
             onSave = { acc ->
+                haptics.confirm()
                 viewModel.saveLedgerAccount(acc)
                 showAddAccountDialog = false
             }
@@ -570,6 +573,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
             initialType = quickEntryType,
             onDismiss = { quickEntryAccount = null },
             onSave = { type, amount, date, desc, ref ->
+                haptics.confirm()
                 viewModel.addLedgerEntry(target.id, type, amount, date, desc, ref)
                 quickEntryAccount = null
             }
@@ -588,6 +592,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteLedgerAccount(target.id)
                         accountToDelete = null
                     },
@@ -789,6 +794,7 @@ fun LedgerAccountDetailScreen(
     onAccountDeleted: () -> Unit = onBack
 ) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val uiConfig by viewModel.uiConfig.collectAsState()
     val entriesFlow = remember(account.id) { viewModel.getEntriesForAccount(account.id) }
@@ -813,6 +819,7 @@ fun LedgerAccountDetailScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteLedgerAccount(account.id)
                         showDeleteAccountConfirm = false
                         onAccountDeleted()
@@ -839,6 +846,7 @@ fun LedgerAccountDetailScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteLedgerEntry(target.id, account.id)
                         entryToDelete = null
                     },
@@ -859,6 +867,7 @@ fun LedgerAccountDetailScreen(
             account = account,
             onDismiss = { entryToEdit = null },
             onSave = { updated ->
+                haptics.confirm()
                 viewModel.updateLedgerEntry(updated)
                 entryToEdit = null
             }
@@ -1136,6 +1145,7 @@ fun LedgerAccountDetailScreen(
             initialType = entryType,
             onDismiss = { showEntryDialog = false },
             onSave = { type, amount, date, desc, ref ->
+                haptics.confirm()
                 viewModel.addLedgerEntry(account.id, type, amount, date, desc, ref)
                 showEntryDialog = false
             }

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.DangerRed
+import com.example.util.rememberAppHaptics
 
 @Composable
 fun SimpleConfirmDialog(
@@ -55,13 +56,17 @@ fun SimpleConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val haptics = rememberAppHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = title, fontWeight = FontWeight.Bold) },
         text = { Text(text = message, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         confirmButton = {
             Button(
-                onClick = onConfirm,
+                onClick = {
+                    if (isDanger) haptics.reject() else haptics.confirm()
+                    onConfirm()
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isDanger) DangerRed else MaterialTheme.colorScheme.primary
                 )
@@ -89,6 +94,7 @@ fun InputPromptDialog(
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf("") }
+    val haptics = rememberAppHaptics()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -114,7 +120,10 @@ fun InputPromptDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(text) },
+                onClick = {
+                    if (isDanger) haptics.reject() else haptics.confirm()
+                    onConfirm(text)
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isDanger) DangerRed else MaterialTheme.colorScheme.primary
                 )
@@ -264,21 +273,31 @@ fun ValuePickerDialog(
 @Composable
 fun CalculatorDialog(onDismiss: () -> Unit) {
     var expr by remember { mutableStateOf("0") }
+    val haptics = rememberAppHaptics()
 
     fun onKey(k: String) {
         when (k) {
-            "C" -> expr = "0"
-            "⌫" -> expr = if (expr.length > 1) expr.dropLast(1) else "0"
+            "C" -> {
+                haptics.tick()
+                expr = "0"
+            }
+            "⌫" -> {
+                haptics.tick()
+                expr = if (expr.length > 1) expr.dropLast(1) else "0"
+            }
             "=" -> {
                 try {
                     val safe = expr.replace("×", "*").replace("÷", "/").replace("−", "-")
                     val result = evalSimpleMath(safe)
                     expr = if (result % 1.0 == 0.0) result.toLong().toString() else "%.2f".format(result)
+                    haptics.confirm()
                 } catch (e: Exception) {
                     expr = "Error"
+                    haptics.reject()
                 }
             }
             else -> {
+                haptics.tick()
                 if (expr == "0" || expr == "Error") expr = k else expr += k
             }
         }

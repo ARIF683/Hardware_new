@@ -72,6 +72,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.components.ValuePickerDialog
 import com.example.ui.theme.DangerRed
 import com.example.util.ImageModelHelper
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -84,6 +85,7 @@ fun ItemFormDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val scope = rememberCoroutineScope()
     val allItems by viewModel.allItems.collectAsState()
     val isEdit = itemToEdit != null
@@ -562,9 +564,11 @@ fun ItemFormDialog(
                     Button(
                         onClick = {
                             if (name.trim().isEmpty()) {
+                                haptics.reject()
                                 viewModel.showToast("Enter item name")
                                 return@Button
                             }
+                            haptics.confirm()
                             val parsedQty = openingQty.trim().toDoubleOrNull()
                             val finalQty = parsedQty ?: (if (isEdit) itemToEdit?.qty ?: 0.0 else 0.0)
                             val factor = conversionFactor.trim().toDoubleOrNull() ?: 1.0

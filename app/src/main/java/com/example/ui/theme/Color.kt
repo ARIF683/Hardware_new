@@ -67,3 +67,11 @@ val TacticalDarkBg = DarkBg
 val TacticalSurface = DarkSurface
 val TacticalCard = DarkCard
 val TacticalBorder = DarkBorder
+
+// Warm Cream Opening Splash Palette
+val WarmCreamSplashBg = Color(0xFFFAF7F2)
+val WarmCreamSplashSurface = Color(0xFFFFFFFF)
+val WarmSandSplashBorder = Color(0xFFE8E0D5)
+val WarmTerracottaAccent = Color(0xFFD97757)
+val WarmEspressoText = Color(0xFF292524)
+val WarmTaupeSubtext = Color(0xFF78716C)

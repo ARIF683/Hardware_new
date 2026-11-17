@@ -112,6 +112,7 @@ import androidx.core.content.FileProvider
 import com.example.util.BillAliasManager
 import com.example.util.GeminiBillScanner
 import com.example.util.ParsedBillResult
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,6 +123,7 @@ import java.util.Locale
 
 @Composable
 fun BillScreen(viewModel: StockViewModel) {
+    val haptics = rememberAppHaptics()
     val allItems by viewModel.allItems.collectAsState()
 
     var stage by remember { mutableStateOf("idle") } // "idle" or "review"
@@ -1171,9 +1173,11 @@ fun BillScreen(viewModel: StockViewModel) {
                             onClick = {
                                 val namedRows = rows.filter { it.include && it.name.trim().isNotEmpty() }
                                 if (namedRows.isEmpty()) {
+                                    haptics.reject()
                                     viewModel.showToast("Add at least one named row")
                                     return@Button
                                 }
+                                haptics.confirm()
                                 viewModel.confirmBill(supplier, billNo, billDate, rows, paidInCash)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),

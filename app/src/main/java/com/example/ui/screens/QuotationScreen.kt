@@ -98,6 +98,7 @@ import com.example.data.model.QuotationRecord
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import com.example.util.rememberAppHaptics
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -107,6 +108,7 @@ import java.util.UUID
 @Composable
 fun QuotationScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val quotations by viewModel.allQuotations.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
@@ -424,6 +426,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                     onDelete = { quotationToDelete = quote },
                     onConvertToSale = { quotationToConvert = quote },
                     onStatusChange = { newStatus ->
+                        haptics.tick()
                         viewModel.updateQuotationStatus(quote, newStatus)
                     },
                     onPrintPdf = {
@@ -506,6 +509,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
             availableItems = allItems,
             onDismiss = { showFormDialog = false },
             onSave = { record ->
+                haptics.confirm()
                 viewModel.saveQuotation(record)
                 showFormDialog = false
             }
@@ -542,6 +546,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteQuotation(quotationToDelete!!.id)
                         quotationToDelete = null
                     },

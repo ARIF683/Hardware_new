@@ -93,6 +93,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.pm.PackageInfoCompat
 import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.data.model.Item
@@ -1176,8 +1177,18 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
+                    val packageInfo = remember(context) {
+                        try {
+                            context.packageManager.getPackageInfo(context.packageName, 0)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    val appVersionName = packageInfo?.versionName?.takeIf { it.isNotBlank() } ?: BuildConfig.VERSION_NAME
+                    val appVersionCode = packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) }
+                        ?: BuildConfig.VERSION_CODE.toLong()
                     Text(
-                        text = "HardwareStock Core v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                        text = "HardwareStock Core • App v$appVersionName (Build $appVersionCode)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -94,6 +94,7 @@ import com.example.data.remote.UpdateStatus
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.XlsExporter
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,6 +183,7 @@ fun BankingAndSignatureSubScreen(
 
 @Composable
 fun BankingAndSignatureContent(viewModel: StockViewModel) {
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val bankingInfo by viewModel.bankingInfo.collectAsState()
 
@@ -340,6 +342,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
 
                 Button(
                     onClick = {
+                        haptics.confirm()
                         viewModel.saveBankDetails(bankName, accountHolder, accountNumber, ifscCode, branchName, upiId)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -413,7 +416,10 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                                 Text("Change", fontSize = 12.sp)
                             }
                             OutlinedButton(
-                                onClick = { viewModel.clearSignature() },
+                                onClick = {
+                                    haptics.reject()
+                                    viewModel.clearSignature()
+                                },
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
                                 modifier = Modifier.height(44.dp)
                             ) {
@@ -524,7 +530,10 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                                     Text("Change", fontSize = 12.sp)
                                 }
                                 OutlinedButton(
-                                    onClick = { viewModel.clearQrCode() },
+                                    onClick = {
+                                        haptics.reject()
+                                        viewModel.clearQrCode()
+                                    },
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
                                     modifier = Modifier.height(44.dp)
                                 ) {
@@ -902,6 +911,7 @@ fun SettingsSyncAndUpdatesDialog(
     viewModel: StockViewModel,
     onDismiss: () -> Unit
 ) {
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val syncStatus by viewModel.syncStatus.collectAsState()
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
@@ -1014,7 +1024,10 @@ fun SettingsSyncAndUpdatesDialog(
                     }
                     if (pendingCount > 0 || isAdmin) {
                         OutlinedButton(
-                            onClick = { viewModel.clearSyncQueue() },
+                            onClick = {
+                                haptics.reject()
+                                viewModel.clearSyncQueue()
+                            },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.weight(1f).height(44.dp)

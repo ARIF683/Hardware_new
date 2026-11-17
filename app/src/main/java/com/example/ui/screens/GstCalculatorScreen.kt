@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
+import com.example.util.rememberAppHaptics
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -67,6 +68,7 @@ data class GstInvoiceRow(
 @Composable
 fun GstCalculatorScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
     val prefilledQuotation by viewModel.prefilledQuotationForGst.collectAsState()
@@ -763,6 +765,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         onClick = {
                             val validRows = rows.filter { it.itemName.isNotBlank() }
                             if (validRows.isEmpty()) {
+                                haptics.reject()
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@Button
                             }
@@ -862,11 +865,13 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         status = "Generated",
                                         createdAt = nowIso
                                     )
+                                    haptics.confirm()
                                     viewModel.saveGstBill(gstRecord)
                                     if (quotationId != null && prefilledQuotation != null) {
                                         viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
                                     }
                                 } catch (e: Exception) {
+                                    haptics.reject()
                                     viewModel.showToast("Failed to generate PDF: ${e.message}")
                                 } finally {
                                     isGeneratingPdf = false
@@ -891,6 +896,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         onClick = {
                             val validRows = rows.filter { it.itemName.isNotBlank() }
                             if (validRows.isEmpty()) {
+                                haptics.reject()
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@OutlinedButton
                             }
@@ -934,6 +940,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 status = "Generated",
                                 createdAt = nowIso
                             )
+                            haptics.confirm()
                             viewModel.saveGstBill(gstRecord)
                             if (quotationId != null && prefilledQuotation != null) {
                                 viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")

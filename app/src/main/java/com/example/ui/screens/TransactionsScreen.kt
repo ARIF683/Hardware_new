@@ -93,6 +93,7 @@ import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.XlsExporter
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,6 +107,7 @@ fun TransactionsScreen(
     viewModel: StockViewModel,
     isEmbeddedInHub: Boolean = false
 ) {
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val allCashflow by viewModel.allDailyCashflow.collectAsState()
     val stockTransactions by viewModel.allTransactions.collectAsState()
@@ -1217,6 +1219,7 @@ fun TransactionsScreen(
                 recordToEdit = null
             },
             onSave = { type, amount, title, category, paymentMode, date, note ->
+                haptics.confirm()
                 if (recordToEdit != null) {
                     val updated = recordToEdit!!.copy(
                         type = type,
@@ -1255,6 +1258,7 @@ fun TransactionsScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteDailyCashflow(rec.id)
                         recordToDelete = null
                     },

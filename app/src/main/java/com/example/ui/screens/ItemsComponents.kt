@@ -63,6 +63,7 @@ import com.example.ui.GroupStat
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.ImageModelHelper
+import com.example.util.rememberAppHaptics
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -101,6 +102,7 @@ fun ItemShowcaseListCard(
     onClick: () -> Unit
 ) {
     val ext = LocalExtendedColors.current
+    val haptics = rememberAppHaptics()
     val isOutOfStock = item.qty <= 0.0
     val isLow = !isOutOfStock && (item.low > 0.0 && item.qty <= item.low)
 
@@ -144,8 +146,18 @@ fun ItemShowcaseListCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
-                onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
-                onLongClick = { onToggleSelect() }
+                onClick = {
+                    if (isSelectionMode) {
+                        haptics.tick()
+                        onToggleSelect()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    haptics.longPress()
+                    onToggleSelect()
+                }
             )
             .testTag("item_card_${item.id}"),
         shape = RoundedCornerShape(16.dp),
@@ -479,6 +491,7 @@ fun ItemGridCard(
     onClick: () -> Unit
 ) {
     val ext = LocalExtendedColors.current
+    val haptics = rememberAppHaptics()
     val isLow = item.qty > 0 && item.low > 0 && item.qty <= item.low
     val isOutOfStock = item.qty <= 0
     val unitStr = item.unit.ifBlank { "pcs" }
@@ -488,8 +501,18 @@ fun ItemGridCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .combinedClickable(
-                onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
-                onLongClick = { onToggleSelect() }
+                onClick = {
+                    if (isSelectionMode) {
+                        haptics.tick()
+                        onToggleSelect()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    haptics.longPress()
+                    onToggleSelect()
+                }
             )
             .testTag("item_grid_card_${item.id}"),
         shape = RoundedCornerShape(14.dp),

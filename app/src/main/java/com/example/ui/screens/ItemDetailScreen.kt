@@ -96,6 +96,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.ImageModelHelper
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,6 +110,7 @@ fun ItemDetailScreen(
     onOpenTransactionDialog: (Item, String) -> Unit
 ) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val scope = rememberCoroutineScope()
     val ext = LocalExtendedColors.current
 
@@ -163,6 +165,7 @@ fun ItemDetailScreen(
                         if (result.isSuccess) {
                             val newUrl = result.getOrNull()
                             val updatedItem = item.copy(imageUrl = newUrl)
+                            haptics.confirm()
                             viewModel.updateItem(updatedItem)
                             viewModel.showToast("Item photo uploaded & synced!")
                         } else {
@@ -1114,6 +1117,7 @@ fun ItemDetailScreen(
                             onClick = {
                                 val fact = inputFactor.toDoubleOrNull() ?: 1.0
                                 val price = inputSecPrice.toDoubleOrNull() ?: 0.0
+                                haptics.confirm()
                                 viewModel.updateItemPackaging(
                                     itemId = item.id,
                                     secondaryUnit = inputSecUnit.trim(),
@@ -1184,7 +1188,10 @@ fun ItemDetailScreen(
                             listOf(10, 15, 20, 25).forEach { pct ->
                                 val targetP = kotlin.math.round(item.cost * (1.0 + pct / 100.0))
                                 OutlinedButton(
-                                    onClick = { editPriceText = targetP.toInt().toString() },
+                                    onClick = {
+                                        haptics.tick()
+                                        editPriceText = targetP.toInt().toString()
+                                    },
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(8.dp)
@@ -1200,6 +1207,7 @@ fun ItemDetailScreen(
                 Button(
                     onClick = {
                         val parsed = editPriceText.replace("₹", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                        haptics.confirm()
                         viewModel.updateItemSellingPrice(item.id, parsed)
                         showEditPriceDialog = false
                     }

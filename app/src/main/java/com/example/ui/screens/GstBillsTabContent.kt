@@ -89,6 +89,7 @@ import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import com.example.util.XlsExporter
+import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,6 +106,7 @@ fun GstBillsTabContent(
     onOpenKhata: () -> Unit = { viewModel.setBillingKhataSubTab(3) }
 ) {
     val context = LocalContext.current
+    val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val scope = rememberCoroutineScope()
     val allBills by viewModel.allGstBills.collectAsState()
@@ -1073,6 +1075,7 @@ fun GstBillsTabContent(
             confirmButton = {
                 Button(
                     onClick = {
+                        haptics.reject()
                         viewModel.deleteGstBill(b.id)
                         billToDelete = null
                     },

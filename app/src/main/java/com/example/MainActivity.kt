@@ -86,6 +86,7 @@ import android.content.Intent
 import android.net.Uri
 import com.example.ui.screens.ColorMachineTintDialog
 import com.example.ui.theme.StockManagerTheme
+import com.example.util.rememberAppHaptics
 
 class MainActivity : ComponentActivity() {
     private val viewModel: StockViewModel by viewModels()
@@ -138,11 +139,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppRoot(viewModel: StockViewModel) {
     var showSplash by remember { mutableStateOf(true) }
-    val selectedLogo by viewModel.selectedLogo.collectAsState()
 
     if (showSplash) {
         SmoothSplashScreen(
-            selectedLogo = selectedLogo,
             onAnimationFinished = { showSplash = false }
         )
         return
@@ -158,6 +157,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
     val selectedItemIds by viewModel.selectedItemIds.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val haptics = rememberAppHaptics()
 
     // Dialog states
     var itemForForm by remember { mutableStateOf<Item?>(null) }
@@ -266,11 +266,15 @@ fun MainAppRoot(viewModel: StockViewModel) {
                                     selected = selected,
                                     modifier = Modifier.testTag("nav_tab_${spec.tab.name.lowercase()}"),
                                     onClick = {
+                                        if (currentTab != spec.tab) {
+                                            haptics.tick()
+                                        }
                                         if (spec.tab == NavigationTab.SETTINGS) {
                                             val now = System.currentTimeMillis()
                                             if (now - lastGearTapTime < 600) {
                                                 gearTapCount++
                                                 if (gearTapCount >= 3) {
+                                                    haptics.confirm()
                                                     if (isAdmin) {
                                                         viewModel.authManager.exitAdmin()
                                                         viewModel.showToast("Admin mode off")

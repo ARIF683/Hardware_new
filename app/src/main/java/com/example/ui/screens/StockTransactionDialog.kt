@@ -40,6 +40,7 @@ import com.example.ui.theme.LocalExtendedColors
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.example.util.rememberAppHaptics
 
 @Composable
 fun StockTransactionDialog(
@@ -49,6 +50,7 @@ fun StockTransactionDialog(
     onDismiss: () -> Unit
 ) {
     val ext = LocalExtendedColors.current
+    val haptics = rememberAppHaptics()
     var action by remember(item.id, initialAction) { mutableStateOf(initialAction) } // "in" or "out"
     var qtyText by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
@@ -86,6 +88,7 @@ fun StockTransactionDialog(
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
+                                if (action != "in") haptics.tick()
                                 action = "in"
                                 negativeWarningAcknowledged = false
                             }
@@ -104,6 +107,7 @@ fun StockTransactionDialog(
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
+                                if (action != "out") haptics.tick()
                                 action = "out"
                                 negativeWarningAcknowledged = false
                             }
@@ -144,7 +148,10 @@ fun StockTransactionDialog(
                             color = if (selectedUnitMode == "primary") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { selectedUnitMode = "primary" }
+                                .clickable {
+                                    if (selectedUnitMode != "primary") haptics.tick()
+                                    selectedUnitMode = "primary"
+                                }
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
                                 Text(
@@ -161,7 +168,10 @@ fun StockTransactionDialog(
                             color = if (selectedUnitMode == "secondary") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { selectedUnitMode = "secondary" }
+                                .clickable {
+                                    if (selectedUnitMode != "secondary") haptics.tick()
+                                    selectedUnitMode = "secondary"
+                                }
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
                                 Text(
@@ -235,6 +245,7 @@ fun StockTransactionDialog(
                         onClick = {
                             val enteredQty = qtyText.trim().toDoubleOrNull()
                             if (enteredQty == null || enteredQty <= 0.0) {
+                                haptics.reject()
                                 viewModel.showToast("Enter a valid quantity")
                                 return@Button
                             }
@@ -244,6 +255,7 @@ fun StockTransactionDialog(
                                 enteredQty
                             }
                             if (action == "out" && effectiveQty > item.qty && !negativeWarningAcknowledged) {
+                                haptics.reject()
                                 negativeWarningAcknowledged = true
                                 return@Button
                             }
@@ -253,6 +265,7 @@ fun StockTransactionDialog(
                             } else {
                                 note.trim()
                             }
+                            haptics.confirm()
                             viewModel.performTransaction(item.id, action, effectiveQty, finalNote)
                             onDismiss()
                         },

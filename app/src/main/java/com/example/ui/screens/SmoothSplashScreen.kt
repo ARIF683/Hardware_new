@@ -1,97 +1,137 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.pref.AppLogoStyle
+import androidx.core.view.WindowCompat
+import com.example.R
 import com.example.ui.theme.LocalExtendedColors
+import com.example.ui.theme.WarmCreamSplashBg
+import com.example.ui.theme.WarmCreamSplashSurface
+import com.example.ui.theme.WarmEspressoText
+import com.example.ui.theme.WarmSandSplashBorder
+import com.example.ui.theme.WarmTaupeSubtext
+import com.example.ui.theme.WarmTerracottaAccent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
 fun SmoothSplashScreen(
-    selectedLogo: AppLogoStyle,
     onAnimationFinished: () -> Unit
 ) {
-    val scale = remember { Animatable(0.6f) }
-    val alpha = remember { Animatable(0f) }
+    val ext = LocalExtendedColors.current
+    val isDark = ext.isDark
+
+    val splashBg = if (isDark) MaterialTheme.colorScheme.background else WarmCreamSplashBg
+    val cardSurface = if (isDark) MaterialTheme.colorScheme.surfaceVariant else WarmCreamSplashSurface
+    val cardBorder = if (isDark) MaterialTheme.colorScheme.outline else WarmSandSplashBorder
+    val titleColor = if (isDark) MaterialTheme.colorScheme.onBackground else WarmEspressoText
+    val subtitleColor = if (isDark) MaterialTheme.colorScheme.onSurfaceVariant else WarmTaupeSubtext
+    val accentColor = if (isDark) MaterialTheme.colorScheme.primary else WarmTerracottaAccent
+
+    val logoScale = remember { Animatable(0.88f) }
+    val logoAlpha = remember { Animatable(0f) }
     val textAlpha = remember { Animatable(0f) }
-    val pulseScale = remember { Animatable(1f) }
+    val accentProgress = remember { Animatable(0f) }
+
+    val view = LocalView.current
+    DisposableEffect(view, isDark) {
+        val window = (view.context as? Activity)?.window
+        val controller = if (!view.isInEditMode && window != null) {
+            WindowCompat.getInsetsController(window, view)
+        } else {
+            null
+        }
+        val prevLightStatus = controller?.isAppearanceLightStatusBars
+        val prevLightNav = controller?.isAppearanceLightNavigationBars
+        if (controller != null) {
+            controller.isAppearanceLightStatusBars = !isDark
+            controller.isAppearanceLightNavigationBars = !isDark
+        }
+        onDispose {
+            if (controller != null) {
+                if (prevLightStatus != null) {
+                    controller.isAppearanceLightStatusBars = prevLightStatus
+                }
+                if (prevLightNav != null) {
+                    controller.isAppearanceLightNavigationBars = prevLightNav
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
-        // Smooth entry bounce with spring physics
         launch {
-            scale.animateTo(
+            logoScale.animateTo(
                 targetValue = 1.0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
+                animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing)
             )
         }
         launch {
-            alpha.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
-            )
-        }
-        delay(300)
-        launch {
-            textAlpha.animateTo(
-                targetValue = 1f,
+            logoAlpha.animateTo(
+                targetValue = 1.0f,
                 animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
             )
         }
-        delay(900)
+        delay(220)
+        launch {
+            textAlpha.animateTo(
+                targetValue = 1.0f,
+                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            accentProgress.animateTo(
+                targetValue = 1.0f,
+                animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+            )
+        }
+        delay(700)
         onAnimationFinished()
     }
-
-    val ext = LocalExtendedColors.current
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        ext.heroBannerStart,
-                        ext.heroBannerEnd,
-                        ext.heroBannerStart
-                    )
-                )
-            ),
+            .background(splashBg)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .testTag("splash_screen"),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -99,60 +139,62 @@ fun SmoothSplashScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(24.dp)
         ) {
-            // Animated Glowing Container
-            Box(
-                contentAlignment = Alignment.Center,
+            Surface(
                 modifier = Modifier
-                    .scale(scale.value)
-                    .alpha(alpha.value)
-                    .size(130.dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                Color.Transparent
-                            )
-                        ),
-                        shape = CircleShape
-                    )
+                    .scale(logoScale.value)
+                    .alpha(logoAlpha.value)
+                    .size(116.dp)
+                    .testTag("splash_app_logo"),
+                shape = RoundedCornerShape(28.dp),
+                color = cardSurface,
+                shadowElevation = if (isDark) 2.dp else 6.dp,
+                border = BorderStroke(1.dp, cardBorder)
             ) {
-                Image(
-                    painter = painterResource(id = selectedLogo.resId),
-                    contentDescription = "App Logo",
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .border(
-                            width = 2.dp,
-                            brush = Brush.linearGradient(
-                                listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        ),
-                    contentScale = ContentScale.Crop
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_app_logo_foreground),
+                        contentDescription = stringResource(R.string.splash_logo_description),
+                        modifier = Modifier.size(86.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "STOCK MANAGER",
-                fontSize = 22.sp,
+                text = stringResource(R.string.splash_brand_title),
+                fontSize = 21.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                letterSpacing = 2.sp,
+                color = titleColor,
+                letterSpacing = 2.5.sp,
                 modifier = Modifier.alpha(textAlpha.value)
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Box(
+                modifier = Modifier
+                    .alpha(textAlpha.value)
+                    .width(36.dp * accentProgress.value.coerceAtLeast(0.05f))
+                    .height(3.dp)
+                    .background(
+                        color = accentColor,
+                        shape = RoundedCornerShape(50)
+                    )
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Hardware • Tools • Invoicing • Khata",
+                text = stringResource(R.string.splash_brand_tagline),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.72f),
-                letterSpacing = 0.5.sp,
+                color = subtitleColor,
+                letterSpacing = 0.6.sp,
                 modifier = Modifier.alpha(textAlpha.value)
             )
         }
