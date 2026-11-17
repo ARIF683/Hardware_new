@@ -25,6 +25,7 @@ import com.example.data.remote.DynamicUiManager
 import com.example.data.remote.UpdateStatus
 import com.example.data.repository.BillRowData
 import com.example.data.repository.StockRepository
+import com.example.util.InvoicePrintManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -868,6 +869,40 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteGstBill(id)
             showToast("GST Bill deleted")
+        }
+    }
+
+    fun processSalesReturn(
+        bill: GstBillRecord,
+        returnMap: Map<String, Double>,
+        restock: Boolean,
+        reason: String
+    ) {
+        viewModelScope.launch {
+            try {
+                val lineItems = InvoicePrintManager.parseGstLineItems(bill.itemsJson)
+                var totalRefund = 0.0
+                returnMap.forEach { (itemId, qty) ->
+                    if (qty > 0.0) {
+                        val line = lineItems.find { it.id == itemId || it.name == itemId }
+                        if (line != null) {
+                            val rate = line.rate
+                            totalRefund += qty * rate
+                            if (restock) {
+                                repository.performTransaction(
+                                    itemId = line.id,
+                                    action = "in",
+                                    qty = qty,
+                                    note = "Sales Return (Inv #${bill.invoiceNo}): $reason"
+                                )
+                            }
+                        }
+                    }
+                }
+                showToast("Credit Note processed for ₹%.2f! Stock ${if (restock) "restocked" else "written off"} ✓".format(totalRefund))
+            } catch (e: Exception) {
+                showToast("Failed to process return: ${e.message}")
+            }
         }
     }
 

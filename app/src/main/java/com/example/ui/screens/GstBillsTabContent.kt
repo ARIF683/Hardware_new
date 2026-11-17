@@ -62,6 +62,11 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Switch
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -118,6 +123,7 @@ fun GstBillsTabContent(
 
     var billForDetails by remember { mutableStateOf<GstBillRecord?>(null) }
     var billToDelete by remember { mutableStateOf<GstBillRecord?>(null) }
+    var billForReturn by remember { mutableStateOf<GstBillRecord?>(null) }
     var isProcessingPdf by remember { mutableStateOf(false) }
     var showGstrExportDialog by remember { mutableStateOf(false) }
 
@@ -764,6 +770,7 @@ fun GstBillsTabContent(
                             viewModel.showToast("No customer phone number on this bill")
                         }
                     },
+                    onSalesReturn = { billForReturn = bill },
                     onDelete = { billToDelete = bill }
                 )
             }
@@ -1090,6 +1097,15 @@ fun GstBillsTabContent(
         )
     }
 
+    if (billForReturn != null) {
+        val b = billForReturn!!
+        SalesReturnDialog(
+            bill = b,
+            viewModel = viewModel,
+            onDismiss = { billForReturn = null }
+        )
+    }
+
     if (showGstrExportDialog) {
         Dialog(onDismissRequest = { showGstrExportDialog = false }) {
             Card(
@@ -1268,6 +1284,7 @@ private fun InvoiceSummaryCard(
     onPrintPdf: () -> Unit,
     onSharePdf: () -> Unit,
     onRemind: () -> Unit,
+    onSalesReturn: () -> Unit,
     onDelete: () -> Unit
 ) {
     val ext = LocalExtendedColors.current
@@ -1555,6 +1572,16 @@ private fun InvoiceSummaryCard(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Sales Return / Credit Note") },
+                                onClick = {
+                                    showMenu = false
+                                    onSalesReturn()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = ext.warning)
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Print A4 PDF") },
                                 onClick = {
                                     showMenu = false
@@ -1580,4 +1607,127 @@ private fun InvoiceSummaryCard(
             }
         }
     }
+}
+
+@Composable
+fun SalesReturnDialog(
+    bill: GstBillRecord,
+    viewModel: StockViewModel,
+    onDismiss: () -> Unit
+) {
+    val haptics = rememberAppHaptics()
+    val ext = LocalExtendedColors.current
+    val lineItems = remember(bill.itemsJson) { InvoicePrintManager.parseGstLineItems(bill.itemsJson) }
+
+    val returnQtys = remember(bill.id) {
+        androidx.compose.runtime.mutableStateMapOf<String, String>().apply {
+            lineItems.forEach { this[it.id] = "0" }
+        }
+    }
+    var restock by remember { mutableStateOf(true) }
+    var reason by remember { mutableStateOf("Customer Return / Defective") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = ext.warning)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sales Return & Credit Note", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Invoice #${bill.invoiceNo} • ${bill.customerName}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Text("Specify quantities returned by customer:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                HorizontalDivider()
+
+                lineItems.forEach { line ->
+                    val maxQty = line.qty
+                    val curQtyStr = returnQtys[line.id] ?: "0"
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(line.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Sold: $maxQty ${line.unit} @ ₹${String.format(Locale.US, "%.2f", line.rate)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedTextField(
+                                value = curQtyStr,
+                                onValueChange = { returnQtys[line.id] = it },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.width(90.dp)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Restock Items", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Add returned items back to inventory stock", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = restock,
+                        onCheckedChange = { restock = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("Return Reason / Note") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val map = mutableMapOf<String, Double>()
+                    var anyValid = false
+                    returnQtys.forEach { (id, str) ->
+                        val q = str.toDoubleOrNull() ?: 0.0
+                        if (q > 0.0) {
+                            map[id] = q
+                            anyValid = true
+                        }
+                    }
+                    if (!anyValid) {
+                        haptics.reject()
+                        viewModel.showToast("Enter at least one return quantity!")
+                        return@Button
+                    }
+                    haptics.confirm()
+                    viewModel.processSalesReturn(bill, map, restock, reason)
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ext.danger, contentColor = Color.White)
+            ) {
+                Text("Process Credit Note", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
