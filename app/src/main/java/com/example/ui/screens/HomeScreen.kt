@@ -109,6 +109,7 @@ fun HomeScreen(viewModel: StockViewModel) {
     val recentTx by viewModel.recentTransactions.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
     val isAnnouncementDismissed by viewModel.isAnnouncementDismissed.collectAsState()
     val isUpdateBannerDismissed by viewModel.isUpdateBannerDismissed.collectAsState()
@@ -281,7 +282,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = uiConfig.theme.storeTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
+                            text = effectiveStoreTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onBackground,

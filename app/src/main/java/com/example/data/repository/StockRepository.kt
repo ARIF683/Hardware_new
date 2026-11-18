@@ -13,7 +13,13 @@ import com.example.data.model.PurchaseLine
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
+import com.example.data.pref.BankingPreferenceManager
+import com.example.data.pref.LogoPreferenceManager
+import com.example.data.pref.StoreProfilePreferenceManager
+import com.example.data.remote.RemoteStoreProfile
+import com.example.data.remote.StoreProfileSyncCodec
 import com.example.data.remote.SupabaseClient
+import java.io.File
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -66,6 +72,11 @@ class StockRepository(
 ) {
     private val tag = "StockRepository"
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val logoPreferenceManager by lazy { LogoPreferenceManager(context) }
+    private val bankingPreferenceManager by lazy { BankingPreferenceManager(context) }
+    private val storeProfilePreferenceManager by lazy { StoreProfilePreferenceManager(context) }
+    @Volatile
+    private var lastKnownRemoteProfile: RemoteStoreProfile? = null
 
     val allItems: Flow<List<Item>> = database.itemDao().getAllItems()
     val allTransactions: Flow<List<TransactionRecord>> = database.transactionDao().getAllTransactions()
@@ -315,13 +326,9 @@ class StockRepository(
                     } catch (e: Exception) { Log.e(tag, "Error handling realtime ledger entry", e) }
                 }
             },
-            onStoreProfileChanged = { banner, logo ->
+            onStoreProfileChanged = { remoteProfile ->
                 repositoryScope.launch {
-                    val pref = com.example.data.pref.LogoPreferenceManager(context)
-                    if (banner != null || logo != null) {
-                        pref.saveBannerUrl(banner)
-                        pref.saveCustomLogoUrl(logo)
-                    }
+                    applyRemoteStoreProfile(remoteProfile)
                 }
             },
             onClosedOrFailed = {
@@ -522,11 +529,13 @@ class StockRepository(
             }
 
             try {
-                val (remoteBanner, remoteLogo) = supabaseClient.fetchStoreProfile()
-                val pref = com.example.data.pref.LogoPreferenceManager(context)
-                if (remoteBanner != null || remoteLogo != null) {
-                    pref.saveBannerUrl(remoteBanner)
-                    pref.saveCustomLogoUrl(remoteLogo)
+                val hasPendingProfilePush = pendingQueue.any { it.type == "upsertStoreProfile" }
+                if (!hasPendingProfilePush) {
+                    val remoteProfile = supabaseClient.fetchStoreProfile()
+                    if (remoteProfile != null) {
+                        applyRemoteStoreProfile(remoteProfile)
+                    }
+                    syncUnsyncedLocalProfileMediaIfNeeded(remoteProfile)
                 }
             } catch (e: Exception) {
                 Log.w(tag, "Failed to sync store profile from Supabase", e)
@@ -1192,6 +1201,16 @@ class StockRepository(
                         "deleteLedgerEntry" -> {
                             supabaseClient.deleteLedgerEntries(listOf(op.payloadJson))
                         }
+                        "upsertStoreProfile" -> {
+                            val json = JSONObject(op.payloadJson)
+                            val profile = StoreProfileSyncCodec.parseFromObject(json)
+                            if (profile != null) {
+                                val remote = runCatching { supabaseClient.fetchStoreProfile() }.getOrNull()
+                                val merged = StoreProfileSyncCodec.merge(remote, profile)
+                                supabaseClient.saveStoreProfile(merged)
+                                lastKnownRemoteProfile = merged
+                            }
+                        }
                     }
                     opsToDelete.add(op.id)
                 } catch (e: Exception) {
@@ -1631,12 +1650,263 @@ class StockRepository(
         flushQueue()
     }
 
-    suspend fun fetchStoreProfile(): Pair<String?, String?> =
-        if (supabaseClient.isConfigured()) supabaseClient.fetchStoreProfile() else (null to null)
+    private fun buildLocalStoreProfileSnapshot(
+        overrideBannerUrl: String? = null,
+        includeBannerOverride: Boolean = false,
+        overrideLogoUrl: String? = null,
+        includeLogoOverride: Boolean = false,
+        clearedSignature: Boolean = false,
+        clearedQrCode: Boolean = false
+    ): RemoteStoreProfile {
+        val identity = storeProfilePreferenceManager.currentStoreIdentity.value
+        val bank = bankingPreferenceManager.currentBankingInfo.value
+        val banner = if (includeBannerOverride) (overrideBannerUrl ?: "") else logoPreferenceManager.getBannerUrl()
+        val logo = if (includeLogoOverride) (overrideLogoUrl ?: "") else logoPreferenceManager.getCustomLogoUrl()
+        val sigUrl = if (clearedSignature) "" else bank.signatureUrl
+        val qrUrl = if (clearedQrCode) "" else bank.qrCodeUrl
+        return RemoteStoreProfile(
+            bannerUrl = banner,
+            logoUrl = logo,
+            storeName = identity.storeName.takeIf { it.isNotBlank() } ?: lastKnownRemoteProfile?.storeName,
+            location = identity.location,
+            roleTitle = identity.roleTitle,
+            supervisorName = identity.supervisorName,
+            bankName = bank.bankName,
+            accountHolder = bank.accountHolder,
+            accountNumber = bank.accountNumber,
+            ifscCode = bank.ifscCode,
+            branchName = bank.branchName,
+            upiId = bank.upiId,
+            signatureUrl = sigUrl,
+            qrCodeUrl = qrUrl,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
 
-    suspend fun saveStoreProfile(bannerUrl: String?, logoUrl: String?) {
+    private suspend fun syncUnsyncedLocalProfileMediaIfNeeded(remoteProfile: RemoteStoreProfile?) {
         if (!supabaseClient.isConfigured()) return
-        supabaseClient.saveStoreProfile(bannerUrl, logoUrl)
+        val bank = bankingPreferenceManager.currentBankingInfo.value
+        var uploadedSigUrl: String? = null
+        var uploadedQrUrl: String? = null
+
+        if (remoteProfile?.signatureUrl.isNullOrBlank() && bank.signatureUrl.isNullOrBlank() && !bank.signaturePath.isNullOrBlank()) {
+            val sigBytes = bankingPreferenceManager.readSignatureBytes()
+            if (sigBytes != null && sigBytes.isNotEmpty()) {
+                val res = supabaseClient.uploadImageToCloudinary(sigBytes, "gst_signature.png")
+                val url = res.getOrNull()
+                if (!url.isNullOrBlank()) {
+                    bankingPreferenceManager.setSignatureCloudUrl(url)
+                    uploadedSigUrl = url
+                }
+            }
+        }
+        if (remoteProfile?.qrCodeUrl.isNullOrBlank() && bank.qrCodeUrl.isNullOrBlank() && !bank.qrCodePath.isNullOrBlank()) {
+            val qrBytes = bankingPreferenceManager.readQrCodeBytes()
+            if (qrBytes != null && qrBytes.isNotEmpty()) {
+                val res = supabaseClient.uploadImageToCloudinary(qrBytes, "gst_upi_qr.png")
+                val url = res.getOrNull()
+                if (!url.isNullOrBlank()) {
+                    bankingPreferenceManager.setQrCodeCloudUrl(url)
+                    uploadedQrUrl = url
+                }
+            }
+        }
+
+        val hasLocalBank = bank.bankName.isNotBlank() || bank.accountNumber.isNotBlank() || bank.upiId.isNotBlank()
+        val remoteMissingBank = remoteProfile == null || (
+            remoteProfile.bankName.isNullOrBlank() &&
+                remoteProfile.accountNumber.isNullOrBlank() &&
+                remoteProfile.upiId.isNullOrBlank()
+            )
+        val identity = storeProfilePreferenceManager.currentStoreIdentity.value
+        val remoteMissingIdentity = remoteProfile == null || (
+            remoteProfile.storeName.isNullOrBlank() &&
+                remoteProfile.location.isNullOrBlank() &&
+                remoteProfile.roleTitle.isNullOrBlank()
+            )
+        val hasLocalCustomIdentity = identity.storeName.isNotBlank() ||
+            identity.roleTitle != StoreProfilePreferenceManager.DEFAULT_ROLE_TITLE ||
+            identity.location != StoreProfilePreferenceManager.DEFAULT_LOCATION ||
+            identity.supervisorName != StoreProfilePreferenceManager.DEFAULT_SUPERVISOR_NAME
+
+        if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity)) {
+            val snapshot = buildLocalStoreProfileSnapshot()
+            val merged = StoreProfileSyncCodec.merge(remoteProfile, snapshot)
+            if (supabaseClient.saveStoreProfile(merged)) {
+                lastKnownRemoteProfile = merged
+            }
+        }
+    }
+
+    private suspend fun applyRemoteStoreProfile(remote: RemoteStoreProfile) {
+        lastKnownRemoteProfile = StoreProfileSyncCodec.merge(lastKnownRemoteProfile, remote)
+        logoPreferenceManager.applyRemoteUrls(remote.bannerUrl, remote.logoUrl)
+        storeProfilePreferenceManager.applyRemoteStoreIdentity(
+            storeName = remote.storeName,
+            supervisorName = remote.supervisorName,
+            roleTitle = remote.roleTitle,
+            location = remote.location
+        )
+        bankingPreferenceManager.applyRemoteBankDetails(
+            bankName = remote.bankName,
+            accountHolder = remote.accountHolder,
+            accountNumber = remote.accountNumber,
+            ifscCode = remote.ifscCode,
+            branchName = remote.branchName,
+            upiId = remote.upiId
+        )
+
+        val currentBank = bankingPreferenceManager.currentBankingInfo.value
+        val sigUrl = remote.signatureUrl
+        if (sigUrl != null) {
+            if (sigUrl.isBlank()) {
+                if (currentBank.signaturePath != null || !currentBank.signatureUrl.isNullOrBlank()) {
+                    bankingPreferenceManager.clearSignature(markClearedForSync = false)
+                }
+            } else {
+                val localSigFileMissing = currentBank.signaturePath.isNullOrBlank() || !File(currentBank.signaturePath).exists()
+                if (sigUrl != currentBank.signatureUrl || localSigFileMissing) {
+                    val bytes = supabaseClient.downloadImageBytes(sigUrl)
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        bankingPreferenceManager.saveSignatureFromBytes(bytes, sigUrl)
+                    } else {
+                        bankingPreferenceManager.setSignatureCloudUrl(sigUrl)
+                    }
+                }
+            }
+        }
+
+        val qrUrl = remote.qrCodeUrl
+        if (qrUrl != null) {
+            if (qrUrl.isBlank()) {
+                if (currentBank.qrCodePath != null || !currentBank.qrCodeUrl.isNullOrBlank()) {
+                    bankingPreferenceManager.clearQrCode(markClearedForSync = false)
+                }
+            } else {
+                val localQrFileMissing = currentBank.qrCodePath.isNullOrBlank() || !File(currentBank.qrCodePath).exists()
+                if (qrUrl != currentBank.qrCodeUrl || localQrFileMissing) {
+                    val bytes = supabaseClient.downloadImageBytes(qrUrl)
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        bankingPreferenceManager.saveQrCodeFromBytes(bytes, qrUrl)
+                    } else {
+                        bankingPreferenceManager.setQrCodeCloudUrl(qrUrl)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun pushStoreProfileMerged(localSnapshot: RemoteStoreProfile) {
+        if (!supabaseClient.isConfigured()) return
+        val existingRemote = if (isOnline()) {
+            runCatching { supabaseClient.fetchStoreProfile() }.getOrNull() ?: lastKnownRemoteProfile
+        } else {
+            lastKnownRemoteProfile
+        }
+        val merged = StoreProfileSyncCodec.merge(existingRemote, localSnapshot)
+        lastKnownRemoteProfile = merged
+        if (isOnline()) {
+            val saved = supabaseClient.saveStoreProfile(merged)
+            if (saved) {
+                _syncStatus.value = "Synced ✓"
+                return
+            }
+        }
+        enqueueOp("upsertStoreProfile", StoreProfileSyncCodec.toJsonObject(merged).toString())
+        flushQueue()
+    }
+
+    suspend fun fetchStoreProfile(): Pair<String?, String?> {
+        if (!supabaseClient.isConfigured()) return (null to null)
+        val profile = supabaseClient.fetchStoreProfile()
+        if (profile != null) {
+            applyRemoteStoreProfile(profile)
+        }
+        return (profile?.bannerUrl to profile?.logoUrl)
+    }
+
+    suspend fun saveStoreProfile(bannerUrl: String?, logoUrl: String?) = withContext(Dispatchers.IO) {
+        val snapshot = buildLocalStoreProfileSnapshot(
+            overrideBannerUrl = bannerUrl,
+            includeBannerOverride = true,
+            overrideLogoUrl = logoUrl,
+            includeLogoOverride = true
+        )
+        pushStoreProfileMerged(snapshot)
+    }
+
+    suspend fun saveAndSyncStoreIdentity(
+        storeName: String,
+        supervisorName: String,
+        roleTitle: String,
+        location: String
+    ) = withContext(Dispatchers.IO) {
+        storeProfilePreferenceManager.saveStoreIdentity(storeName, supervisorName, roleTitle, location)
+        val snapshot = buildLocalStoreProfileSnapshot().copy(
+            storeName = storeName.trim(),
+            supervisorName = supervisorName.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_SUPERVISOR_NAME },
+            roleTitle = roleTitle.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_ROLE_TITLE },
+            location = location.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_LOCATION },
+            updatedAt = System.currentTimeMillis()
+        )
+        pushStoreProfileMerged(snapshot)
+    }
+
+    suspend fun saveAndSyncBankDetails(
+        bankName: String,
+        accountHolder: String,
+        accountNumber: String,
+        ifscCode: String,
+        branchName: String,
+        upiId: String
+    ) = withContext(Dispatchers.IO) {
+        bankingPreferenceManager.saveBankDetails(
+            bankName, accountHolder, accountNumber, ifscCode, branchName, upiId
+        )
+        val snapshot = buildLocalStoreProfileSnapshot()
+        pushStoreProfileMerged(snapshot)
+    }
+
+    suspend fun saveAndSyncSignature(uri: android.net.Uri): Result<String> = withContext(Dispatchers.IO) {
+        val res = bankingPreferenceManager.saveSignatureFromUri(uri)
+        if (res.isSuccess) {
+            val bytes = bankingPreferenceManager.readSignatureBytes()
+            if (bytes != null && bytes.isNotEmpty() && supabaseClient.isConfigured()) {
+                val uploadRes = supabaseClient.uploadImageToCloudinary(bytes, "gst_signature.png")
+                val url = uploadRes.getOrNull()
+                if (!url.isNullOrBlank()) {
+                    bankingPreferenceManager.setSignatureCloudUrl(url)
+                }
+            }
+            pushStoreProfileMerged(buildLocalStoreProfileSnapshot())
+        }
+        res
+    }
+
+    suspend fun saveAndSyncQrCode(uri: android.net.Uri): Result<String> = withContext(Dispatchers.IO) {
+        val res = bankingPreferenceManager.saveQrCodeFromUri(uri)
+        if (res.isSuccess) {
+            val bytes = bankingPreferenceManager.readQrCodeBytes()
+            if (bytes != null && bytes.isNotEmpty() && supabaseClient.isConfigured()) {
+                val uploadRes = supabaseClient.uploadImageToCloudinary(bytes, "gst_upi_qr.png")
+                val url = uploadRes.getOrNull()
+                if (!url.isNullOrBlank()) {
+                    bankingPreferenceManager.setQrCodeCloudUrl(url)
+                }
+            }
+            pushStoreProfileMerged(buildLocalStoreProfileSnapshot())
+        }
+        res
+    }
+
+    suspend fun clearAndSyncSignature() = withContext(Dispatchers.IO) {
+        bankingPreferenceManager.clearSignature(markClearedForSync = true)
+        pushStoreProfileMerged(buildLocalStoreProfileSnapshot(clearedSignature = true))
+    }
+
+    suspend fun clearAndSyncQrCode() = withContext(Dispatchers.IO) {
+        bankingPreferenceManager.clearQrCode(markClearedForSync = true)
+        pushStoreProfileMerged(buildLocalStoreProfileSnapshot(clearedQrCode = true))
     }
 
     suspend fun getProcessedTintRecordIds(): Set<String> = withContext(Dispatchers.IO) {

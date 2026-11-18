@@ -10,7 +10,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,10 +22,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -70,7 +75,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -112,7 +119,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
     val ext = LocalExtendedColors.current
     val quotations by viewModel.allQuotations.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedStatusFilter by remember { mutableStateOf("ALL") }
@@ -123,7 +130,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
     var quotationToDelete by remember { mutableStateOf<QuotationRecord?>(null) }
     var quotationToConvert by remember { mutableStateOf<QuotationRecord?>(null) }
 
-    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }
+    val storeTitle = effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" }
     val inrFormat = remember {
         NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
             minimumFractionDigits = 2
@@ -298,7 +305,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(filterSpecs) { (statusKey, dotColor, count) ->
+                items(filterSpecs, key = { it.first }) { (statusKey, dotColor, count) ->
                     val isSelected = selectedStatusFilter == statusKey
                     Surface(
                         shape = CircleShape,
@@ -865,11 +872,12 @@ fun QuotationCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Bottom Action Row: 5 icon tiles + Convert to Sale button
-            Row(
+            // Bottom Action Row: 5 icon tiles + Convert to Sale button (wraps cleanly on small screens)
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     EstimateActionIconTile(
@@ -904,8 +912,6 @@ fun QuotationCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
                 if (quotation.status != "Converted") {
                     Button(
                         onClick = onConvertToSale,
@@ -919,7 +925,14 @@ fun QuotationCard(
                     ) {
                         Icon(Icons.Default.ShoppingCart, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Convert to Sale", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(
+                            text = "Convert to Sale",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 } else {
                     Surface(
@@ -938,7 +951,9 @@ fun QuotationCard(
                                 text = "Converted",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -975,7 +990,12 @@ private fun EstimateActionIconTile(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class QuotationFormRow(
+    val rowKey: String = UUID.randomUUID().toString(),
+    val item: QuotationLineItem
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QuotationFormDialog(
     existingQuotation: QuotationRecord?,
@@ -997,20 +1017,25 @@ fun QuotationFormDialog(
     var taxPercentText by remember { mutableStateOf(existingQuotation?.taxPercent?.toString() ?: "0") }
     var notes by remember { mutableStateOf(existingQuotation?.notes ?: "") }
     var lastSelectedType by remember { mutableStateOf("") }
-    var voiceTargetIdx by remember { mutableStateOf<Int?>(null) }
+    var voiceTargetKey by remember { mutableStateOf<String?>(null) }
 
     val lineItems = remember {
-        mutableStateListOf<QuotationLineItem>().apply {
+        mutableStateListOf<QuotationFormRow>().apply {
             if (existingQuotation != null) {
                 val parsed = InvoicePrintManager.parseLineItems(existingQuotation.itemsJson)
-                addAll(parsed)
+                parsed.forEach { add(QuotationFormRow(item = it)) }
                 if (parsed.isNotEmpty()) {
                     lastSelectedType = parsed.last().type
                 }
             } else {
-                add(QuotationLineItem(name = "", qty = 1.0, unitPrice = 0.0, total = 0.0, type = ""))
+                add(QuotationFormRow(item = QuotationLineItem(name = "", qty = 1.0, unitPrice = 0.0, total = 0.0, type = "")))
             }
         }
+    }
+
+    val itemsById = remember(availableItems) { availableItems.associateBy { it.id } }
+    val itemsByNameLower = remember(availableItems) {
+        availableItems.associateBy { it.name.trim().lowercase(Locale.ROOT) }
     }
 
     val speechLauncher = rememberLauncherForActivityResult(
@@ -1020,9 +1045,11 @@ fun QuotationFormDialog(
             val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
                 val normalized = com.example.util.ItemSearchMatcher.normalizeVoiceInput(spoken)
-                val target = voiceTargetIdx
-                if (target != null && target in lineItems.indices) {
-                    lineItems[target] = lineItems[target].copy(name = normalized)
+                val targetKey = voiceTargetKey
+                val targetIdx = if (targetKey != null) lineItems.indexOfFirst { it.rowKey == targetKey } else -1
+                if (targetIdx >= 0) {
+                    val cur = lineItems[targetIdx]
+                    lineItems[targetIdx] = cur.copy(item = cur.item.copy(name = normalized))
                 }
             }
         }
@@ -1034,7 +1061,7 @@ fun QuotationFormDialog(
         listOf("All") + (defaults + fromDb).distinct().sorted()
     }
 
-    val subtotal = lineItems.sumOf { it.total }
+    val subtotal by remember { derivedStateOf { lineItems.sumOf { it.item.total } } }
     val discount = discountText.toDoubleOrNull() ?: 0.0
     val taxPercent = taxPercentText.toDoubleOrNull() ?: 0.0
     val afterDiscount = (subtotal - discount).coerceAtLeast(0.0)
@@ -1051,13 +1078,14 @@ fun QuotationFormDialog(
             elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth(0.96f)
-                .fillMaxHeight(0.96f)
+                .widthIn(max = 540.dp)
+                .fillMaxHeight(0.95f)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
                 // Dialog Header
                 Row(
@@ -1068,7 +1096,10 @@ fun QuotationFormDialog(
                     Text(
                         text = if (existingQuotation == null) "New Estimate / Quote" else "Edit Estimate #${existingQuotation.quotationNo}",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 17.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Close")
@@ -1080,45 +1111,77 @@ fun QuotationFormDialog(
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .testTag("quotation_form_list"),
                     contentPadding = PaddingValues(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Customer info
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = customerName,
-                                onValueChange = { customerName = it },
-                                label = { Text("Customer Name *") },
-                                modifier = Modifier.weight(1.3f),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = customerPhone,
-                                onValueChange = { customerPhone = it },
-                                label = { Text("Phone") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            if (maxWidth < 300.dp) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = customerName,
+                                        onValueChange = { customerName = it },
+                                        label = { Text("Customer Name *", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = customerPhone,
+                                        onValueChange = { customerPhone = it },
+                                        label = { Text("Phone", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    OutlinedTextField(
+                                        value = customerName,
+                                        onValueChange = { customerName = it },
+                                        label = { Text("Customer Name *", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        modifier = Modifier.weight(1.15f).widthIn(min = 0.dp),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = customerPhone,
+                                        onValueChange = { customerPhone = it },
+                                        label = { Text("Phone", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
+                                        singleLine = true
+                                    )
+                                }
+                            }
                         }
                     }
 
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
                             OutlinedTextField(
                                 value = quoteNo,
                                 onValueChange = { quoteNo = it },
-                                label = { Text("Quote No.") },
-                                modifier = Modifier.weight(1f),
+                                label = { Text("Quote No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = date,
                                 onValueChange = { date = it },
-                                label = { Text("Date (YYYY-MM-DD)") },
-                                modifier = Modifier.weight(1f),
+                                label = { Text("Date", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                placeholder = { Text("YYYY-MM-DD", maxLines = 1) },
+                                modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                                 singleLine = true
                             )
                         }
@@ -1128,36 +1191,83 @@ fun QuotationFormDialog(
                         Column {
                             Text("STATUS", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf("Draft", "Sent", "Accepted", "Converted").forEach { s ->
-                                    val isSelected = status.equals(s, ignoreCase = true)
-                                    val chipColor = when (s) {
-                                        "Converted" -> ext.purple
-                                        "Accepted" -> ext.positive
-                                        "Sent" -> MaterialTheme.colorScheme.primary
-                                        else -> ext.warning
-                                    }
-                                    Surface(
-                                        color = if (isSelected) chipColor else chipColor.copy(alpha = 0.08f),
-                                        shape = RoundedCornerShape(8.dp),
-                                        border = BorderStroke(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.3f)),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable { status = s }
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val statuses = listOf("Draft", "Sent", "Accepted", "Converted")
+                                if (maxWidth < 310.dp) {
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = s,
-                                                fontSize = 11.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) Color.White else chipColor
-                                            )
+                                        statuses.forEach { s ->
+                                            val isSelected = status.equals(s, ignoreCase = true)
+                                            val chipColor = when (s) {
+                                                "Converted" -> ext.purple
+                                                "Accepted" -> ext.positive
+                                                "Sent" -> MaterialTheme.colorScheme.primary
+                                                else -> ext.warning
+                                            }
+                                            Surface(
+                                                color = if (isSelected) chipColor else chipColor.copy(alpha = 0.08f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.3f)),
+                                                modifier = Modifier
+                                                    .heightIn(min = 38.dp)
+                                                    .clickable { status = s }
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = s,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSelected) Color.White else chipColor,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        statuses.forEach { s ->
+                                            val isSelected = status.equals(s, ignoreCase = true)
+                                            val chipColor = when (s) {
+                                                "Converted" -> ext.purple
+                                                "Accepted" -> ext.positive
+                                                "Sent" -> MaterialTheme.colorScheme.primary
+                                                else -> ext.warning
+                                            }
+                                            Surface(
+                                                color = if (isSelected) chipColor else chipColor.copy(alpha = 0.08f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.3f)),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .heightIn(min = 38.dp)
+                                                    .clickable { status = s }
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = s,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSelected) Color.White else chipColor,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1174,14 +1284,17 @@ fun QuotationFormDialog(
                             Text("LINE ITEMS", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             TextButton(
                                 onClick = {
-                                    val rowType = if (lineItems.isNotEmpty() && lineItems.last().type.isNotBlank()) lineItems.last().type else lastSelectedType
+                                    val lastType = lineItems.lastOrNull()?.item?.type
+                                    val rowType = if (!lastType.isNullOrBlank()) lastType else lastSelectedType
                                     lineItems.add(
-                                        QuotationLineItem(
-                                            name = "",
-                                            qty = 1.0,
-                                            unitPrice = 0.0,
-                                            total = 0.0,
-                                            type = rowType
+                                        QuotationFormRow(
+                                            item = QuotationLineItem(
+                                                name = "",
+                                                qty = 1.0,
+                                                unitPrice = 0.0,
+                                                total = 0.0,
+                                                type = rowType
+                                            )
                                         )
                                     )
                                 }
@@ -1194,55 +1307,42 @@ fun QuotationFormDialog(
                     }
 
                     // Line items list
-                    items(lineItems.size) { idx ->
-                        val item = lineItems[idx]
-                        var isSuggestionsOpen by remember { mutableStateOf(false) }
+                    items(lineItems, key = { it.rowKey }) { rowState ->
+                        val rowKey = rowState.rowKey
+                        val item = rowState.item
+                        var isSuggestionsOpen by remember(rowKey) { mutableStateOf(false) }
 
-                        val matchedDbItem = remember(item.itemId, item.name, availableItems) {
+                        val matchedDbItem = remember(item.itemId, item.name, itemsById, itemsByNameLower) {
                             if (!item.itemId.isNullOrBlank()) {
-                                availableItems.firstOrNull { it.id == item.itemId }
+                                itemsById[item.itemId]
                             } else if (item.name.isNotBlank()) {
-                                availableItems.firstOrNull { it.name.trim().equals(item.name.trim(), ignoreCase = true) }
+                                itemsByNameLower[item.name.trim().lowercase(Locale.ROOT)]
                             } else null
                         }
                         val effectiveCost = if (item.costPrice > 0.0) item.costPrice else (matchedDbItem?.cost ?: 0.0)
 
-                        val matchingItems = remember(item.name, item.type, availableItems) {
-                            val q = item.name.trim()
-                            val curType = item.type.trim()
-                            if (q.isBlank()) {
-                                // When query is empty (user focused on field, tapped dropdown arrow, or clicked clear):
-                                // Show items in curType if filtered, or show all available inventory items!
-                                val baseList = if (curType.isNotBlank() && !curType.equals("All", ignoreCase = true)) {
-                                    val filtered = availableItems.filter { it.type.trim().equals(curType, ignoreCase = true) }
-                                    if (filtered.isNotEmpty()) filtered else availableItems
-                                } else {
-                                    availableItems
-                                }
-                                baseList.take(30)
-                            } else {
-                                // Query is not blank: first search with category constraint if set
-                                val categoryFilterActive = curType.isNotBlank() && !curType.equals("All", ignoreCase = true)
-                                val inCategoryMatches = if (categoryFilterActive) {
-                                    availableItems.mapNotNull { dbItem ->
-                                        if (!dbItem.type.trim().equals(curType, ignoreCase = true)) return@mapNotNull null
-                                        val score = com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
-                                        if (score > 0) Pair(dbItem, score) else null
-                                    }.sortedByDescending { it.second }.map { it.first }
-                                } else emptyList()
+                        var matchingItems by remember(rowKey) { mutableStateOf<List<Item>>(emptyList()) }
+                        LaunchedEffect(isSuggestionsOpen, item.name, item.type, availableItems) {
+                            if (!isSuggestionsOpen) {
+                                matchingItems = emptyList()
+                                return@LaunchedEffect
+                            }
+                            if (item.name.isNotBlank()) {
+                                kotlinx.coroutines.delay(60)
+                            }
+                            matchingItems = com.example.util.ItemSearchMatcher.searchItems(
+                                items = availableItems,
+                                rawQuery = item.name,
+                                typeFilter = item.type,
+                                limit = 25
+                            )
+                        }
 
-                                if (inCategoryMatches.isNotEmpty()) {
-                                    inCategoryMatches.take(25)
-                                } else {
-                                    // Either no category filter OR category filter yielded 0 results (e.g. user typed an item from a different category or mistyped)
-                                    // Search ACROSS ALL ITEMS regardless of category!
-                                    val allMatches = availableItems.mapNotNull { dbItem ->
-                                        val score = com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
-                                        if (score > 0) Pair(dbItem, score) else null
-                                    }.sortedByDescending { it.second }.map { it.first }
-
-                                    allMatches.take(25)
-                                }
+                        fun updateThisRow(transform: (QuotationLineItem) -> QuotationLineItem) {
+                            val currentIdx = lineItems.indexOfFirst { it.rowKey == rowKey }
+                            if (currentIdx >= 0) {
+                                val current = lineItems[currentIdx]
+                                lineItems[currentIdx] = current.copy(item = transform(current.item))
                             }
                         }
 
@@ -1252,371 +1352,317 @@ fun QuotationFormDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
+                                // Compact header row for Item Name + optional remove button (frees room inside Item Name field)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (effectiveCost > 0.0) {
+                                            "COST: ₹${String.format(Locale.US, "%.2f", effectiveCost)}"
+                                        } else {
+                                            "LINE ITEM"
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (effectiveCost > 0.0) ext.warning else MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (lineItems.size > 1) {
+                                        IconButton(
+                                            onClick = {
+                                                val currentIdx = lineItems.indexOfFirst { it.rowKey == rowKey }
+                                                if (currentIdx >= 0 && lineItems.size > 1) {
+                                                    lineItems.removeAt(currentIdx)
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Remove item",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // Item Name Field with instant autocomplete, Voice Search, Clear button & Dropdown toggle
                                 Box(modifier = Modifier.fillMaxWidth()) {
                                     OutlinedTextField(
                                         value = item.name,
                                         onValueChange = { name ->
-                                            // When user changes/edits name, clear itemId so cost & search re-evaluate freshly
-                                            lineItems[idx] = item.copy(name = name, itemId = null)
+                                            updateThisRow { it.copy(name = name, itemId = null) }
                                             isSuggestionsOpen = true
                                         },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .onFocusChanged { if (it.isFocused) isSuggestionsOpen = true },
                                         label = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text("Item Name (type to search)")
-                                                if (effectiveCost > 0.0) {
-                                                    Text(
-                                                        "• Cost: ₹${String.format(Locale.US, "%.2f", effectiveCost)}",
-                                                        color = ext.warning,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
+                                            Text(
+                                                "Item Name (type to search)",
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                         },
                                         trailingIcon = {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 if (item.name.isNotBlank()) {
                                                     IconButton(
                                                         onClick = {
-                                                            lineItems[idx] = item.copy(
-                                                                name = "",
-                                                                itemId = null,
-                                                                unitPrice = 0.0,
-                                                                costPrice = 0.0,
-                                                                total = 0.0,
-                                                                type = ""
-                                                            )
+                                                            updateThisRow {
+                                                                it.copy(
+                                                                    name = "",
+                                                                    itemId = null,
+                                                                    unitPrice = 0.0,
+                                                                    costPrice = 0.0,
+                                                                    total = 0.0,
+                                                                    type = ""
+                                                                )
+                                                            }
                                                             isSuggestionsOpen = true
                                                         },
-                                                        modifier = Modifier.size(36.dp)
+                                                        modifier = Modifier.size(32.dp)
                                                     ) {
                                                         Icon(
                                                             Icons.Default.Close,
                                                             contentDescription = "Clear item name",
-                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(18.dp)
                                                         )
                                                     }
                                                 }
                                                 IconButton(
                                                     onClick = { isSuggestionsOpen = !isSuggestionsOpen },
-                                                    modifier = Modifier.size(36.dp)
+                                                    modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
                                                         if (isSuggestionsOpen) Icons.Default.ArrowDropDown else Icons.Default.Search,
                                                         contentDescription = "Toggle suggestions list",
-                                                        tint = MaterialTheme.colorScheme.primary
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
                                                     )
                                                 }
                                                 IconButton(
                                                     onClick = {
-                                                        voiceTargetIdx = idx
+                                                        voiceTargetKey = rowKey
                                                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                                             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                                             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                                             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name (e.g. Socket, Pipe, Elbow)...")
-                                                         }
-                                                         try {
-                                                             speechLauncher.launch(intent)
-                                                         } catch (e: Exception) {
-                                                             // voice not supported
-                                                         }
-                                                     },
-                                                     modifier = Modifier.size(36.dp)
-                                                 ) {
-                                                     Icon(Icons.Default.Mic, contentDescription = "Voice search", tint = MaterialTheme.colorScheme.primary)
-                                                 }
-                                                 if (lineItems.size > 1) {
-                                                     IconButton(
-                                                         onClick = { lineItems.removeAt(idx) },
-                                                         modifier = Modifier.size(36.dp)
-                                                     ) {
-                                                         Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
-                                                     }
-                                                 }
-                                             }
-                                         },
-                                         singleLine = true
-                                     )
-                                 }
+                                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak item name (e.g. Socket, Pipe, Elbow)...")
+                                                        }
+                                                        try {
+                                                            speechLauncher.launch(intent)
+                                                        } catch (_: Exception) {
+                                                            // voice not supported
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Mic,
+                                                        contentDescription = "Voice search",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        singleLine = true
+                                    )
+                                }
 
-                                 // Live Cost & Margin Indicator right below item name
-                                 if (effectiveCost > 0.0) {
-                                     Surface(
-                                         shape = RoundedCornerShape(6.dp),
-                                         color = ext.warning.copy(alpha = 0.12f),
-                                         border = androidx.compose.foundation.BorderStroke(1.dp, ext.warning.copy(alpha = 0.4f)),
-                                         modifier = Modifier
-                                             .fillMaxWidth()
-                                             .padding(top = 6.dp)
-                                     ) {
-                                         Row(
-                                             modifier = Modifier
-                                                 .fillMaxWidth()
-                                                 .padding(horizontal = 8.dp, vertical = 5.dp),
-                                             horizontalArrangement = Arrangement.SpaceBetween,
-                                             verticalAlignment = Alignment.CenterVertically
-                                         ) {
-                                             Row(
-                                                 verticalAlignment = Alignment.CenterVertically,
-                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                             ) {
-                                                 Text(
-                                                     "🏷️ Cost Price: ",
-                                                     fontSize = 11.sp,
-                                                     fontWeight = FontWeight.Bold,
-                                                     color = MaterialTheme.colorScheme.onSurface
-                                                 )
-                                                 Text(
-                                                     "₹${String.format(Locale.US, "%.2f", effectiveCost)}",
-                                                     fontSize = 12.sp,
-                                                     fontWeight = FontWeight.ExtraBold,
-                                                     color = ext.warning
-                                                 )
-                                                 if (matchedDbItem?.qty != null) {
-                                                     Text(
-                                                         " • In Stock: ${matchedDbItem.qty} ${matchedDbItem.unit}",
-                                                         fontSize = 10.sp,
-                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                     )
-                                                 }
-                                             }
-                                             val unitMargin = item.unitPrice - effectiveCost
-                                             val marginPct = if (effectiveCost > 0.0) (unitMargin / effectiveCost) * 100.0 else 0.0
-                                             val isProfit = unitMargin >= 0.0
-                                             Text(
-                                                 text = if (item.unitPrice <= 0.0) "Rate not set" else if (isProfit) "Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+${marginPct.toInt()}%)" else "⚠️ Below Cost by ₹${String.format(Locale.US, "%.2f", -unitMargin)}",
-                                                 fontSize = 11.sp,
-                                                 fontWeight = FontWeight.Bold,
-                                                 color = if (item.unitPrice <= 0.0) MaterialTheme.colorScheme.onSurfaceVariant else if (isProfit) ext.positive else ext.danger
-                                             )
-                                         }
-                                     }
-                                 }
+                                // Live Cost & Margin Indicator right below item name
+                                if (effectiveCost > 0.0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = ext.warning.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.4f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 6.dp)
+                                    ) {
+                                        FlowRow(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    "Cost: ₹${String.format(Locale.US, "%.2f", effectiveCost)}",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = ext.warning
+                                                )
+                                                if (matchedDbItem?.qty != null) {
+                                                    Text(
+                                                        "• Stock: ${matchedDbItem.qty} ${matchedDbItem.unit}",
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            val unitMargin = item.unitPrice - effectiveCost
+                                            val marginPct = if (effectiveCost > 0.0) (unitMargin / effectiveCost) * 100.0 else 0.0
+                                            val isProfit = unitMargin >= 0.0
+                                            Text(
+                                                text = if (item.unitPrice <= 0.0) "Rate not set" else if (isProfit) "Margin: +₹${String.format(Locale.US, "%.2f", unitMargin)} (+${marginPct.toInt()}%)" else "Below Cost by ₹${String.format(Locale.US, "%.2f", -unitMargin)}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (item.unitPrice <= 0.0) MaterialTheme.colorScheme.onSurfaceVariant else if (isProfit) ext.positive else ext.danger
+                                            )
+                                        }
+                                    }
+                                }
 
-                                 // Suggestions popup list with Cost Price and Selling Price prominently displayed
-                                 if (isSuggestionsOpen) {
-                                     Surface(
-                                         shape = RoundedCornerShape(8.dp),
-                                         shadowElevation = 6.dp,
-                                         color = MaterialTheme.colorScheme.surface,
-                                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                                         modifier = Modifier
-                                             .fillMaxWidth()
-                                             .padding(top = 4.dp)
-                                     ) {
-                                         Column {
-                                             Surface(
-                                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                                                 modifier = Modifier.fillMaxWidth()
-                                             ) {
-                                                 Row(
-                                                     modifier = Modifier
-                                                         .fillMaxWidth()
-                                                         .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                     horizontalArrangement = Arrangement.SpaceBetween,
-                                                     verticalAlignment = Alignment.CenterVertically
-                                                 ) {
-                                                     Text(
-                                                         if (matchingItems.isNotEmpty()) {
-                                                             if (item.name.isBlank()) "📦 All Inventory Items (tap to select)" else "💡 Matching Items (Cost & Selling Rate)"
-                                                         } else "⚠️ No Direct Match for \"${item.name}\"",
-                                                         fontSize = 11.sp,
-                                                         fontWeight = FontWeight.Bold,
-                                                         color = if (matchingItems.isNotEmpty()) MaterialTheme.colorScheme.primary else ext.warning
-                                                     )
-                                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                         Text(
-                                                             "${if (matchingItems.isNotEmpty()) matchingItems.size else availableItems.size} items",
-                                                             fontSize = 10.sp,
-                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                         )
-                                                         IconButton(
-                                                             onClick = { isSuggestionsOpen = false },
-                                                             modifier = Modifier.size(22.dp)
-                                                         ) {
-                                                             Icon(Icons.Default.Close, contentDescription = "Close suggestions", modifier = Modifier.size(14.dp))
-                                                         }
-                                                     }
-                                                 }
-                                             }
+                                // Virtualized Suggestions popup list with Cost Price and Selling Price
+                                if (isSuggestionsOpen) {
+                                    val displayList = remember(matchingItems, availableItems) {
+                                        if (matchingItems.isNotEmpty()) matchingItems else availableItems.take(25)
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        shadowElevation = 6.dp,
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp)
+                                    ) {
+                                        Column {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        if (matchingItems.isNotEmpty()) {
+                                                            if (item.name.isBlank()) "📦 All Inventory Items (tap to select)" else "💡 Matching Items (Cost & Selling Rate)"
+                                                        } else "⚠️ No Direct Match for \"${item.name}\"",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (matchingItems.isNotEmpty()) MaterialTheme.colorScheme.primary else ext.warning
+                                                    )
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        Text(
+                                                            "${if (matchingItems.isNotEmpty()) matchingItems.size else availableItems.size} items",
+                                                            fontSize = 10.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                        IconButton(
+                                                            onClick = { isSuggestionsOpen = false },
+                                                            modifier = Modifier.size(22.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Close, contentDescription = "Close suggestions", modifier = Modifier.size(14.dp))
+                                                        }
+                                                    }
+                                                }
+                                            }
 
-                                             if (matchingItems.isEmpty()) {
-                                                 // When mistyped or no item matched query:
-                                                 Column(
-                                                     modifier = Modifier
-                                                         .fillMaxWidth()
-                                                         .padding(horizontal = 10.dp, vertical = 8.dp),
-                                                     horizontalAlignment = Alignment.CenterHorizontally
-                                                 ) {
-                                                     Text(
-                                                         text = "No item found matching \"${item.name}\"",
-                                                         fontSize = 12.sp,
-                                                         fontWeight = FontWeight.SemiBold,
-                                                         color = MaterialTheme.colorScheme.onSurface
-                                                     )
-                                                     Spacer(modifier = Modifier.height(4.dp))
-                                                     Text(
-                                                         text = "Choose an item below from inventory or clear search:",
-                                                         fontSize = 11.sp,
-                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                     )
-                                                     Spacer(modifier = Modifier.height(6.dp))
-                                                     OutlinedButton(
-                                                         onClick = {
-                                                             lineItems[idx] = item.copy(
-                                                                 name = "",
-                                                                 itemId = null,
-                                                                 unitPrice = 0.0,
-                                                                 costPrice = 0.0,
-                                                                 total = 0.0,
-                                                                 type = ""
-                                                             )
-                                                         },
-                                                         shape = RoundedCornerShape(6.dp),
-                                                         modifier = Modifier.height(32.dp)
-                                                     ) {
-                                                         Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(12.dp))
-                                                         Spacer(modifier = Modifier.width(4.dp))
-                                                         Text("Clear & Browse All Items", fontSize = 11.sp)
-                                                     }
-                                                 }
-                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                             }
+                                            if (matchingItems.isEmpty()) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    Text(
+                                                        text = "No item found matching \"${item.name}\"",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "Choose an item below from inventory or clear search:",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            updateThisRow {
+                                                                it.copy(
+                                                                    name = "",
+                                                                    itemId = null,
+                                                                    unitPrice = 0.0,
+                                                                    costPrice = 0.0,
+                                                                    total = 0.0,
+                                                                    type = ""
+                                                                )
+                                                            }
+                                                        },
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        modifier = Modifier.height(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Clear & Browse All Items", fontSize = 11.sp)
+                                                    }
+                                                }
+                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                            }
 
-                                             val displayList = if (matchingItems.isNotEmpty()) matchingItems else availableItems.take(25)
-                                             displayList.forEach { matched ->
-                                                 Row(
-                                                     modifier = Modifier
-                                                         .fillMaxWidth()
-                                                         .clickable {
-                                                             val curQty = if (item.qty <= 0.0) 1.0 else item.qty
-                                                             val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
-                                                                 "${matched.name} ${matched.size}"
-                                                             } else {
-                                                                 matched.name
-                                                             }
-                                                             val updated = item.copy(
-                                                                 itemId = matched.id,
-                                                                 name = displayName,
-                                                                 code = matched.code,
-                                                                 type = if (matched.type.isNotBlank()) matched.type else item.type,
-                                                                 unit = matched.unit.ifBlank { "pcs" },
-                                                                 unitPrice = matched.price,
-                                                                 costPrice = matched.cost,
-                                                                 total = curQty * matched.price
-                                                             )
-                                                             lineItems[idx] = updated
-                                                             if (matched.type.isNotBlank()) {
-                                                                 lastSelectedType = matched.type
-                                                             }
-                                                             isSuggestionsOpen = false
-                                                         }
-                                                         .padding(horizontal = 10.dp, vertical = 8.dp),
-                                                     horizontalArrangement = Arrangement.SpaceBetween,
-                                                     verticalAlignment = Alignment.CenterVertically
-                                                 ) {
-                                                     Column(modifier = Modifier.weight(1f)) {
-                                                         Row(
-                                                             verticalAlignment = Alignment.CenterVertically,
-                                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                         ) {
-                                                             Text(matched.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                                             if (matched.size.isNotBlank()) {
-                                                                 Surface(
-                                                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                                                     shape = RoundedCornerShape(4.dp),
-                                                                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                                                                 ) {
-                                                                     Text(
-                                                                         text = matched.size,
-                                                                         fontSize = 10.sp,
-                                                                         fontWeight = FontWeight.ExtraBold,
-                                                                         color = MaterialTheme.colorScheme.primary,
-                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                     )
-                                                                 }
-                                                             }
-                                                             // Item Cost Price badge right beside the item name!
-                                                             if (matched.cost > 0.0) {
-                                                                 Surface(
-                                                                     color = ext.warning.copy(alpha = 0.14f),
-                                                                     shape = RoundedCornerShape(4.dp),
-                                                                     border = androidx.compose.foundation.BorderStroke(0.8.dp, ext.warning.copy(alpha = 0.5f))
-                                                                 ) {
-                                                                     Text(
-                                                                         text = "Cost: ₹${String.format(Locale.US, "%.2f", matched.cost)}",
-                                                                         fontSize = 10.sp,
-                                                                         fontWeight = FontWeight.ExtraBold,
-                                                                         color = ext.warning,
-                                                                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                                     )
-                                                                 }
-                                                             }
-                                                         }
-                                                         Spacer(modifier = Modifier.height(2.dp))
-                                                         Row(
-                                                             verticalAlignment = Alignment.CenterVertically,
-                                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                         ) {
-                                                             if (matched.type.isNotBlank()) {
-                                                                 Surface(
-                                                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                                                     shape = RoundedCornerShape(4.dp)
-                                                                 ) {
-                                                                     Text(
-                                                                         text = matched.type,
-                                                                         fontSize = 10.sp,
-                                                                         fontWeight = FontWeight.Bold,
-                                                                         color = MaterialTheme.colorScheme.primary,
-                                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                     )
-                                                                 }
-                                                             }
-                                                             Text("📦 Stock: ${matched.qty} ${matched.unit}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                             if (matched.cost > 0.0 && matched.price > 0.0) {
-                                                                 val margin = matched.price - matched.cost
-                                                                 val marginPct = (margin / matched.cost * 100).toInt()
-                                                                 Text(
-                                                                     text = "• Margin: +₹${String.format(Locale.US, "%.0f", margin)} (+$marginPct%)",
-                                                                     fontSize = 10.sp,
-                                                                     fontWeight = FontWeight.Bold,
-                                                                     color = if (margin >= 0) ext.positive else ext.danger
-                                                                 )
-                                                             }
-                                                         }
-                                                     }
-                                                     Column(horizontalAlignment = Alignment.End) {
-                                                         Text(
-                                                             "Sale: " + String.format(Locale.US, "₹%.2f", matched.price),
-                                                             fontWeight = FontWeight.Bold,
-                                                             fontSize = 13.sp,
-                                                             color = MaterialTheme.colorScheme.primary
-                                                         )
-                                                         if (matched.cost > 0.0) {
-                                                             Text(
-                                                                 "Cost: " + String.format(Locale.US, "₹%.2f", matched.cost),
-                                                                 fontWeight = FontWeight.ExtraBold,
-                                                                 fontSize = 11.sp,
-                                                                 color = ext.warning
-                                                             )
-                                                         }
-                                                     }
-                                                 }
-                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                             }
-                                         }
-                                     }
-                                 }
+                                            LazyColumn(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(max = 260.dp)
+                                            ) {
+                                                items(displayList, key = { it.id }) { matched ->
+                                                    QuotationSuggestionItemRow(
+                                                        matched = matched,
+                                                        onClick = {
+                                                            val curQty = if (item.qty <= 0.0) 1.0 else item.qty
+                                                            val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
+                                                                "${matched.name} ${matched.size}"
+                                                            } else {
+                                                                matched.name
+                                                            }
+                                                            updateThisRow { curItem ->
+                                                                curItem.copy(
+                                                                    itemId = matched.id,
+                                                                    name = displayName,
+                                                                    code = matched.code,
+                                                                    type = if (matched.type.isNotBlank()) matched.type else curItem.type,
+                                                                    unit = matched.unit.ifBlank { "pcs" },
+                                                                    unitPrice = matched.price,
+                                                                    costPrice = matched.cost,
+                                                                    total = curQty * matched.price
+                                                                )
+                                                            }
+                                                            if (matched.type.isNotBlank()) {
+                                                                lastSelectedType = matched.type
+                                                            }
+                                                            isSuggestionsOpen = false
+                                                        }
+                                                    )
+                                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
-                                 Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
-                                // Type Selection Row beneath Item Name
+                                // Lightweight Type Selection Bar beneath Item Name
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
@@ -1631,111 +1677,182 @@ fun QuotationFormDialog(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        items(distinctTypes) { tOption ->
+                                        items(distinctTypes, key = { it }) { tOption ->
                                             val isSelected = if (tOption.equals("All", ignoreCase = true)) {
                                                 item.type.trim().isEmpty() || item.type.equals("All", ignoreCase = true)
                                             } else {
                                                 item.type.trim().equals(tOption.trim(), ignoreCase = true)
                                             }
-                                            FilterChip(
-                                                selected = isSelected,
-                                                onClick = {
-                                                    val newType = if (tOption.equals("All", ignoreCase = true)) "" else tOption
-                                                    lineItems[idx] = item.copy(type = newType)
-                                                    lastSelectedType = newType
-                                                    isSuggestionsOpen = true
-                                                },
-                                                label = {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(34.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        val newType = if (tOption.equals("All", ignoreCase = true)) "" else tOption
+                                                        updateThisRow { it.copy(type = newType) }
+                                                        lastSelectedType = newType
+                                                        isSuggestionsOpen = true
+                                                    }
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier.padding(horizontal = 10.dp)
+                                                ) {
                                                     Text(
                                                         text = tOption,
                                                         fontSize = 11.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1
                                                     )
-                                                },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                                    labelColor = MaterialTheme.colorScheme.onSurface,
-                                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                                                )
-                                            )
+                                                }
+                                            }
                                         }
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                                // Qty, Unit, Unit Price (Rate), and Total Row
+                                // Aligned 2x2 Grid: Row 1 (Qty + Unit), Row 2 (Rate + Line Total), followed by optional Unit Switch chip
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
                                 ) {
                                     OutlinedTextField(
                                         value = if (item.qty == 0.0) "" else item.qty.toString(),
                                         onValueChange = { qStr ->
                                             val qVal = qStr.toDoubleOrNull() ?: 0.0
-                                            val tot = qVal * item.unitPrice
-                                            lineItems[idx] = item.copy(qty = qVal, total = tot)
+                                            updateThisRow { it.copy(qty = qVal, total = qVal * it.unitPrice) }
                                         },
-                                        label = { Text("Qty") },
+                                        label = {
+                                            Text(
+                                                "Qty",
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .widthIn(min = 0.dp)
+                                            .testTag("quote_item_qty_$rowKey"),
                                         singleLine = true
                                     )
 
-                                    // Unit with Quick Multi-Unit Toggle
-                                    Column(modifier = Modifier.weight(1.1f)) {
-                                        OutlinedTextField(
-                                            value = item.unit,
-                                            onValueChange = { u -> lineItems[idx] = item.copy(unit = u) },
-                                            label = { Text("Unit") },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            singleLine = true
-                                        )
-                                        // Unit Conversion Quick Pill
-                                        val paired = com.example.util.UnitConversionHelper.getPairedUnit(item.unit)
-                                        if (paired.first != item.unit) {
+                                    OutlinedTextField(
+                                        value = item.unit,
+                                        onValueChange = { u -> updateThisRow { it.copy(unit = u) } },
+                                        label = {
                                             Text(
-                                                text = "⇄ ${paired.first.uppercase()}",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier
-                                                    .clickable {
-                                                        val newUnit = paired.first
-                                                        val convertedQty = com.example.util.UnitConversionHelper.convertQuantity(item.unit, newUnit, item.qty, paired.second)
-                                                        lineItems[idx] = item.copy(unit = newUnit, qty = convertedQty, total = convertedQty * item.unitPrice)
-                                                    }
-                                                    .padding(top = 2.dp)
+                                                "Unit",
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                        }
-                                    }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .widthIn(min = 0.dp)
+                                            .testTag("quote_item_unit_$rowKey"),
+                                        singleLine = true
+                                    )
+                                }
 
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
                                     OutlinedTextField(
                                         value = if (item.unitPrice == 0.0) "" else item.unitPrice.toString(),
                                         onValueChange = { rStr ->
                                             val rVal = rStr.toDoubleOrNull() ?: 0.0
-                                            val tot = item.qty * rVal
-                                            lineItems[idx] = item.copy(unitPrice = rVal, total = tot)
+                                            updateThisRow { it.copy(unitPrice = rVal, total = it.qty * rVal) }
                                         },
                                         label = {
                                             Text(
-                                                if (effectiveCost > 0.0) "Rate (Cost ₹${String.format(Locale.US, "%.0f", effectiveCost)})"
-                                                else "Rate (₹)"
+                                                text = "Rate (₹)",
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1.2f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .widthIn(min = 0.dp)
+                                            .testTag("quote_item_rate_$rowKey"),
                                         singleLine = true
                                     )
 
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalAlignment = Alignment.End
+                                    // Top 8.dp offset matches Material 3 OutlinedTextField label clearance so borders align on the exact same line
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .widthIn(min = 0.dp)
+                                            .padding(top = 8.dp)
+                                            .height(56.dp)
                                     ) {
-                                        Text("Total", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text(String.format(Locale.US, "₹%.2f", item.total), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 12.dp),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.End
+                                        ) {
+                                            Text(
+                                                text = "Line Total",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Text(
+                                                text = String.format(Locale.US, "₹%.2f", item.total),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val paired = com.example.util.UnitConversionHelper.getPairedUnit(item.unit)
+                                if (paired.first != item.unit) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                                        modifier = Modifier.clickable {
+                                            val newUnit = paired.first
+                                            val convertedQty = com.example.util.UnitConversionHelper.convertQuantity(item.unit, newUnit, item.qty, paired.second)
+                                            updateThisRow { it.copy(unit = newUnit, qty = convertedQty, total = convertedQty * it.unitPrice) }
+                                        }
+                                    ) {
+                                        Text(
+                                            text = "⇄ Switch unit to ${paired.first.uppercase()}",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1744,46 +1861,53 @@ fun QuotationFormDialog(
 
                     item {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
                                 OutlinedTextField(
                                     value = discountText,
                                     onValueChange = { discountText = it },
-                                    label = { Text("Discount (₹)") },
+                                    label = { Text("Discount (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                                     singleLine = true
                                 )
                                 OutlinedTextField(
                                     value = taxPercentText,
                                     onValueChange = { taxPercentText = it },
-                                    label = { Text("GST/Tax (%)") },
+                                    label = { Text("GST/Tax (%)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                                     singleLine = true
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("Quick Tax: ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "Quick Tax:",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.align(Alignment.CenterVertically)
+                                )
                                 listOf("0", "5", "12", "18", "28").forEach { pct ->
                                     val isSelected = taxPercentText.trim() == pct
                                     Surface(
-                                        shape = RoundedCornerShape(4.dp),
+                                        shape = RoundedCornerShape(6.dp),
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier
-                                            .padding(horizontal = 2.dp)
-                                            .clickable { taxPercentText = pct }
+                                        modifier = Modifier.clickable { taxPercentText = pct }
                                     ) {
                                         Text(
-                                            text = if (pct == "0") "0%" else "$pct%",
+                                            text = "$pct%",
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                         )
                                     }
                                 }
@@ -1818,31 +1942,51 @@ fun QuotationFormDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val totalEstimateCost = lineItems.sumOf { itm ->
-                            val c = if (itm.costPrice > 0.0) itm.costPrice else (availableItems.firstOrNull { it.id == itm.itemId || it.name.trim().equals(itm.name.trim(), ignoreCase = true) }?.cost ?: 0.0)
-                            c * itm.qty
+                        val totalEstimateCost by remember(itemsById, itemsByNameLower) {
+                            derivedStateOf {
+                                lineItems.sumOf { row ->
+                                    val itm = row.item
+                                    val c = if (itm.costPrice > 0.0) {
+                                        itm.costPrice
+                                    } else {
+                                        val matched = if (!itm.itemId.isNullOrBlank()) {
+                                            itemsById[itm.itemId]
+                                        } else {
+                                            itemsByNameLower[itm.name.trim().lowercase(Locale.ROOT)]
+                                        }
+                                        matched?.cost ?: 0.0
+                                    }
+                                    c * itm.qty
+                                }
+                            }
                         }
                         val totalEstimateProfit = (grandTotal - totalEstimateCost)
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Subtotal: ₹${String.format(Locale.US, "%.2f", subtotal)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        ) {
+                            Text("Subtotal: ₹${String.format(Locale.US, "%.2f", subtotal)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (totalEstimateCost > 0.0) {
                                 val isPositive = totalEstimateProfit >= 0
                                 Text(
-                                    "Est. Cost: ₹${String.format(Locale.US, "%.2f", totalEstimateCost)} • Margin: ${if (isPositive) "+" else "-"}₹${String.format(Locale.US, "%.2f", kotlin.math.abs(totalEstimateProfit))}",
+                                    "Cost: ₹${String.format(Locale.US, "%.0f", totalEstimateCost)} • Margin: ${if (isPositive) "+" else "-"}₹${String.format(Locale.US, "%.0f", kotlin.math.abs(totalEstimateProfit))}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isPositive) ext.positive else ext.danger
+                                    color = if (isPositive) ext.positive else ext.danger,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             if (taxAmount > 0) Text("Tax ($taxPercent%): +₹${String.format(Locale.US, "%.2f", taxAmount)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Grand Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Grand Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, fontSize = 15.5.sp, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
                         Button(
                             onClick = {
                                 if (customerName.isBlank()) return@Button
-                                val validItems = lineItems.filter { it.name.isNotBlank() }
+                                val validItems = lineItems.map { it.item }.filter { it.name.isNotBlank() }
                                 if (validItems.isEmpty()) return@Button
 
                                 val safeDate = date.trim().ifBlank { todayStr }
@@ -1867,14 +2011,117 @@ fun QuotationFormDialog(
                                 )
                                 onSave(record)
                             },
-                            enabled = customerName.isNotBlank() && lineItems.any { it.name.isNotBlank() },
+                            enabled = customerName.isNotBlank() && lineItems.any { it.item.name.isNotBlank() },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Save Estimate", fontWeight = FontWeight.Bold)
+                            Text("Save Estimate", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotationSuggestionItemRow(
+    matched: Item,
+    onClick: () -> Unit
+) {
+    val ext = LocalExtendedColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(matched.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                if (matched.size.isNotBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    ) {
+                        Text(
+                            text = matched.size,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                if (matched.cost > 0.0) {
+                    Surface(
+                        color = ext.warning.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(0.8.dp, ext.warning.copy(alpha = 0.5f))
+                    ) {
+                        Text(
+                            text = "Cost: ₹${String.format(Locale.US, "%.2f", matched.cost)}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ext.warning,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (matched.type.isNotBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = matched.type,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                Text("📦 Stock: ${matched.qty} ${matched.unit}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (matched.cost > 0.0 && matched.price > 0.0) {
+                    val margin = matched.price - matched.cost
+                    val marginPct = (margin / matched.cost * 100).toInt()
+                    Text(
+                        text = "• Margin: +₹${String.format(Locale.US, "%.0f", margin)} (+$marginPct%)",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (margin >= 0) ext.positive else ext.danger
+                    )
+                }
+            }
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                "Sale: " + String.format(Locale.US, "₹%.2f", matched.price),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (matched.cost > 0.0) {
+                Text(
+                    "Cost: " + String.format(Locale.US, "₹%.2f", matched.cost),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 11.sp,
+                    color = ext.warning
+                )
             }
         }
     }

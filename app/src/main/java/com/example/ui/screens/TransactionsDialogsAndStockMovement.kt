@@ -21,12 +21,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -80,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.DailyCashflowRecord
 import com.example.data.model.TransactionRecord
 import com.example.ui.StockViewModel
@@ -901,16 +905,24 @@ fun AddEditCashflowDialog(
     val activeCategory = if (type == "SALE") saleCategory else expenseCategory
     val parsedAmount = activeAmountText.toDoubleOrNull() ?: 0.0
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
                 .padding(vertical = 12.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1059,20 +1071,25 @@ fun AddEditCashflowDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = date,
                         onValueChange = { date = it },
-                        label = { Text("Date (YYYY-MM-DD)") },
-                        modifier = Modifier.weight(1.1f),
+                        label = { Text("Date", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("YYYY-MM-DD", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(1.1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
 
                     OutlinedTextField(
                         value = paymentMode,
                         onValueChange = { paymentMode = it },
-                        label = { Text("Mode") },
-                        modifier = Modifier.weight(0.9f),
+                        label = { Text("Mode", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(0.9f).widthIn(min = 0.dp),
                         singleLine = true
                     )
                 }
@@ -1153,13 +1170,17 @@ fun CategoryBreakdownDialog(
     val salesByCategory = sales.groupBy { it.category }.mapValues { it.value.sumOf { item -> item.amount } }
     val expensesByCategory = expenses.groupBy { it.category }.mapValues { it.value.sumOf { item -> item.amount } }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
                 .padding(vertical = 12.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {

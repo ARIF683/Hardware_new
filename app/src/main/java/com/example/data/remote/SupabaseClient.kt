@@ -713,57 +713,31 @@ class SupabaseClient(
         }
     }
 
-    // ==================== STORE PROFILE SYNC (BANNER & AVATAR) ====================
-    suspend fun fetchStoreProfile(): Pair<String?, String?> = withContext(Dispatchers.IO) {
+    // ==================== STORE PROFILE & BANKING SYNC ====================
+    suspend fun fetchStoreProfile(): RemoteStoreProfile? = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("purchases?client_id=eq.00000000-0000-0000-0000-000000000001&limit=1")
+            val req = newRequestBuilder("purchases?client_id=eq.${StoreProfileSyncCodec.PROFILE_CLIENT_ID}&limit=1")
                 .get()
                 .build()
             val resp = okHttpClient.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext Pair(null, null)
+            if (!resp.isSuccessful) return@withContext null
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
             if (jsonArr.length() > 0) {
                 val obj = jsonArr.getJSONObject(0)
-                var first: JSONObject? = null
-                val linesObj = obj.opt("lines")
-                if (linesObj is JSONArray && linesObj.length() > 0) {
-                    first = linesObj.optJSONObject(0)
-                } else if (linesObj is String && linesObj.isNotBlank()) {
-                    try {
-                        val parsedArr = JSONArray(linesObj)
-                        if (parsedArr.length() > 0) first = parsedArr.optJSONObject(0)
-                    } catch (_: Exception) {}
-                }
-                val banner = first?.optString("bannerUrl")?.takeIf { it.isNotBlank() }
-                val logo = (first?.optString("logoUrl")?.takeIf { it.isNotBlank() }
-                    ?: first?.optString("avatarUrl")?.takeIf { it.isNotBlank() })
-                return@withContext Pair(banner, logo)
+                return@withContext StoreProfileSyncCodec.parseFromLines(obj.opt("lines"))
             }
-            Pair(null, null)
+            null
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch store profile from Supabase", e)
-            Pair(null, null)
+            null
         }
     }
 
-    suspend fun saveStoreProfile(bannerUrl: String?, logoUrl: String?): Unit = withContext(Dispatchers.IO) {
+    suspend fun saveStoreProfile(profile: RemoteStoreProfile): Boolean = withContext(Dispatchers.IO) {
         try {
-            val linesArr = JSONArray().apply {
-                put(JSONObject().apply {
-                    put("bannerUrl", bannerUrl ?: "")
-                    put("logoUrl", logoUrl ?: "")
-                    put("avatarUrl", logoUrl ?: "")
-                })
-            }
-            val payload = JSONObject().apply {
-                put("client_id", "00000000-0000-0000-0000-000000000001")
-                put("supplier", "__STORE_PROFILE__")
-                put("bill_no", "CONFIG")
-                put("bill_date", SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
-                put("total", 0)
-                put("lines", linesArr)
-            }
+            val billDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val payload = StoreProfileSyncCodec.toPurchasesPayload(profile, billDate)
             val req = newRequestBuilder("purchases?on_conflict=client_id")
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(payload.toString().toRequestBody(jsonMediaType))
@@ -771,11 +745,38 @@ class SupabaseClient(
             val resp = okHttpClient.newCall(req).execute()
             if (!resp.isSuccessful) {
                 Log.e(tag, "Failed to save store profile: ${resp.body?.string()}")
+                false
             } else {
-                Log.d(tag, "Successfully saved store profile to Supabase: banner=$bannerUrl, logo=$logoUrl")
+                Log.d(tag, "Successfully saved store profile & banking details to Supabase")
+                true
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to save store profile", e)
+            false
+        }
+    }
+
+    suspend fun downloadImageBytes(urlOrDataUri: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val trimmed = urlOrDataUri.trim()
+            if (trimmed.isBlank()) return@withContext null
+            if (trimmed.startsWith("data:image", ignoreCase = true)) {
+                val commaIdx = trimmed.indexOf(',')
+                if (commaIdx <= 0 || commaIdx >= trimmed.length - 1) return@withContext null
+                val b64 = trimmed.substring(commaIdx + 1)
+                return@withContext android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+            }
+            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                val req = Request.Builder().url(trimmed).get().build()
+                okHttpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    return@withContext resp.body?.bytes()
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to download remote image bytes", e)
+            null
         }
     }
 
@@ -969,7 +970,7 @@ class SupabaseClient(
         onQuotationChanged: ((type: String, quotation: QuotationRecord?, oldId: String?) -> Unit)? = null,
         onLedgerAccountChanged: ((type: String, account: LedgerAccount?, oldId: String?) -> Unit)? = null,
         onLedgerEntryChanged: ((type: String, entry: LedgerEntry?, oldId: String?) -> Unit)? = null,
-        onStoreProfileChanged: ((bannerUrl: String?, logoUrl: String?) -> Unit)? = null,
+        onStoreProfileChanged: ((RemoteStoreProfile) -> Unit)? = null,
         onClosedOrFailed: () -> Unit
     ): WebSocket? {
         if (!isConfigured()) {
@@ -1124,21 +1125,11 @@ class SupabaseClient(
                         } else if (topic.contains("purchases") || table == "purchases") {
                             val clientId = record?.optString("client_id")
                             val supplier = record?.optString("supplier")
-                            if (clientId == "00000000-0000-0000-0000-000000000001" || supplier == "__STORE_PROFILE__") {
-                                var first: JSONObject? = null
-                                val linesObj = record?.opt("lines")
-                                if (linesObj is JSONArray && linesObj.length() > 0) {
-                                    first = linesObj.optJSONObject(0)
-                                } else if (linesObj is String && linesObj.isNotBlank()) {
-                                    try {
-                                        val parsedArr = JSONArray(linesObj)
-                                        if (parsedArr.length() > 0) first = parsedArr.optJSONObject(0)
-                                    } catch (_: Exception) {}
+                            if (clientId == StoreProfileSyncCodec.PROFILE_CLIENT_ID || supplier == StoreProfileSyncCodec.PROFILE_SUPPLIER) {
+                                val parsedProfile = StoreProfileSyncCodec.parseFromLines(record?.opt("lines"))
+                                if (parsedProfile != null) {
+                                    onStoreProfileChanged?.invoke(parsedProfile)
                                 }
-                                val banner = first?.optString("bannerUrl")?.takeIf { it.isNotBlank() }
-                                val logo = (first?.optString("logoUrl")?.takeIf { it.isNotBlank() }
-                                    ?: first?.optString("avatarUrl")?.takeIf { it.isNotBlank() })
-                                onStoreProfileChanged?.invoke(banner, logo)
                             }
                         }
                     }
@@ -1176,8 +1167,10 @@ class SupabaseClient(
     }
 
     suspend fun uploadImageToCloudinary(imageBytes: ByteArray, fileName: String = "item_${System.currentTimeMillis()}.jpg"): Result<String> = withContext(Dispatchers.IO) {
+        val isPng = fileName.endsWith(".png", ignoreCase = true)
+        val mimeType = if (isPng) "image/png" else "image/jpeg"
         val base64Fallback by lazy {
-            "data:image/jpeg;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+            "data:$mimeType;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
         }
         try {
             // 1. Request signature from Supabase Edge Function
@@ -1217,7 +1210,7 @@ class SupabaseClient(
                 .addFormDataPart(
                     "file",
                     fileName,
-                    imageBytes.toRequestBody("image/jpeg".toMediaType())
+                    imageBytes.toRequestBody(mimeType.toMediaType())
                 )
                 .build()
 
@@ -1242,7 +1235,7 @@ class SupabaseClient(
             }
         } catch (e: Exception) {
             Log.w("SupabaseClient", "Image upload exception (${e.message}), using base64 fallback")
-            Result.success("data:image/jpeg;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP))
+            Result.success("data:$mimeType;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP))
         }
     }
 }

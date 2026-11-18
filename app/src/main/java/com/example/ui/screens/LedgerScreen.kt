@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +24,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -82,6 +87,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.ui.StockViewModel
@@ -796,7 +802,7 @@ fun LedgerAccountDetailScreen(
     val context = LocalContext.current
     val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
-    val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val entriesFlow = remember(account.id) { viewModel.getEntriesForAccount(account.id) }
     val entries by entriesFlow.collectAsState(initial = emptyList())
 
@@ -807,7 +813,7 @@ fun LedgerAccountDetailScreen(
     var showDeleteAccountConfirm by remember { mutableStateOf(false) }
 
     val balanceColor = if (account.netBalance >= 0) ext.positive else ext.danger
-    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "S.A.HARDWARE" }
+    val storeTitle = effectiveStoreTitle.ifBlank { "S.A.HARDWARE" }
 
     if (showDeleteAccountConfirm) {
         AlertDialog(
@@ -1153,6 +1159,7 @@ fun LedgerAccountDetailScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditLedgerEntryDialog(
     entry: LedgerEntry,
@@ -1168,30 +1175,42 @@ fun EditLedgerEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .widthIn(max = 480.dp),
         title = {
             Text("Edit Transaction Entry", fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Account: ${account.name}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     FilterChip(
                         selected = type == "GAVE",
                         onClick = { type = "GAVE" },
-                        label = { Text("You Gave (-)") }
+                        label = { Text("You Gave (-)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                     FilterChip(
                         selected = type == "GOT",
                         onClick = { type = "GOT" },
-                        label = { Text("You Got (+)") }
+                        label = { Text("You Got (+)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                 }
 
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Amount (₹) *") },
+                    label = { Text("Amount (₹) *", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -1200,24 +1219,29 @@ fun EditLedgerEntryDialog(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description / Reason") },
+                    label = { Text("Description / Reason", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = billRef,
                         onValueChange = { billRef = it },
-                        label = { Text("Bill # (Optional)") },
-                        modifier = Modifier.weight(1f),
+                        label = { Text("Bill No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = date,
                         onValueChange = { date = it },
-                        label = { Text("Date") },
-                        modifier = Modifier.weight(1f),
+                        label = { Text("Date", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
                 }
@@ -1250,6 +1274,7 @@ fun EditLedgerEntryDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddAccountDialog(
     defaultType: String,
@@ -1267,20 +1292,29 @@ fun AddAccountDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .widthIn(max = 480.dp),
         title = { Text(if (type == "SUPPLIER") "Add Supplier" else "Add Customer / Contractor") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Full Name *") },
+                    label = { Text("Full Name *", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    label = { Text("Phone Number") },
+                    label = { Text("Phone Number", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -1288,33 +1322,37 @@ fun AddAccountDialog(
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it },
-                    label = { Text("Address / City") },
+                    label = { Text("Address / City", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     FilterChip(
                         selected = type == "CUSTOMER",
                         onClick = { type = "CUSTOMER" },
-                        label = { Text("Customer / Contractor") }
+                        label = { Text("Customer / Contractor", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                     FilterChip(
                         selected = type == "SUPPLIER",
                         onClick = { type = "SUPPLIER" },
-                        label = { Text("Supplier") }
+                        label = { Text("Supplier", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                 }
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Description / Notes (e.g. GSTIN, site, remarks)") },
+                    label = { Text("Notes (GSTIN, site, remarks)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2
                 )
                 OutlinedTextField(
                     value = initialBalanceText,
                     onValueChange = { initialBalanceText = it },
-                    label = { Text("Opening Balance (₹) [Optional]") },
+                    label = { Text("Opening Balance (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                    placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -1351,6 +1389,7 @@ fun AddAccountDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddLedgerEntryDialog(
     account: LedgerAccount,
@@ -1368,6 +1407,10 @@ fun AddLedgerEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .widthIn(max = 480.dp),
         title = {
             Text(
                 text = if (type == "GAVE") "Record You Gave (Debit)" else "Record You Got (Credit)",
@@ -1376,26 +1419,34 @@ fun AddLedgerEntryDialog(
             )
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Account: ${account.name}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     FilterChip(
                         selected = type == "GAVE",
                         onClick = { type = "GAVE" },
-                        label = { Text("You Gave (-)") }
+                        label = { Text("You Gave (-)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                     FilterChip(
                         selected = type == "GOT",
                         onClick = { type = "GOT" },
-                        label = { Text("You Got (+)") }
+                        label = { Text("You Got (+)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                 }
 
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Amount (₹) *") },
+                    label = { Text("Amount (₹) *", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -1404,24 +1455,29 @@ fun AddLedgerEntryDialog(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description / Reason") },
+                    label = { Text("Description / Reason", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = billRef,
                         onValueChange = { billRef = it },
-                        label = { Text("Bill # (Optional)") },
-                        modifier = Modifier.weight(1f),
+                        label = { Text("Bill No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = date,
                         onValueChange = { date = it },
-                        label = { Text("Date") },
-                        modifier = Modifier.weight(1f),
+                        label = { Text("Date", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
                 }

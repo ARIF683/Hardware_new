@@ -298,6 +298,8 @@ internal fun DetailSpecificationsCard(
                         Text(
                             text = "Unit Cost",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(3.dp))
@@ -305,6 +307,8 @@ internal fun DetailSpecificationsCard(
                             text = StockViewModel.formatRupees(item.cost),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -329,6 +333,8 @@ internal fun DetailSpecificationsCard(
                             Text(
                                 text = "Selling Price",
                                 fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(3.dp))
@@ -344,6 +350,8 @@ internal fun DetailSpecificationsCard(
                             text = StockViewModel.formatRupees(item.price),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -362,6 +370,8 @@ internal fun DetailSpecificationsCard(
                         Text(
                             text = "Margin",
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(3.dp))
@@ -369,6 +379,8 @@ internal fun DetailSpecificationsCard(
                             text = marginText,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = if (isPositiveMargin) ext.positive else ext.danger
                         )
                     }
@@ -647,22 +659,29 @@ internal fun DetailPackagingConverterCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 OutlinedTextField(
                     value = testCartonInput,
                     onValueChange = { testCartonInput = it },
-                    label = { Text(secUnit) },
+                    label = { Text(secUnit, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(
-                    imageVector = Icons.Default.SwapHoriz,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .height(56.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SwapHoriz,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
                 val numCartons = testCartonInput.toDoubleOrNull() ?: 0.0
                 val computedPcs = numCartons * factor
                 Surface(
@@ -671,6 +690,7 @@ internal fun DetailPackagingConverterCard(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier
                         .weight(1.2f)
+                        .padding(top = 8.dp)
                         .height(56.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
@@ -678,6 +698,8 @@ internal fun DetailPackagingConverterCard(
                             text = "= ${if (computedPcs % 1.0 == 0.0) computedPcs.toInt().toString() else "%.1f".format(computedPcs)} $unitStr",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }

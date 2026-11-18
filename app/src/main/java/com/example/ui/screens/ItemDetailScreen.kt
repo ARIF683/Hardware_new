@@ -118,6 +118,7 @@ fun ItemDetailScreen(
     val allTransactions by viewModel.allTransactions.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
 
@@ -286,7 +287,7 @@ fun ItemDetailScreen(
                                 letterSpacing = 0.4.sp
                             )
                             Text(
-                                text = uiConfig.theme.storeTitle.ifBlank { "HardwareStock" },
+                                text = effectiveStoreTitle.ifBlank { "HardwareStock" },
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,

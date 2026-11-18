@@ -138,16 +138,11 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val navBarStyle by viewModel.navBarStyle.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
 
-    // Persisted Supervisor & Terminal Preferences
-    var supervisorName by remember {
-        mutableStateOf(settingsPrefs.getString("supervisor_name", "Shahazim") ?: "Shahazim")
-    }
-    var supervisorRole by remember {
-        mutableStateOf(settingsPrefs.getString("supervisor_role", "Warehouse Supervisor") ?: "Warehouse Supervisor")
-    }
-    var depotLocation by remember {
-        mutableStateOf(settingsPrefs.getString("depot_location", "HardwareStock Central Depot") ?: "HardwareStock Central Depot")
-    }
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val supervisorName = storeIdentity.supervisorName
+    val supervisorRole = storeIdentity.roleTitle
+    val depotLocation = storeIdentity.location
     var lowStockAlertsEnabled by remember {
         mutableStateOf(settingsPrefs.getBoolean("low_stock_alerts_enabled", true))
     }
@@ -343,7 +338,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = uiConfig.theme.storeTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
+                            text = effectiveStoreTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onBackground,
@@ -1277,20 +1272,18 @@ fun SettingsScreen(viewModel: StockViewModel) {
     // ==================== DIALOGS ====================
     if (showProfileEditDialog) {
         SettingsProfileEditDialog(
+            initialStoreName = storeIdentity.storeName.ifBlank { effectiveStoreTitle },
             initialName = supervisorName,
             initialRole = supervisorRole,
             initialDepot = depotLocation,
-            onSave = { name, role, depot ->
-                supervisorName = name
-                supervisorRole = role
-                depotLocation = depot
-                settingsPrefs.edit()
-                    .putString("supervisor_name", name)
-                    .putString("supervisor_role", role)
-                    .putString("depot_location", depot)
-                    .apply()
+            onSave = { storeName, name, role, depot ->
+                viewModel.saveStoreIdentity(
+                    storeName = storeName,
+                    supervisorName = name,
+                    roleTitle = role,
+                    location = depot
+                )
                 showProfileEditDialog = false
-                viewModel.showToast("Profile updated")
             },
             onDismiss = { showProfileEditDialog = false }
         )

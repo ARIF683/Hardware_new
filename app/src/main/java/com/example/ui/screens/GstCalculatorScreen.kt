@@ -8,10 +8,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -35,19 +38,26 @@ import com.example.data.model.GstBillRecord
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.ui.StockViewModel
+import com.example.ui.components.SavedPaymentQrCard
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import com.example.util.rememberAppHaptics
+import androidx.compose.ui.platform.testTag
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -65,6 +75,7 @@ data class GstInvoiceRow(
     var imageUrl: String? = null
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GstCalculatorScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
@@ -91,6 +102,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var transporterId by remember { mutableStateOf("") }
     var vehicleNo by remember { mutableStateOf("") }
     var exportedPdfInfo by remember { mutableStateOf<Pair<File, String>?>(null) }
+    var savedBillForCompletion by remember { mutableStateOf<GstBillRecord?>(null) }
     var isGeneratingPdf by remember { mutableStateOf(false) }
     var showInvoicePreviewDialog by remember { mutableStateOf(false) }
 
@@ -131,11 +143,12 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
     val scope = rememberCoroutineScope()
     val bankingInfo by viewModel.bankingInfo.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
 
     // Calculations
-    val taxableTotal = rows.sumOf { it.qty * it.rate }
-    val totalTaxAmount = rows.sumOf { (it.qty * it.rate) * (it.taxRatePercent / 100.0) }
-    val grandTotal = taxableTotal + totalTaxAmount
+    val taxableTotal by remember { derivedStateOf { rows.sumOf { it.qty * it.rate } } }
+    val totalTaxAmount by remember { derivedStateOf { rows.sumOf { (it.qty * it.rate) * (it.taxRatePercent / 100.0) } } }
+    val grandTotal by remember { derivedStateOf { taxableTotal + totalTaxAmount } }
     val isEWayBillRequired = grandTotal > 50000.0
 
     Column(
@@ -199,56 +212,125 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
                         Text("Invoice & GSTIN Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = storeGstin,
-                                onValueChange = { storeGstin = it },
-                                label = { Text("Store GSTIN") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedTextField(
-                                value = customerGstin,
-                                onValueChange = { customerGstin = it },
-                                label = { Text("Customer GSTIN (Optional)") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = customerName,
-                                onValueChange = { customerName = it },
-                                label = { Text("Customer Name / Business") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedTextField(
-                                value = invoiceNo,
-                                onValueChange = { invoiceNo = it },
-                                label = { Text("Invoice No.") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = customerPhone,
-                                onValueChange = { customerPhone = it },
-                                label = { Text("Customer Phone (Optional)") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedTextField(
-                                value = customerAddress,
-                                onValueChange = { customerAddress = it },
-                                label = { Text("Customer Address (Optional)") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val stackFields = maxWidth < 300.dp
+                            if (stackFields) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = storeGstin,
+                                        onValueChange = { storeGstin = it },
+                                        label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = customerGstin,
+                                        onValueChange = { customerGstin = it },
+                                        label = { Text("Customer GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = customerName,
+                                        onValueChange = { customerName = it },
+                                        label = { Text("Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = invoiceNo,
+                                        onValueChange = { invoiceNo = it },
+                                        label = { Text("Invoice No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = customerPhone,
+                                        onValueChange = { customerPhone = it },
+                                        label = { Text("Phone", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = customerAddress,
+                                        onValueChange = { customerAddress = it },
+                                        label = { Text("Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        OutlinedTextField(
+                                            value = storeGstin,
+                                            onValueChange = { storeGstin = it },
+                                            label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = customerGstin,
+                                            onValueChange = { customerGstin = it },
+                                            label = { Text("Customer GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        OutlinedTextField(
+                                            value = customerName,
+                                            onValueChange = { customerName = it },
+                                            label = { Text("Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = invoiceNo,
+                                            onValueChange = { invoiceNo = it },
+                                            label = { Text("Invoice No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        OutlinedTextField(
+                                            value = customerPhone,
+                                            onValueChange = { customerPhone = it },
+                                            label = { Text("Phone", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                        OutlinedTextField(
+                                            value = customerAddress,
+                                            onValueChange = { customerAddress = it },
+                                            label = { Text("Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
@@ -295,20 +377,25 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("As per Rule 138 of CGST Rules, generation of E-Way Bill is mandatory for movement of goods exceeding ₹50,000.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
                                 OutlinedTextField(
                                     value = transporterId,
                                     onValueChange = { transporterId = it },
-                                    label = { Text("Transporter ID / GSTIN") },
+                                    label = { Text("Transporter ID", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                                 )
                                 OutlinedTextField(
                                     value = vehicleNo,
                                     onValueChange = { vehicleNo = it },
-                                    label = { Text("Vehicle No. (e.g. MH12AB1234)") },
+                                    label = { Text("Vehicle No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                    placeholder = { Text("e.g. MH12AB1234", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                                 )
                             }
                         }
@@ -326,7 +413,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     ) {
                         Text("Invoice Items (${rows.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         OutlinedButton(onClick = {
-                            rows.add(GstInvoiceRow(System.currentTimeMillis().toString(), "", "8481", 1.0, 100.0, defaultTaxRate))
+                            rows.add(GstInvoiceRow(UUID.randomUUID().toString(), "", "8481", 1.0, 100.0, defaultTaxRate))
                         }) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -344,12 +431,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
                                 "Bill Tax Mode:",
@@ -357,7 +443,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { rate ->
                                     val isAllCurrent = rows.isNotEmpty() && rows.all { it.taxRatePercent == rate }
                                     val isSelected = isAllCurrent || (rows.isEmpty() && defaultTaxRate == rate)
@@ -380,7 +470,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
@@ -391,19 +483,28 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             }
 
             // Invoice Row Editors
-            itemsIndexed(rows) { index, row ->
-                var isSuggestionsOpen by remember { mutableStateOf(true) }
-                val matchingItems = remember(row.itemName, allItems) {
-                    val q = row.itemName.trim()
-                    if (q.isBlank()) {
-                        emptyList()
-                    } else {
-                        allItems.mapNotNull { dbItem ->
-                            val score = com.example.util.ItemSearchMatcher.matchScore(dbItem, q)
-                            if (score > 0) Pair(dbItem, score) else null
-                        }.sortedByDescending { it.second }
-                        .map { it.first }
-                        .take(15)
+            itemsIndexed(rows, key = { _, row -> row.id }) { _, row ->
+                val rowId = row.id
+                var isSuggestionsOpen by remember(rowId) { mutableStateOf(false) }
+                var matchingItems by remember(rowId) { mutableStateOf<List<com.example.data.model.Item>>(emptyList()) }
+
+                LaunchedEffect(isSuggestionsOpen, row.itemName, allItems) {
+                    if (!isSuggestionsOpen || row.itemName.isBlank()) {
+                        matchingItems = emptyList()
+                        return@LaunchedEffect
+                    }
+                    delay(60)
+                    matchingItems = com.example.util.ItemSearchMatcher.searchItems(
+                        items = allItems,
+                        rawQuery = row.itemName,
+                        limit = 15
+                    )
+                }
+
+                fun updateThisRow(transform: (GstInvoiceRow) -> GstInvoiceRow) {
+                    val curIdx = rows.indexOfFirst { it.id == rowId }
+                    if (curIdx >= 0) {
+                        rows[curIdx] = transform(rows[curIdx])
                     }
                 }
 
@@ -415,43 +516,50 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (!row.imageUrl.isNullOrBlank()) {
+                                val rowImgReq = remember(row.imageUrl) {
+                                    ImageRequest.Builder(context)
+                                        .data(row.imageUrl)
+                                        .size(128)
+                                        .crossfade(false)
+                                        .build()
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                                    modifier = Modifier.size(50.dp)
+                                    modifier = Modifier.size(46.dp)
                                 ) {
                                     AsyncImage(
-                                        model = row.imageUrl,
+                                        model = rowImgReq,
                                         contentDescription = "Item Photo",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
                             }
                             OutlinedTextField(
                                 value = row.itemName,
-                                onValueChange = { 
-                                    rows[index] = row.copy(itemName = it)
-                                    isSuggestionsOpen = true
+                                onValueChange = { newName ->
+                                    updateThisRow { it.copy(itemName = newName) }
+                                    isSuggestionsOpen = newName.isNotBlank()
                                 },
-                                label = { Text("Item Name (Search DB)") },
+                                label = { Text("Item Name (Search DB)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 singleLine = true,
-                                modifier = Modifier.weight(2f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .widthIn(min = 0.dp)
+                                    .onFocusChanged { if (it.isFocused && row.itemName.isNotBlank()) isSuggestionsOpen = true }
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            OutlinedTextField(
-                                value = row.hsnCode,
-                                onValueChange = { rows[index] = row.copy(hsnCode = it) },
-                                label = { Text("HSN/SAC") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { if (rows.size > 1) rows.removeAt(index) }) {
+                            IconButton(
+                                onClick = {
+                                    val curIdx = rows.indexOfFirst { it.id == rowId }
+                                    if (curIdx >= 0 && rows.size > 1) rows.removeAt(curIdx)
+                                },
+                                modifier = Modifier.size(44.dp)
+                            ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = ext.danger)
                             }
                         }
@@ -511,81 +619,92 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             ) {
                                 Column(modifier = Modifier.padding(4.dp)) {
                                     Text("💡 Matching Inventory Items:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-                                    matchingItems.take(5).forEach { matched ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
-                                                        "${matched.name} ${matched.size}"
-                                                    } else {
-                                                        matched.name
-                                                    }
-                                                    val meta = listOf(
-                                                        matched.type.ifBlank { null }?.let { "Type: $it" },
-                                                        matched.brand.ifBlank { null }?.let { "Brand: $it" },
-                                                        matched.size.ifBlank { null }?.let { "Size: $it" }
-                                                    ).filterNotNull().joinToString(" • ")
-
-                                                    rows[index] = row.copy(
-                                                        itemName = displayName,
-                                                        costPrice = matched.cost,
-                                                        rate = if (matched.price > 0.0) matched.price else (if (matched.cost > 0.0) matched.cost * 1.18 else row.rate),
-                                                        unit = matched.unit,
-                                                        subtitle = meta,
-                                                        imageUrl = matched.imageUrl
-                                                    )
-                                                    isSuggestionsOpen = false
-                                                }
-                                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            if (!matched.imageUrl.isNullOrBlank()) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    AsyncImage(
-                                                        model = matched.imageUrl,
-                                                        contentDescription = null,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(matched.name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                                val meta = listOf(
+                                    androidx.compose.foundation.lazy.LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 220.dp)
+                                    ) {
+                                        items(matchingItems, key = { it.id }) { matched ->
+                                            val meta = remember(matched.id, matched.type, matched.brand, matched.size) {
+                                                listOfNotNull(
                                                     matched.type.ifBlank { null }?.let { "Type: $it" },
                                                     matched.brand.ifBlank { null }?.let { "Brand: $it" },
                                                     matched.size.ifBlank { null }?.let { "Size: $it" }
-                                                ).filterNotNull().joinToString(" • ")
-                                                if (meta.isNotBlank()) {
-                                                    Text(meta, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
+                                                ).joinToString(" • ")
                                             }
-                                            Column(horizontalAlignment = Alignment.End) {
-                                                if (matched.cost > 0.0) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        val displayName = if (matched.size.isNotBlank() && !matched.name.contains(matched.size, ignoreCase = true)) {
+                                                            "${matched.name} ${matched.size}"
+                                                        } else {
+                                                            matched.name
+                                                        }
+                                                        updateThisRow { curRow ->
+                                                            curRow.copy(
+                                                                itemName = displayName,
+                                                                costPrice = matched.cost,
+                                                                rate = if (matched.price > 0.0) matched.price else (if (matched.cost > 0.0) matched.cost * 1.18 else curRow.rate),
+                                                                unit = matched.unit,
+                                                                subtitle = meta,
+                                                                imageUrl = matched.imageUrl
+                                                            )
+                                                        }
+                                                        isSuggestionsOpen = false
+                                                    }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (!matched.imageUrl.isNullOrBlank()) {
+                                                    val thumbReq = remember(matched.imageUrl) {
+                                                        ImageRequest.Builder(context)
+                                                            .data(matched.imageUrl)
+                                                            .size(128)
+                                                            .crossfade(false)
+                                                            .build()
+                                                    }
                                                     Surface(
                                                         shape = RoundedCornerShape(4.dp),
-                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                                                        modifier = Modifier.padding(bottom = 2.dp)
+                                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                                                        modifier = Modifier.size(36.dp)
                                                     ) {
-                                                        Text(
-                                                            text = "Cost: ₹${matched.cost}",
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        AsyncImage(
+                                                            model = thumbReq,
+                                                            contentDescription = null,
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
                                                         )
                                                     }
+                                                    Spacer(modifier = Modifier.width(8.dp))
                                                 }
-                                                if (matched.price > 0.0) {
-                                                    Text("Sell: ₹${matched.price}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ext.positive)
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(matched.name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                                    if (meta.isNotBlank()) {
+                                                        Text(meta, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    }
+                                                }
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    if (matched.cost > 0.0) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                                                            modifier = Modifier.padding(bottom = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "Cost: ₹${matched.cost}",
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    if (matched.price > 0.0) {
+                                                        Text("Sell: ₹${matched.price}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ext.positive)
+                                                    }
                                                 }
                                             }
                                         }
@@ -595,35 +714,90 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             OutlinedTextField(
                                 value = row.qty.toString(),
-                                onValueChange = { rows[index] = row.copy(qty = it.toDoubleOrNull() ?: 1.0) },
-                                label = { Text("Qty") },
+                                onValueChange = { qStr -> updateThisRow { it.copy(qty = qStr.toDoubleOrNull() ?: 1.0) } },
+                                label = { Text("Qty", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                             )
                             OutlinedTextField(
                                 value = row.rate.toString(),
-                                onValueChange = { rows[index] = row.copy(rate = it.toDoubleOrNull() ?: 0.0) },
-                                label = { Text("Rate (₹)") },
+                                onValueChange = { rStr -> updateThisRow { it.copy(rate = rStr.toDoubleOrNull() ?: 0.0) } },
+                                label = { Text("Rate (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = row.hsnCode,
+                                onValueChange = { newHsn -> updateThisRow { it.copy(hsnCode = newHsn) } },
+                                label = { Text("HSN/SAC", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                            )
+                            val rowGrand = (row.qty * row.rate) * (1.0 + row.taxRatePercent / 100.0)
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 8.dp)
+                                    .height(56.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 10.dp),
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Line Total",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "₹%.2f".format(rowGrand),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = ext.positive,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Tax Slab Selector (Supports 0% Tax / Exempt)
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text("GST Rate:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { slab ->
                                     val selected = row.taxRatePercent == slab
                                     Surface(
@@ -631,14 +805,16 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         color = if (selected) {
                                             if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
                                         } else MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier.clickable { rows[index] = row.copy(taxRatePercent = slab) }
+                                        modifier = Modifier.clickable { updateThisRow { it.copy(taxRatePercent = slab) } }
                                     ) {
                                         Text(
                                             text = if (slab == 0.0) "0% (Exempt)" else "${slab.toInt()}%",
                                             fontSize = 10.5.sp,
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
@@ -754,11 +930,12 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 showInvoicePreviewDialog = true
                             }
                         },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Preview", fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
                     Button(
@@ -778,9 +955,6 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
                                     val pdfItems = validRows.map { row ->
                                         val taxAmount = (row.qty * row.rate) * (row.taxRatePercent / 100.0)
-                                        val bmp = if (!row.imageUrl.isNullOrBlank()) {
-                                            InvoicePrintManager.loadBitmap(context, row.imageUrl)
-                                        } else null
 
                                         InvoicePrintManager.GstTaxPdfItem(
                                             name = row.itemName,
@@ -792,8 +966,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                             taxAmount = taxAmount,
                                             totalAmount = (row.qty * row.rate) + taxAmount,
                                             unit = row.unit,
-                                            subtitle = row.subtitle,
-                                            imageBitmap = bmp // If null, table cell is left BLANK per requirement!
+                                            subtitle = row.subtitle
                                         )
                                     }
 
@@ -801,7 +974,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         context = context,
                                         invoiceNo = invoiceNo,
                                         invoiceDate = invoiceDate,
-                                        storeName = viewModel.uiConfig.value.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" },
+                                        storeName = effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" },
                                         storeGstin = storeGstin,
                                         customerName = customerName,
                                         customerGstin = customerGstin,
@@ -880,14 +1053,15 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         },
                         enabled = !isGeneratingPdf,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1.5f)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.35f)
                     ) {
                         if (isGeneratingPdf) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Exporting...", fontWeight = FontWeight.Bold)
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Exporting...", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         } else {
-                            Text("🖨️ Export PDF", fontWeight = FontWeight.Bold)
+                            Text("🖨️ PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
 
@@ -945,12 +1119,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             if (quotationId != null && prefilledQuotation != null) {
                                 viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
                             }
+                            savedBillForCompletion = gstRecord
                         },
-                        modifier = Modifier.weight(1.2f)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.1f)
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(15.dp), tint = ext.positive)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save Bill", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text("Save", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 Spacer(modifier = Modifier.height(150.dp))
@@ -962,6 +1138,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             val validRows = rows.filter { it.itemName.isNotBlank() }
             AlertDialog(
                 onDismissRequest = { showInvoicePreviewDialog = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .widthIn(max = 520.dp),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Visibility, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -989,7 +1169,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp)) {
-                                        Text(viewModel.uiConfig.value.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }.uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp)
+                                        Text(effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" }.uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp)
                                         Text("GSTIN: $storeGstin  •  TAX INVOICE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                                         Text("Inv #: $invoiceNo  |  Date: $invoiceDate", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                                     }
@@ -1120,7 +1300,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         }
 
                                         // QR Code if uploaded
-                                        if (bankingInfo.qrCodePath != null && File(bankingInfo.qrCodePath!!).exists()) {
+                                        val previewQrModel: Any? = bankingInfo.qrCodePath?.let { File(it) }?.takeIf { it.exists() }
+                                            ?: bankingInfo.qrCodeUrl?.takeIf { it.isNotBlank() }
+                                        if (previewQrModel != null) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 4.dp)) {
                                                 Surface(
                                                     shape = RoundedCornerShape(3.dp),
@@ -1128,7 +1310,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                                     modifier = Modifier.size(44.dp)
                                                 ) {
                                                     AsyncImage(
-                                                        model = File(bankingInfo.qrCodePath!!),
+                                                        model = previewQrModel,
                                                         contentDescription = null,
                                                         contentScale = ContentScale.Fit,
                                                         modifier = Modifier.fillMaxSize().padding(1.dp)
@@ -1139,12 +1321,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         }
 
                                         // Signature if uploaded
+                                        val previewSigModel: Any? = bankingInfo.signaturePath?.let { File(it) }?.takeIf { it.exists() }
+                                            ?: bankingInfo.signatureUrl?.takeIf { it.isNotBlank() }
                                         Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f)) {
                                             Text("For Store", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
                                             Spacer(modifier = Modifier.height(2.dp))
-                                            if (bankingInfo.signaturePath != null && File(bankingInfo.signaturePath!!).exists()) {
+                                            if (previewSigModel != null) {
                                                 AsyncImage(
-                                                    model = File(bankingInfo.signaturePath!!),
+                                                    model = previewSigModel,
                                                     contentDescription = null,
                                                     contentScale = ContentScale.Fit,
                                                     modifier = Modifier.height(24.dp).width(60.dp)
@@ -1177,7 +1361,64 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             )
         }
 
-        // Exported PDF Location and Action Dialog
+        // GST Bill Saved Completion Dialog with Saved QR Scanner
+        savedBillForCompletion?.let { savedBill ->
+            AlertDialog(
+                onDismissRequest = { savedBillForCompletion = null },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ext.positive)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("GST Bill Completed!", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Invoice #${savedBill.invoiceNo}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Customer: ${savedBill.customerName}", fontSize = 12.sp)
+                                Text(
+                                    "Grand Total: ₹${String.format(Locale.US, "%.2f", savedBill.grandTotal)}",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        SavedPaymentQrCard(
+                            bankingInfo = bankingInfo,
+                            amount = savedBill.grandTotal,
+                            qrSize = 160.dp,
+                            onOpenSettings = {
+                                savedBillForCompletion = null
+                                viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS)
+                            }
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { savedBillForCompletion = null },
+                        modifier = Modifier.testTag("gst_completion_done_button")
+                    ) {
+                        Text("Done")
+                    }
+                }
+            )
+        }
+
+        // Exported PDF Location, Saved QR & Action Dialog
         exportedPdfInfo?.let { (file, storagePath) ->
             AlertDialog(
                 onDismissRequest = { exportedPdfInfo = null },
@@ -1185,17 +1426,21 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = ext.danger)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("PDF Exported Successfully!", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text("GST Bill & PDF Completed!", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
                 },
                 text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         Text(
                             "Your GST Tax Invoice PDF has been created and saved to your device storage:",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         // Storage Location Box
                         Card(
@@ -1216,16 +1461,23 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "📁 Open the 'Files' or 'Downloads' app on your phone anytime to view or move this file.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Show Saved Store Payment QR Code upon GST bill completion
+                        SavedPaymentQrCard(
+                            bankingInfo = bankingInfo,
+                            amount = grandTotal,
+                            qrSize = 156.dp,
+                            onOpenSettings = {
+                                exportedPdfInfo = null
+                                viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS)
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         // Quick Actions
                         OutlinedButton(

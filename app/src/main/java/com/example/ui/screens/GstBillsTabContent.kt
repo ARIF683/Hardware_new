@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -89,8 +92,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.GstBillRecord
 import com.example.ui.StockViewModel
+import com.example.ui.components.SavedPaymentQrCard
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.InvoicePrintManager
 import com.example.util.XlsExporter
@@ -116,7 +121,8 @@ fun GstBillsTabContent(
     val scope = rememberCoroutineScope()
     val allBills by viewModel.allGstBills.collectAsState()
     val ledgerAccounts by viewModel.allLedgerAccounts.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val bankingInfo by viewModel.bankingInfo.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf("All") } // All, Paid, Pending, This Month, Today
@@ -187,7 +193,7 @@ fun GstBillsTabContent(
     }
     val totalReceivables = customerCreditDue + pendingBillsTotal
 
-    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "HARDWARE & TOOLS STORE" }
+    val storeTitle = effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" }
 
     LazyColumn(
         modifier = Modifier
@@ -1017,6 +1023,18 @@ fun GstBillsTabContent(
                                 }
                             }
                         }
+
+                        item {
+                            SavedPaymentQrCard(
+                                bankingInfo = bankingInfo,
+                                amount = b.grandTotal,
+                                qrSize = 144.dp,
+                                onOpenSettings = {
+                                    billForDetails = null
+                                    viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS)
+                                }
+                            )
+                        }
                     }
                 }
             },
@@ -1107,12 +1125,17 @@ fun GstBillsTabContent(
     }
 
     if (showGstrExportDialog) {
-        Dialog(onDismissRequest = { showGstrExportDialog = false }) {
+        Dialog(
+            onDismissRequest = { showGstrExportDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .widthIn(max = 460.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1425,14 +1448,15 @@ private fun InvoiceSummaryCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.padding(top = 6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CalendarToday,
@@ -1444,7 +1468,9 @@ private fun InvoiceSummaryCard(
                     Text(
                         text = bill.invoiceDate,
                         fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     if (!bill.quotationNo.isNullOrBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1457,6 +1483,8 @@ private fun InvoiceSummaryCard(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ext.purple,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -1491,7 +1519,9 @@ private fun InvoiceSummaryCard(
                                     "Remind",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1629,6 +1659,10 @@ fun SalesReturnDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .widthIn(max = 480.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = ext.warning)
@@ -1654,11 +1688,11 @@ fun SalesReturnDialog(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(line.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(line.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("Sold: $maxQty ${line.unit} @ ₹${String.format(Locale.US, "%.2f", line.rate)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedTextField(
@@ -1666,7 +1700,7 @@ fun SalesReturnDialog(
                                 onValueChange = { returnQtys[line.id] = it },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.width(90.dp)
+                                modifier = Modifier.width(80.dp)
                             )
                         }
                     }

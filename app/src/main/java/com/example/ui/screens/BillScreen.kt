@@ -18,6 +18,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,9 +31,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -80,9 +84,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.model.Item
 import com.example.data.repository.BillRowData
@@ -92,7 +98,6 @@ import com.example.ui.components.ValuePickerDialog
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.LocalExtendedColors
 import com.example.ui.theme.SuccessGreen
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -687,32 +692,38 @@ fun BillScreen(viewModel: StockViewModel) {
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Button(
                                         onClick = { startBillScan(imageUri, photoBitmap) },
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1.4f)
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                        modifier = Modifier.weight(1.35f)
                                     ) {
                                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Re-Scan with AI", fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Re-Scan AI", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                                     }
 
                                     OutlinedButton(
                                         onClick = { stage = "review" },
                                         shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("Manual Edit →")
+                                        Text("Manual →", fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                                     }
 
-                                    IconButton(onClick = {
-                                        imageUri = null
-                                        photoBitmap = null
-                                        scanError = null
-                                    }) {
+                                    IconButton(
+                                        onClick = {
+                                            imageUri = null
+                                            photoBitmap = null
+                                            scanError = null
+                                        },
+                                        modifier = Modifier.size(44.dp)
+                                    ) {
                                         Icon(Icons.Default.Close, contentDescription = "Clear", tint = DangerRed)
                                     }
                                 }
@@ -924,21 +935,23 @@ fun BillScreen(viewModel: StockViewModel) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
                             ) {
                                 OutlinedTextField(
                                     value = billNo,
                                     onValueChange = { billNo = it },
-                                    label = { Text("Bill / Memo No") },
+                                    label = { Text("Bill / Memo No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                                 )
                                 OutlinedTextField(
                                     value = billDate,
                                     onValueChange = { billDate = it },
-                                    label = { Text("Date (dd/mm/yyyy)") },
+                                    label = { Text("Date", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                    placeholder = { Text("dd/mm/yyyy", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                                 )
                             }
                         }
@@ -1348,12 +1361,17 @@ fun SequentialScanBillDialog(
         allItems.filter { it.barcode.isNotBlank() || it.code.isNotBlank() }.take(15)
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 520.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(vertical = 10.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1483,16 +1501,16 @@ fun SequentialScanBillDialog(
                 // Barcode / SKU Text Input
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Top,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedTextField(
                         value = scannedInput,
                         onValueChange = { scannedInput = it },
-                        label = { Text("Scan / Type Barcode or SKU") },
-                        placeholder = { Text("e.g. 890123456789") },
+                        label = { Text("Barcode / SKU", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("e.g. 890123456789", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                         singleLine = true
                     )
 
@@ -1500,9 +1518,12 @@ fun SequentialScanBillDialog(
                         onClick = { processBarcode(scannedInput) },
                         enabled = scannedInput.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.height(56.dp)
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .height(56.dp)
                     ) {
-                        Text("+ Add")
+                        Text("+ Add", maxLines = 1, softWrap = false)
                     }
                 }
 
@@ -1610,18 +1631,20 @@ fun SequentialScanBillDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Cancel")
+                        Text("Cancel", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
                     Button(
                         onClick = { onItemsScanned(scannedList.toList()) },
                         enabled = scannedList.isNotEmpty(),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                         modifier = Modifier.weight(1.5f)
                     ) {
-                        Text("✓ Apply to Bill (${scannedList.size})", fontWeight = FontWeight.Bold)
+                        Text("✓ Apply (${scannedList.size})", fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1629,6 +1652,7 @@ fun SequentialScanBillDialog(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BillRowEditor(
     index: Int,
@@ -1837,24 +1861,23 @@ fun BillRowEditor(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         // Toggles for Cost & Stock update
-                        Row(
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             FilterChip(
                                 selected = row.updateCost,
                                 onClick = { onUpdate(row.copy(updateCost = !row.updateCost)) },
-                                label = { Text("Update Cost Price", fontSize = 10.sp) },
-                                modifier = Modifier.weight(1f)
+                                label = { Text("Update Cost Price", fontSize = 11.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                             )
                             FilterChip(
                                 selected = row.updateStock,
                                 onClick = { onUpdate(row.copy(updateStock = !row.updateStock)) },
                                 label = {
                                     val newTotal = (matched.qty + row.qty).let { if (it % 1.0 == 0.0) it.toInt().toString() else "%.1f".format(it) }
-                                    Text("Add Stock (+${row.qty.toInt()} → $newTotal)", fontSize = 10.sp)
-                                },
-                                modifier = Modifier.weight(1f)
+                                    Text("Add Stock (+${row.qty.toInt()} → $newTotal)", fontSize = 11.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                                }
                             )
                         }
                     }
@@ -1866,7 +1889,7 @@ fun BillRowEditor(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 OutlinedTextField(
                     value = if (row.rate > 0) row.rate.toString() else "",
@@ -1874,7 +1897,7 @@ fun BillRowEditor(
                         val r = it.toDoubleOrNull() ?: 0.0
                         onUpdate(row.copy(rate = r))
                     },
-                    label = { Text("Bill Cost (₹)") },
+                    label = { Text("Bill Cost (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     trailingIcon = {
@@ -1882,45 +1905,43 @@ fun BillRowEditor(
                             Icon(Icons.Default.Mic, contentDescription = "Voice Rate")
                         }
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                 )
 
-                Column(modifier = Modifier.weight(1f)) {
-                    OutlinedTextField(
-                        value = if (row.qty > 0) row.qty.toString() else "",
-                        onValueChange = {
-                            val q = it.toDoubleOrNull() ?: 0.0
-                            onUpdate(row.copy(qty = q))
-                        },
-                        label = { Text("Qty (${row.unit})") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = { launchVoice("voice_qty") }) {
-                                Icon(Icons.Default.Mic, contentDescription = "Voice Qty")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                OutlinedTextField(
+                    value = if (row.qty > 0) row.qty.toString() else "",
+                    onValueChange = {
+                        val q = it.toDoubleOrNull() ?: 0.0
+                        onUpdate(row.copy(qty = q))
+                    },
+                    label = { Text("Qty (${row.unit})", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = { launchVoice("voice_qty") }) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice Qty")
+                        }
+                    },
+                    modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                )
+            }
 
-                    // Multi-Unit Conversion Pill
-                    val paired = com.example.util.UnitConversionHelper.getPairedUnit(row.unit)
-                    if (paired.first != row.unit) {
-                        Text(
-                            text = "⇄ Convert to ${paired.first.uppercase()}",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable {
-                                    val newUnit = paired.first
-                                    val convertedQty = com.example.util.UnitConversionHelper.convertQuantity(row.unit, newUnit, row.qty, paired.second)
-                                    onUpdate(row.copy(unit = newUnit, qty = convertedQty))
-                                }
-                                .padding(top = 2.dp)
-                        )
-                    }
-                }
+            // Multi-Unit Conversion Pill placed cleanly below aligned Qty/Rate row
+            val paired = com.example.util.UnitConversionHelper.getPairedUnit(row.unit)
+            if (paired.first != row.unit) {
+                Text(
+                    text = "⇄ Convert to ${paired.first.uppercase()}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable {
+                            val newUnit = paired.first
+                            val convertedQty = com.example.util.UnitConversionHelper.convertQuantity(row.unit, newUnit, row.qty, paired.second)
+                            onUpdate(row.copy(unit = newUnit, qty = convertedQty))
+                        }
+                        .padding(top = 4.dp, bottom = 2.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1931,7 +1952,7 @@ fun BillRowEditor(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1947,65 +1968,62 @@ fun BillRowEditor(
                             Text(
                                 text = "Update Selling Price",
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
                         if (matched != null && matched.price > 0) {
                             Text(
-                                text = "Current MRP: ₹${matched.price}",
+                                text = "MRP: ₹${matched.price}",
                                 fontSize = 10.sp,
+                                maxLines = 1,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = if (row.sellingPrice > 0) row.sellingPrice.toString() else "",
+                        onValueChange = {
+                            val p = it.toDoubleOrNull() ?: 0.0
+                            onUpdate(row.copy(sellingPrice = p, updateSellingPrice = true))
+                        },
+                        label = { Text("New Selling (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
+                    // Quick Margin Chips (full-width even strip)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
-                            value = if (row.sellingPrice > 0) row.sellingPrice.toString() else "",
-                            onValueChange = {
-                                val p = it.toDoubleOrNull() ?: 0.0
-                                onUpdate(row.copy(sellingPrice = p, updateSellingPrice = true))
-                            },
-                            label = { Text("New Selling (₹)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Quick Margin Chips
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.weight(1.3f)
-                        ) {
-                            listOf(10, 15, 20, 25).forEach { marginPct ->
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            if (row.rate > 0) {
-                                                val markedUp = kotlin.math.round(row.rate * (1 + marginPct / 100.0) * 10.0) / 10.0
-                                                onUpdate(row.copy(sellingPrice = markedUp, updateSellingPrice = true))
-                                            }
+                        listOf(10, 15, 20, 25).forEach { marginPct ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        if (row.rate > 0) {
+                                            val markedUp = kotlin.math.round(row.rate * (1 + marginPct / 100.0) * 10.0) / 10.0
+                                            onUpdate(row.copy(sellingPrice = markedUp, updateSellingPrice = true))
                                         }
-                                ) {
-                                    Text(
-                                        text = "+$marginPct%",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
-                                }
+                                    }
+                            ) {
+                                Text(
+                                    text = "+$marginPct%",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
                             }
                         }
                     }
@@ -2014,37 +2032,48 @@ fun BillRowEditor(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Type, Brand, Size, Unit chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { pickerField = "type" },
-                    modifier = Modifier.weight(1f)
+            // Type, Brand, Size, Unit pickers arranged as a clean 2x2 grid
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = row.type.ifEmpty { "Type" }, maxLines = 1, fontSize = 11.sp)
+                    OutlinedButton(
+                        onClick = { pickerField = "type" },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp)
+                    ) {
+                        Text(text = row.type.ifEmpty { "Type" }, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { pickerField = "brand" },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp)
+                    ) {
+                        Text(text = row.brand.ifEmpty { "Brand" }, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
+                    }
                 }
 
-                OutlinedButton(
-                    onClick = { pickerField = "brand" },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(text = row.brand.ifEmpty { "Brand" }, maxLines = 1, fontSize = 11.sp)
-                }
+                    OutlinedButton(
+                        onClick = { pickerField = "size" },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp)
+                    ) {
+                        Text(text = row.size.ifEmpty { "Size" }, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
+                    }
 
-                OutlinedButton(
-                    onClick = { pickerField = "size" },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = row.size.ifEmpty { "Size" }, maxLines = 1, fontSize = 11.sp)
-                }
-
-                OutlinedButton(
-                    onClick = { pickerField = "unit" },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = row.unit.ifEmpty { "pcs" }, maxLines = 1, fontSize = 11.sp)
+                    OutlinedButton(
+                        onClick = { pickerField = "unit" },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 40.dp)
+                    ) {
+                        Text(text = row.unit.ifEmpty { "pcs" }, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -2065,12 +2094,16 @@ fun BillRowEditor(
             }.take(50)
         }
 
-        Dialog(onDismissRequest = { showItemPicker = false }) {
+        Dialog(
+            onDismissRequest = { showItemPicker = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth(0.95f)
+                    .widthIn(max = 520.dp)
                     .padding(vertical = 16.dp)
             ) {
                 Column(
@@ -2253,12 +2286,16 @@ fun AiVocabularyTrainingDialog(
     var mappedInput by remember { mutableStateOf("") }
     var aliases by remember { mutableStateOf(BillAliasManager.getAliases(context)) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 520.dp)
                 .padding(vertical = 16.dp)
         ) {
             Column(

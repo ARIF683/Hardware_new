@@ -20,6 +20,8 @@ import com.example.data.pref.AppLogoStyle
 import com.example.data.pref.BankingInfo
 import com.example.data.pref.BankingPreferenceManager
 import com.example.data.pref.LogoPreferenceManager
+import com.example.data.pref.StoreIdentity
+import com.example.data.pref.StoreProfilePreferenceManager
 import com.example.data.remote.AppUpdateManager
 import com.example.data.remote.DynamicUiManager
 import com.example.data.remote.UpdateStatus
@@ -76,7 +78,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val appUpdateManager = AppUpdateManager(application)
     val logoPreferenceManager = LogoPreferenceManager(application)
     val bankingPreferenceManager = BankingPreferenceManager(application)
+    val storeProfilePreferenceManager = StoreProfilePreferenceManager(application)
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
+    val storeIdentity: StateFlow<StoreIdentity> = storeProfilePreferenceManager.currentStoreIdentity
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
     private val _customThemeColor = MutableStateFlow(
@@ -167,6 +171,13 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val uiConfig: StateFlow<DynamicUiConfig> = dynamicUiManager.uiConfig
+    val effectiveStoreTitle: StateFlow<String> = storeIdentity.combine(uiConfig) { identity, cfg ->
+        identity.storeName.ifBlank { cfg.theme.storeTitle }.ifBlank { "S.A. HARDWARE" }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        storeIdentity.value.storeName.ifBlank { uiConfig.value.theme.storeTitle }.ifBlank { "S.A. HARDWARE" }
+    )
     val isUiConfigRefreshing: StateFlow<Boolean> = dynamicUiManager.isRefreshing
     val lastUiSyncedTime: StateFlow<Long> = dynamicUiManager.lastSyncedTime
     val updateStatus: StateFlow<UpdateStatus> = appUpdateManager.status
@@ -1127,6 +1138,18 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         return repository.processBillScanImport(supplierName, billNumber, items)
     }
 
+    fun saveStoreIdentity(
+        storeName: String,
+        supervisorName: String,
+        roleTitle: String,
+        location: String
+    ) {
+        viewModelScope.launch {
+            repository.saveAndSyncStoreIdentity(storeName, supervisorName, roleTitle, location)
+            showToast("Store & terminal profile saved & synced!")
+        }
+    }
+
     fun saveBankDetails(
         bankName: String,
         accountHolder: String,
@@ -1135,17 +1158,19 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         branchName: String,
         upiId: String
     ) {
-        bankingPreferenceManager.saveBankDetails(
-            bankName, accountHolder, accountNumber, ifscCode, branchName, upiId
-        )
-        showToast("Banking details saved successfully!")
+        viewModelScope.launch {
+            repository.saveAndSyncBankDetails(
+                bankName, accountHolder, accountNumber, ifscCode, branchName, upiId
+            )
+            showToast("Banking details saved & synced!")
+        }
     }
 
     fun saveSignatureFromUri(uri: android.net.Uri, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val res = bankingPreferenceManager.saveSignatureFromUri(uri)
+            val res = repository.saveAndSyncSignature(uri)
             if (res.isSuccess) {
-                showToast("Authorized signature uploaded successfully!")
+                showToast("Authorized signature uploaded & synced!")
                 onResult(true)
             } else {
                 showToast("Failed to save signature: ${res.exceptionOrNull()?.message}")
@@ -1156,9 +1181,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveQrCodeFromUri(uri: android.net.Uri, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val res = bankingPreferenceManager.saveQrCodeFromUri(uri)
+            val res = repository.saveAndSyncQrCode(uri)
             if (res.isSuccess) {
-                showToast("Payment QR code uploaded successfully!")
+                showToast("Payment QR code uploaded & synced!")
                 onResult(true)
             } else {
                 showToast("Failed to save QR code: ${res.exceptionOrNull()?.message}")
@@ -1168,13 +1193,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearSignature() {
-        bankingPreferenceManager.clearSignature()
-        showToast("Signature removed")
+        viewModelScope.launch {
+            repository.clearAndSyncSignature()
+            showToast("Signature removed & synced")
+        }
     }
 
     fun clearQrCode() {
-        bankingPreferenceManager.clearQrCode()
-        showToast("QR code removed")
+        viewModelScope.launch {
+            repository.clearAndSyncQrCode()
+            showToast("QR code removed & synced")
+        }
     }
 
     companion object {

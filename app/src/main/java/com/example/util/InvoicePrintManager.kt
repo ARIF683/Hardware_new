@@ -96,11 +96,6 @@ object InvoicePrintManager {
         qrCodeBitmap: Bitmap? = null
     ): File {
         val pdfItems = parseGstLineItems(bill.itemsJson).map { item ->
-            val bmp = if (!item.imageUrl.isNullOrBlank()) {
-                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    loadBitmap(context, item.imageUrl)
-                }
-            } else null
             GstTaxPdfItem(
                 name = item.name,
                 hsn = item.hsn,
@@ -111,8 +106,7 @@ object InvoicePrintManager {
                 taxAmount = item.taxAmount,
                 totalAmount = item.totalAmount,
                 unit = item.unit,
-                subtitle = item.subtitle,
-                imageBitmap = bmp
+                subtitle = item.subtitle
             )
         }
         return createGstTaxInvoicePdf(
@@ -780,7 +774,7 @@ object InvoicePrintManager {
 
     /**
      * Generates a compliant A4 GST Tax Invoice PDF.
-     * Includes Item Image column (blank if no image), Bank Details, Payment QR code, and Authorized Signature.
+     * Includes Bank Details, Payment QR code, and Authorized Signature.
      * Note: Per GST invoice standards, internal item Cost Price is STRICTLY excluded.
      */
     fun createGstTaxInvoicePdf(
@@ -895,13 +889,11 @@ object InvoicePrintManager {
             c.drawRect(24f, headerY, 571f, headerY + 22f, tableHeaderBg)
 
             c.drawText("#", 30f, headerY + 14f, headerColPaint)
-            c.drawText("IMAGE", 48f, headerY + 14f, headerColPaint)
-            c.drawText("ITEM DESCRIPTION", 84f, headerY + 14f, headerColPaint)
-            c.drawText("HSN", 240f, headerY + 14f, headerColPaint)
+            c.drawText("ITEM DESCRIPTION", 50f, headerY + 14f, headerColPaint)
             c.drawText("QTY", 286f, headerY + 14f, headerColPaint)
-            c.drawText("RATE", 332f, headerY + 14f, headerColPaint)
-            c.drawText("TAXABLE", 382f, headerY + 14f, headerColPaint)
-            c.drawText("GST%", 446f, headerY + 14f, headerColPaint)
+            c.drawText("RATE", 338f, headerY + 14f, headerColPaint)
+            c.drawText("TAXABLE", 394f, headerY + 14f, headerColPaint)
+            c.drawText("GST%", 460f, headerY + 14f, headerColPaint)
             val rightHeaderPaint = Paint(headerColPaint).apply { textAlign = Paint.Align.RIGHT }
             c.drawText("TOTAL", 562f, headerY + 14f, rightHeaderPaint)
 
@@ -1021,38 +1013,17 @@ object InvoicePrintManager {
 
             canvas.drawText("${idx + 1}", 30f, y + 17f, textPaint)
 
-            if (item.imageBitmap != null) {
-                try {
-                    val bmp = item.imageBitmap
-                    val targetSize = 24f
-                    val scale = targetSize / maxOf(bmp.width, bmp.height).coerceAtLeast(1)
-                    val w = (bmp.width * scale).coerceAtMost(targetSize)
-                    val h = (bmp.height * scale).coerceAtMost(targetSize)
-                    val imgX = 46f + (34f - w) / 2f
-                    val imgY = y + 3f + (24f - h) / 2f
-                    val destRect = RectF(imgX, imgY, imgX + w, imgY + h)
-                    val thumbBorderPaint = Paint().apply {
-                        color = Color.rgb(226, 232, 240)
-                        style = Paint.Style.STROKE
-                        strokeWidth = 0.6f
-                    }
-                    canvas.drawRoundRect(destRect, 2f, 2f, thumbBorderPaint)
-                    canvas.drawBitmap(bmp, null, destRect, Paint().apply { isFilterBitmap = true })
-                } catch (_: Exception) {}
-            }
-
-            val truncName = if (item.name.length > 25) item.name.take(23) + ".." else item.name
-            canvas.drawText(truncName, 84f, y + 13f, boldPaint)
+            val truncName = if (item.name.length > 40) item.name.take(38) + ".." else item.name
+            canvas.drawText(truncName, 50f, y + 13f, boldPaint)
             if (item.subtitle.isNotBlank()) {
-                val truncSub = if (item.subtitle.length > 28) item.subtitle.take(26) + ".." else item.subtitle
-                canvas.drawText(truncSub, 84f, y + 24f, smallSubPaint)
+                val truncSub = if (item.subtitle.length > 46) item.subtitle.take(44) + ".." else item.subtitle
+                canvas.drawText(truncSub, 50f, y + 24f, smallSubPaint)
             }
 
-            canvas.drawText(item.hsn.ifEmpty { "-" }, 240f, y + 17f, textPaint)
             canvas.drawText("%.1f %s".format(item.qty, item.unit), 286f, y + 17f, textPaint)
-            canvas.drawText("₹%.2f".format(item.rate), 332f, y + 17f, textPaint)
-            canvas.drawText("₹%.2f".format(item.taxableAmount), 382f, y + 17f, textPaint)
-            canvas.drawText("${item.taxRatePercent.toInt()}%", 446f, y + 17f, textPaint)
+            canvas.drawText("₹%.2f".format(item.rate), 338f, y + 17f, textPaint)
+            canvas.drawText("₹%.2f".format(item.taxableAmount), 394f, y + 17f, textPaint)
+            canvas.drawText("${item.taxRatePercent.toInt()}%", 460f, y + 17f, textPaint)
             canvas.drawText("₹%.2f".format(item.totalAmount), 562f, y + 17f, rightBoldPaint)
 
             canvas.drawLine(24f, y + rowHeight, 571f, y + rowHeight, linePaint)

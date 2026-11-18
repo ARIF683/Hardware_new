@@ -21,6 +21,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,20 +30,24 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -90,6 +96,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -110,7 +117,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import kotlinx.coroutines.delay
 import com.example.data.model.GstBillLineItem
 import com.example.data.model.GstBillRecord
 import com.example.data.model.Item
@@ -208,6 +218,8 @@ fun QuickBillingPosScreen(
     var discountText by remember { mutableStateOf("0") }
     var taxRateSelected by remember { mutableDoubleStateOf(18.0) }
 
+    val bankingInfo by viewModel.bankingInfo.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     var showCartDrawer by remember { mutableStateOf(false) }
     var showCashCheckoutDialog by remember { mutableStateOf(false) }
     var showUpiCheckoutDialog by remember { mutableStateOf(false) }
@@ -257,45 +269,43 @@ fun QuickBillingPosScreen(
         listOf("ALL") + (defaults + fromDb).distinct().sorted()
     }
 
-    // Filter items based on active category and search
-    val filteredItems = remember(searchQuery, selectedCategory, allItems) {
-        val q = searchQuery.trim()
+    // Filter items based on active category and search (off-thread ranking when query is non-blank)
+    val baseCategoryItems = remember(selectedCategory, allItems) {
         val curCat = selectedCategory.trim()
-        val base = if (curCat.equals("ALL", ignoreCase = true)) {
+        if (curCat.equals("ALL", ignoreCase = true)) {
             allItems
         } else {
             allItems.filter { it.type.trim().equals(curCat, ignoreCase = true) }
         }
-
+    }
+    var searchedItems by remember { mutableStateOf<List<Item>>(emptyList()) }
+    LaunchedEffect(searchQuery, selectedCategory, allItems) {
+        val q = searchQuery.trim()
         if (q.isBlank()) {
-            base
+            searchedItems = emptyList()
         } else {
-            // First search within selected category
-            val inCatMatches = base.mapNotNull { item ->
-                val score = ItemSearchMatcher.matchScore(item, q)
-                if (score > 0) Pair(item, score) else null
-            }.sortedByDescending { it.second }.map { it.first }
-
-            if (inCatMatches.isNotEmpty()) {
+            delay(45)
+            val inCatMatches = ItemSearchMatcher.searchItems(baseCategoryItems, q, limit = 120)
+            searchedItems = if (inCatMatches.isNotEmpty() || selectedCategory.equals("ALL", ignoreCase = true)) {
                 inCatMatches
             } else {
-                // Fallback across all categories if user searched for another product
-                allItems.mapNotNull { item ->
-                    val score = ItemSearchMatcher.matchScore(item, q)
-                    if (score > 0) Pair(item, score) else null
-                }.sortedByDescending { it.second }.map { it.first }
+                ItemSearchMatcher.searchItems(allItems, q, limit = 120)
             }
         }
     }
+    val filteredItems = if (searchQuery.isBlank()) baseCategoryItems else searchedItems
 
-    // Financial Totals
-    val totalCartQty = cartItems.sumOf { it.qty }
-    val cartSubtotal = cartItems.sumOf { it.total }
+    // Financial Totals & O(1) cart lookup
+    val cartByItemId by remember {
+        derivedStateOf { cartItems.associateBy { it.item.id } }
+    }
+    val totalCartQty by remember { derivedStateOf { cartItems.sumOf { it.qty } } }
+    val cartSubtotal by remember { derivedStateOf { cartItems.sumOf { it.total } } }
     val discount = discountText.toDoubleOrNull() ?: 0.0
     val taxableTotal = (cartSubtotal - discount).coerceAtLeast(0.0)
     val taxAmount = (taxableTotal * (taxRateSelected / 100.0))
     val grandTotal = taxableTotal + taxAmount
-    val totalCost = cartItems.sumOf { it.totalCost }
+    val totalCost by remember { derivedStateOf { cartItems.sumOf { it.totalCost } } }
     val estimatedProfit = (taxableTotal - totalCost)
 
     // Voice Search Launcher
@@ -422,14 +432,14 @@ fun QuickBillingPosScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("0", "50", "100", "200").forEach { preset ->
                             OutlinedButton(
                                 onClick = { tempDiscount = preset },
                                 modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(2.dp)
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
                             ) {
-                                Text("₹$preset", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("₹$preset", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -654,7 +664,7 @@ fun QuickBillingPosScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(distinctCategories) { cat ->
+                        items(distinctCategories, key = { it }) { cat ->
                             val isSelected = selectedCategory.equals(cat, ignoreCase = true)
                             val catIcon = when {
                                 cat.equals("ALL", ignoreCase = true) -> "📦"
@@ -899,14 +909,14 @@ fun QuickBillingPosScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Adaptive(minSize = 112.dp),
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredItems, key = { it.id }) { dbItem ->
-                        val cartEntry = cartItems.find { it.item.id == dbItem.id }
+                        val cartEntry = cartByItemId[dbItem.id]
                         val inCartQty = cartEntry?.qty ?: 0.0
 
                         Card(
@@ -920,7 +930,7 @@ fun QuickBillingPosScreen(
                                 .fillMaxWidth()
                                 .clickable { addItemToCart(dbItem) }
                         ) {
-                            Column(modifier = Modifier.padding(6.dp)) {
+                            Column(modifier = Modifier.padding(8.dp)) {
                                 // Top Header Row: SKU tag & Cart multiplier badge
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -929,35 +939,44 @@ fun QuickBillingPosScreen(
                                 ) {
                                     Text(
                                         text = "#${dbItem.code.ifBlank { dbItem.id.takeLast(4) }}",
-                                        fontSize = 8.5.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     if (inCartQty > 0) {
                                         Text(
                                             text = "x${inCartQty.toInt()}",
-                                            fontSize = 9.sp,
+                                            fontSize = 9.5.sp,
                                             fontWeight = FontWeight.Black,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
 
                                 // Product Image or Category Icon Box
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(72.dp)
+                                        .height(68.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (!dbItem.imageUrl.isNullOrBlank()) {
+                                        val gridImgRequest = remember(dbItem.imageUrl) {
+                                            ImageRequest.Builder(context)
+                                                .data(dbItem.imageUrl)
+                                                .size(192)
+                                                .crossfade(false)
+                                                .build()
+                                        }
                                         AsyncImage(
-                                            model = dbItem.imageUrl,
+                                            model = gridImgRequest,
                                             contentDescription = dbItem.name,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()
@@ -973,13 +992,15 @@ fun QuickBillingPosScreen(
                                                     dbItem.type.contains("Hardware", true) -> "🔩"
                                                     else -> "📦"
                                                 },
-                                                fontSize = 24.sp
+                                                fontSize = 22.sp
                                             )
                                             Text(
                                                 text = dbItem.type.ifBlank { "General" }.uppercase(),
                                                 fontSize = 8.sp,
                                                 fontWeight = FontWeight.Black,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                                 letterSpacing = 0.5.sp
                                             )
                                         }
@@ -999,6 +1020,7 @@ fun QuickBillingPosScreen(
                                             fontSize = 8.5.sp,
                                             fontWeight = FontWeight.Black,
                                             color = if (dbItem.qty > 0) ext.positive else ext.danger,
+                                            maxLines = 1,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                         )
                                     }
@@ -1028,97 +1050,103 @@ fun QuickBillingPosScreen(
 
                                 Spacer(modifier = Modifier.height(6.dp))
 
-                                // Price & Add/Counter Control Row
+                                // Price & Cost row (stacked cleanly above full-width control strip)
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            val entry = cartByItemId[dbItem.id]
+                                            if (entry != null) {
+                                                showCustomQtyDialogFor = entry
+                                            } else {
+                                                val newEntry = PosCartItem(item = dbItem, qty = 1.0, customPrice = dbItem.price, customTaxRate = taxRateSelected)
+                                                cartItems.add(newEntry)
+                                                showCustomQtyDialogFor = newEntry
+                                            }
+                                        }
+                                        .padding(vertical = 2.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .clickable {
-                                                val entry = cartItems.find { it.item.id == dbItem.id }
-                                                if (entry != null) {
-                                                    showCustomQtyDialogFor = entry
-                                                } else {
-                                                    val newEntry = PosCartItem(item = dbItem, qty = 1.0, customPrice = dbItem.price, customTaxRate = taxRateSelected)
-                                                    cartItems.add(newEntry)
-                                                    showCustomQtyDialogFor = newEntry
-                                                }
-                                            }
-                                            .padding(1.dp)
-                                    ) {
+                                    Text(
+                                        text = "₹${String.format(Locale.US, "%.2f", dbItem.price)}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (dbItem.cost > 0.0) {
                                         Text(
-                                            text = "₹${String.format(Locale.US, "%.2f", dbItem.price)}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 0.3.sp
+                                            text = "C:₹${dbItem.cost.toInt()}",
+                                            fontSize = 9.sp,
+                                            color = ext.warning,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1
                                         )
-                                        if (dbItem.cost > 0.0) {
-                                            Text(
-                                                text = "Cost ₹${dbItem.cost.toInt()}",
-                                                fontSize = 9.sp,
-                                                color = ext.warning,
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Full-width Stepper: [-] [qty] [+] or [+ ADD]
+                                if (inCartQty > 0) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(32.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clickable { decrementItemInCart(dbItem) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Remove, contentDescription = "Decrement", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(14.dp))
+                                        }
+                                        Text(
+                                            text = "${inCartQty.toInt()}",
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier
+                                                .clickable {
+                                                    if (cartEntry != null) showCustomQtyDialogFor = cartEntry
+                                                }
+                                                .padding(horizontal = 6.dp)
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clickable { addItemToCart(dbItem) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = "Increment", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(14.dp))
                                         }
                                     }
-
-                                    // Stepper: [-] [qty] [+] or [+ ADD]
-                                    if (inCartQty > 0) {
+                                } else {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(32.dp)
+                                            .clickable { addItemToCart(dbItem) }
+                                    ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
-                                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                                                .padding(horizontal = 2.dp, vertical = 1.dp)
+                                            horizontalArrangement = Arrangement.Center,
+                                            modifier = Modifier.fillMaxSize()
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clickable { decrementItemInCart(dbItem) },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Remove, contentDescription = "Decrement", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(12.dp))
-                                            }
-                                            Text(
-                                                text = "${inCartQty.toInt()}",
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier
-                                                    .clickable {
-                                                        if (cartEntry != null) showCustomQtyDialogFor = cartEntry
-                                                    }
-                                                    .padding(horizontal = 4.dp)
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clickable { addItemToCart(dbItem) },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Add, contentDescription = "Increment", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(12.dp))
-                                            }
-                                        }
-                                    } else {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            shape = RoundedCornerShape(6.dp),
-                                            modifier = Modifier
-                                                .height(26.dp)
-                                                .clickable { addItemToCart(dbItem) }
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 8.dp)
-                                            ) {
-                                                Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(12.dp))
-                                                Spacer(modifier = Modifier.width(2.dp))
-                                                Text("ADD", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimary)
-                                            }
+                                            Icon(Icons.Default.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("ADD", fontSize = 10.5.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimary, maxLines = 1)
                                         }
                                     }
                                 }
@@ -1168,7 +1196,7 @@ fun QuickBillingPosScreen(
                         .fillMaxWidth()
                         .weight(1f, fill = false)
                 ) {
-                    items(cartItems) { cartItem ->
+                    items(cartItems, key = { it.item.id }) { cartItem ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1232,21 +1260,25 @@ fun QuickBillingPosScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Customer Name / Phone inputs
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = customerName,
                         onValueChange = { customerName = it },
-                        label = { Text("Customer Name") },
+                        label = { Text("Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1.3f)
+                        modifier = Modifier.weight(1.3f).widthIn(min = 0.dp)
                     )
                     OutlinedTextField(
                         value = customerPhone,
                         onValueChange = { customerPhone = it },
-                        label = { Text("Phone") },
+                        label = { Text("Phone", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                 }
 
@@ -1294,11 +1326,12 @@ fun QuickBillingPosScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 46.dp)
                     ) {
-                        Text("₹ CASH CHECKOUT", fontWeight = FontWeight.Bold)
+                        Text("₹ CASH CHECKOUT", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
                     Button(
@@ -1308,11 +1341,12 @@ fun QuickBillingPosScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ext.info, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 46.dp)
                     ) {
-                        Text("₹ UPI CHECKOUT", fontWeight = FontWeight.Bold)
+                        Text("₹ UPI CHECKOUT", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1399,7 +1433,7 @@ fun QuickBillingPosScreen(
         )
     }
 
-    // 1-Tap UPI Checkout Dialog with QR mockup and App links
+    // 1-Tap UPI Checkout Dialog with App's Saved QR Code
     if (showUpiCheckoutDialog) {
         AlertDialog(
             onDismissRequest = { showUpiCheckoutDialog = false },
@@ -1407,36 +1441,29 @@ fun QuickBillingPosScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.QrCode, contentDescription = null, tint = ext.info)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("UPI Payment (QR)", fontWeight = FontWeight.Bold)
+                    Text("UPI Payment (Saved QR)", fontWeight = FontWeight.Bold)
                 }
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text("Total to Collect:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("₹${String.format(Locale.US, "%.2f", grandTotal)}", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // QR Display Placeholder
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(2.dp, ext.info),
-                        modifier = Modifier.size(160.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = ext.info, modifier = Modifier.size(64.dp))
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Scan via GPay / PhonePe", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                Text("merchant@upi", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    com.example.ui.components.SavedPaymentQrCard(
+                        bankingInfo = bankingInfo,
+                        amount = grandTotal,
+                        qrSize = 176.dp,
+                        onOpenSettings = {
+                            showUpiCheckoutDialog = false
+                            viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS)
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Ask customer to scan QR code and pay.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
                 }
             },
             confirmButton = {
@@ -1457,7 +1484,7 @@ fun QuickBillingPosScreen(
         )
     }
 
-    // Receipt Success Dialog after Payment
+    // Receipt Success Dialog after Payment with Saved QR Code
     if (showReceiptSuccessDialog && lastSavedBill != null) {
         val bill = lastSavedBill!!
         AlertDialog(
@@ -1473,12 +1500,30 @@ fun QuickBillingPosScreen(
                 }
             },
             text = {
-                Column {
-                    Text("Invoice #${bill.invoiceNo}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Amount Paid: ₹${String.format(Locale.US, "%.2f", bill.grandTotal)} (${bill.status})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Text("Customer: ${bill.customerName}", fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Inventory stock levels have been automatically updated.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column {
+                        Text("Invoice #${bill.invoiceNo}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Amount Paid: ₹${String.format(Locale.US, "%.2f", bill.grandTotal)} (${bill.status})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        Text("Customer: ${bill.customerName}", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Inventory stock levels have been automatically updated.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    com.example.ui.components.SavedPaymentQrCard(
+                        bankingInfo = bankingInfo,
+                        amount = bill.grandTotal,
+                        qrSize = 148.dp,
+                        onOpenSettings = {
+                            showReceiptSuccessDialog = false
+                            cartItems.clear()
+                            viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS)
+                        }
+                    )
                 }
             },
             confirmButton = {
@@ -1528,6 +1573,7 @@ fun QuickBillingPosScreen(
             subtotal = bill.taxableTotal,
             discount = 0.0,
             grandTotal = bill.grandTotal,
+            storeName = effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" },
             onDismiss = {
                 showThermalDialog = false
                 cartItems.clear()
@@ -1647,7 +1693,7 @@ fun QuickBillingPosScreen(
                                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
-                                Text("+$num", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
+                                Text("+$num", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
                             }
                         }
                     }

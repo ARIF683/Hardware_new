@@ -14,13 +14,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,6 +66,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -208,7 +213,9 @@ fun ItemFormDialog(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .padding(vertical = 24.dp)
+                .widthIn(max = 540.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(vertical = 12.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -470,23 +477,27 @@ fun ItemFormDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = secondaryUnit,
                         onValueChange = { secondaryUnit = it },
-                        label = { Text("Bulk Packaging") },
-                        placeholder = { Text("carton, box, roll") },
+                        label = { Text("Bulk Packaging", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("carton, box, roll", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                     OutlinedTextField(
                         value = conversionFactor,
                         onValueChange = { conversionFactor = it },
-                        label = { Text("1 Unit = ? ${unit.ifBlank { "pcs" }}") },
-                        placeholder = { Text("e.g. 24") },
+                        label = { Text("1 Unit = ? ${unit.ifBlank { "pcs" }}", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("e.g. 24", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                 }
 
@@ -532,22 +543,26 @@ fun ItemFormDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = shelfLocation,
                         onValueChange = { shelfLocation = it },
-                        label = { Text("Shelf / Bin Location") },
-                        placeholder = { Text("Rack 2, Bin C") },
+                        label = { Text("Shelf / Bin", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("Rack 2, Bin C", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                     OutlinedTextField(
                         value = nfcTagId,
                         onValueChange = { nfcTagId = it },
-                        label = { Text("NFC Tag Serial") },
-                        placeholder = { Text("04:A2:9B") },
+                        label = { Text("NFC Tag", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("04:A2:9B", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                 }
 
@@ -642,8 +657,8 @@ private fun ExposedDbDropdownField(
                 onValueChange(it)
                 expanded = true
             },
-            label = { Text(label) },
-            placeholder = { Text(placeholder) },
+            label = { Text(label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+            placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             singleLine = true,
             trailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)

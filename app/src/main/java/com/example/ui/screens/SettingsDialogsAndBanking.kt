@@ -25,11 +25,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
@@ -84,9 +86,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.data.model.Item
@@ -247,7 +251,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         fontSize = 15.sp
                     )
                     Text(
-                        "Details, QR code, and signature added here automatically appear on all GST Tax Invoices and PDF exports.",
+                        "Details, QR code, and signature added here sync across all your devices and appear on GST bills & PDFs.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -299,43 +303,51 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = accountNumber,
                         onValueChange = { accountNumber = it },
-                        label = { Text("Account Number") },
+                        label = { Text("Account No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("502000xxxxxxx") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1.3f)
+                        modifier = Modifier.weight(1.3f).widthIn(min = 0.dp)
                     )
                     OutlinedTextField(
                         value = ifscCode,
                         onValueChange = { ifscCode = it.uppercase() },
-                        label = { Text("IFSC Code") },
+                        label = { Text("IFSC Code", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("SBIN0001234") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     OutlinedTextField(
                         value = branchName,
                         onValueChange = { branchName = it },
-                        label = { Text("Branch / City") },
+                        label = { Text("Branch / City", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("Main Market Branch") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
                     OutlinedTextField(
                         value = upiId,
                         onValueChange = { upiId = it },
-                        label = { Text("UPI ID (VPA)") },
+                        label = { Text("UPI ID (VPA)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("store@okhdfcbank") },
                         singleLine = true,
-                        modifier = Modifier.weight(1.2f)
+                        modifier = Modifier.weight(1.2f).widthIn(min = 0.dp)
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
@@ -347,11 +359,14 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("banking_save_details_button")
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Bank Details", fontWeight = FontWeight.Bold)
+                    Text("Save & Sync Bank Details", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -380,8 +395,9 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                val hasSig = bankingInfo.signaturePath != null && File(bankingInfo.signaturePath!!).exists()
-                if (hasSig) {
+                val sigFile = bankingInfo.signaturePath?.let { File(it) }?.takeIf { it.exists() }
+                val sigModel: Any? = sigFile ?: bankingInfo.signatureUrl?.takeIf { it.isNotBlank() }
+                if (sigModel != null) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color.White,
@@ -392,7 +408,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().padding(8.dp)) {
                             AsyncImage(
-                                model = File(bankingInfo.signaturePath!!),
+                                model = sigModel,
                                 contentDescription = "Authorized Signature Preview",
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxSize()
@@ -458,7 +474,10 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("banking_upload_signature_button")
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -492,8 +511,9 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                val hasQr = bankingInfo.qrCodePath != null && File(bankingInfo.qrCodePath!!).exists()
-                if (hasQr) {
+                val qrFile = bankingInfo.qrCodePath?.let { File(it) }?.takeIf { it.exists() }
+                val qrModel: Any? = qrFile ?: bankingInfo.qrCodeUrl?.takeIf { it.isNotBlank() }
+                if (qrModel != null) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -506,7 +526,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().padding(8.dp)) {
                                 AsyncImage(
-                                    model = File(bankingInfo.qrCodePath!!),
+                                    model = qrModel,
                                     contentDescription = "Payment QR Code Preview",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier.fillMaxSize()
@@ -573,7 +593,10 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("banking_upload_qr_button")
                     ) {
                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -685,14 +708,23 @@ fun SettingsThemeAndLayoutDialog(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp)
+            ) {
                 Text(
                     text = "Appearance & Layout",
                     fontSize = 18.sp,
@@ -714,9 +746,9 @@ fun SettingsThemeAndLayoutDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val modes = listOf(
-                        Triple("light", "Light", "Industrial Light"),
-                        Triple("dark", "Dark", "Industrial Dark"),
-                        Triple("system", "System", "Device Auto")
+                        Triple("light", "Light", "Light"),
+                        Triple("dark", "Dark", "Dark"),
+                        Triple("system", "System", "Auto")
                     )
                     modes.forEach { (mode, label, desc) ->
                         val isSelected = themeMode == mode
@@ -733,16 +765,24 @@ fun SettingsThemeAndLayoutDialog(
                             modifier = Modifier.weight(1f)
                         ) {
                             Column(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
                                     label,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(desc, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    desc,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -917,19 +957,28 @@ fun SettingsSyncAndUpdatesDialog(
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
     val pendingCount by viewModel.pendingQueueCount.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val isUiConfigRefreshing by viewModel.isUiConfigRefreshing.collectAsState()
     val lastUiSyncedTime by viewModel.lastUiSyncedTime.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -988,21 +1037,23 @@ fun SettingsSyncAndUpdatesDialog(
                     Button(
                         onClick = { viewModel.reloadFromDatabase() },
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
                         Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pull DB", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Pull DB", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                     Button(
                         onClick = { viewModel.uploadAllToDatabase() },
                         colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
                         Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Push All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Push All", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
 
@@ -1011,16 +1062,18 @@ fun SettingsSyncAndUpdatesDialog(
                     OutlinedButton(
                         onClick = { viewModel.reconnectRealtime() },
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
-                        Text("Reconnect", fontSize = 12.sp)
+                        Text("Reconnect", fontSize = 11.5.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                     OutlinedButton(
                         onClick = { viewModel.retrySync() },
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).height(44.dp)
                     ) {
-                        Text("Retry Queue", fontSize = 12.sp)
+                        Text("Retry", fontSize = 11.5.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                     if (pendingCount > 0 || isAdmin) {
                         OutlinedButton(
@@ -1030,9 +1083,10 @@ fun SettingsSyncAndUpdatesDialog(
                             },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
                             shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
                             modifier = Modifier.weight(1f).height(44.dp)
                         ) {
-                            Text("Clear", fontSize = 12.sp)
+                            Text("Clear", fontSize = 11.5.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -1050,7 +1104,7 @@ fun SettingsSyncAndUpdatesDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Dynamic UI Config", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (lastUiSyncedTime > 0) "Synced with GitHub" else "Store: ${uiConfig.theme.storeTitle}",
+                            if (lastUiSyncedTime > 0) "Synced with GitHub" else "Store: $effectiveStoreTitle",
                             fontSize = 11.sp,
                             color = if (lastUiSyncedTime > 0) ext.positive else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1139,41 +1193,70 @@ fun SettingsSyncAndUpdatesDialog(
 
 @Composable
 fun SettingsProfileEditDialog(
+    initialStoreName: String,
     initialName: String,
     initialRole: String,
     initialDepot: String,
-    onSave: (name: String, role: String, depot: String) -> Unit,
+    onSave: (storeName: String, name: String, role: String, depot: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var storeName by remember { mutableStateOf(initialStoreName) }
     var name by remember { mutableStateOf(initialName) }
     var role by remember { mutableStateOf(initialRole) }
     var depot by remember { mutableStateOf(initialDepot) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Terminal Profile", fontWeight = FontWeight.Bold) },
+        title = {
+            Column {
+                Text("Edit Store & Terminal Profile", fontWeight = FontWeight.Bold)
+                Text(
+                    "Syncs across all connected devices",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = storeName,
+                    onValueChange = { storeName = it },
+                    label = { Text("Store / Business Name") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_store_name_input")
+                )
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Supervisor / Operator Name") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_operator_name_input")
                 )
                 OutlinedTextField(
                     value = role,
                     onValueChange = { role = it },
                     label = { Text("Role Title") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_role_title_input")
                 )
                 OutlinedTextField(
                     value = depot,
                     onValueChange = { depot = it },
-                    label = { Text("Warehouse / Depot Location") },
+                    label = { Text("Location / Depot Address") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_location_input")
                 )
             }
         },
@@ -1181,13 +1264,15 @@ fun SettingsProfileEditDialog(
             Button(
                 onClick = {
                     onSave(
+                        storeName.trim(),
                         name.trim().ifBlank { "Shahazim" },
                         role.trim().ifBlank { "Warehouse Supervisor" },
                         depot.trim().ifBlank { "HardwareStock Central Depot" }
                     )
-                }
+                },
+                modifier = Modifier.testTag("profile_save_button")
             ) {
-                Text("Save")
+                Text("Save & Sync")
             }
         },
         dismissButton = {
@@ -1261,14 +1346,24 @@ fun SettingsDataBackupDialog(
     onDismiss: () -> Unit
 ) {
     val ext = LocalExtendedColors.current
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Inventory Data & Backup", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(
                     "$itemCount SKUs currently stored locally & synced to cloud.",
@@ -1382,14 +1477,24 @@ fun SettingsSupportDiagnosticsDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.SupportAgent, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1464,33 +1569,51 @@ fun SettingsExportCsvDialog(
         (listOf(headers.joinToString(",")) + rows).joinToString("\n")
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
+                .padding(vertical = 16.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
                 Text("Export Items (CSV)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(6.dp))
                 Text("${allItems.size} items ready for export.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Stock CSV", csvText))
-                        viewModel.showToast("Copied to clipboard")
-                    }) { Text("Copy CSV") }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Stock CSV", csvText))
+                            viewModel.showToast("Copied to clipboard")
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Copy CSV", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
 
-                    OutlinedButton(onClick = {
-                        val sendIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, csvText)
-                            type = "text/csv"
-                        }
-                        context.startActivity(Intent.createChooser(sendIntent, "Share CSV"))
-                    }) { Text("Share CSV") }
+                    OutlinedButton(
+                        onClick = {
+                            val sendIntent = Intent().apply {
+                                action = Intent.ACTION_SEND
+                                putExtra(Intent.EXTRA_TEXT, csvText)
+                                type = "text/csv"
+                            }
+                            context.startActivity(Intent.createChooser(sendIntent, "Share CSV"))
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Share CSV", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1522,20 +1645,30 @@ fun SettingsExportXlsDialog(
     val allTransactions by viewModel.allTransactions.collectAsState()
     val allGstBills by viewModel.allGstBills.collectAsState()
     val allLedgerAccounts by viewModel.allLedgerAccounts.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
-    val storeTitle = uiConfig.theme.storeTitle.ifBlank { "S.A. HARDWARE" }
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val storeTitle = effectiveStoreTitle.ifBlank { "S.A. HARDWARE" }
 
     var exportFullWorkbook by remember { mutableStateOf(false) }
     var isExporting by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1555,11 +1688,14 @@ fun SettingsExportXlsDialog(
                             .clickable { exportFullWorkbook = false }
                             .testTag("xls_scope_inventory")
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
                             Text(
                                 "Inventory Sheet",
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
                                 color = if (invSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -1577,11 +1713,14 @@ fun SettingsExportXlsDialog(
                             .clickable { exportFullWorkbook = true }
                             .testTag("xls_scope_full")
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
                             Text(
                                 "Full Business (5 Tabs)",
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
                                 color = if (fullSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -1659,6 +1798,7 @@ fun SettingsExportXlsDialog(
                         onClick = { runXlsAction(share = false) },
                         enabled = !isExporting,
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -1666,13 +1806,14 @@ fun SettingsExportXlsDialog(
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Save .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("Save .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
                     OutlinedButton(
                         onClick = { runXlsAction(share = true) },
                         enabled = !isExporting,
                         shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -1680,7 +1821,7 @@ fun SettingsExportXlsDialog(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Share .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("Share .XLS", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
 
@@ -1703,13 +1844,23 @@ fun SettingsImportItemsDialog(
 ) {
     var rawCsv by remember { mutableStateOf("") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 500.dp)
+                .padding(vertical = 16.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
                 Text("Import Items (XLSX / CSV)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(10.dp))
 

@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -49,13 +52,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.QuotationLineItem
 import com.example.ui.theme.BrandAmber
 import com.example.util.InvoicePrintManager
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ThermalPrintDialog(
     title: String,
@@ -94,6 +100,10 @@ fun ThermalPrintDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isPrinting) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.94f)
+            .widthIn(max = 480.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -117,19 +127,20 @@ fun ThermalPrintDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Paper width toggle
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilterChip(
                         selected = !is80mm,
                         onClick = { is80mm = false },
-                        label = { Text("58mm (Compact)") }
+                        label = { Text("58mm (Compact)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                     FilterChip(
                         selected = is80mm,
                         onClick = { is80mm = true },
-                        label = { Text("80mm (Standard)") }
+                        label = { Text("80mm (Standard)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                     )
                 }
 

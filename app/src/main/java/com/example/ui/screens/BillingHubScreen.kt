@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,10 +92,13 @@ fun BillingHubScreen(viewModel: StockViewModel) {
     val dailyCashflow by viewModel.allDailyCashflow.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
 
-    val lowStockCount = allItems.count { it.qty <= 0 || (it.low > 0 && it.qty <= it.low) }
+    val lowStockCount = remember(allItems) {
+        allItems.count { it.qty <= 0 || (it.low > 0 && it.qty <= it.low) }
+    }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -217,7 +221,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = uiConfig.theme.storeTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
+                        text = effectiveStoreTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
                         fontSize = 17.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -328,7 +332,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            items(subTabs.size) { i ->
+            items(subTabs.size, key = { subTabs[it].index }) { i ->
                 val spec = subTabs[i]
                 val isSelected = selectedSubTab.coerceIn(0, 4) == spec.index
                 val containerColor = if (isSelected) {

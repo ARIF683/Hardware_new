@@ -128,6 +128,7 @@ fun ItemsScreen(
     val isAdmin by viewModel.isAdmin.collectAsState()
     val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
 
@@ -308,7 +309,7 @@ fun ItemsScreen(
                     Column {
                         Text(
                             text = if (isInGroup) (selectedGroup ?: "GROUP").uppercase()
-                            else uiConfig.theme.storeTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
+                            else effectiveStoreTitle.ifBlank { "HARDWARESTOCK" }.uppercase(),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onBackground,

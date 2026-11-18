@@ -73,4 +73,15 @@ class LogoPreferenceManager(context: Context) {
         prefs.edit().putString("custom_logo_url", url).apply()
         _customLogoUrl.value = url
     }
+
+    fun applyRemoteUrls(bannerUrl: String?, logoUrl: String?) {
+        if (bannerUrl != null) {
+            val cleanBanner = bannerUrl.takeIf { it.isNotBlank() }
+            if (cleanBanner != _bannerUrl.value) saveBannerUrl(cleanBanner)
+        }
+        if (logoUrl != null) {
+            val cleanLogo = logoUrl.takeIf { it.isNotBlank() }
+            if (cleanLogo != _customLogoUrl.value) saveCustomLogoUrl(cleanLogo)
+        }
+    }
 }
