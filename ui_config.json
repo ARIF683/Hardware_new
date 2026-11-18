@@ -16,5 +16,13 @@
     "showLowStockAlert": true,
     "showRecentTransactions": true,
     "allowDirectBilling": true
+  },
+  "festival": {
+    "enabled": true,
+    "festivalName": "Diwali Festival Special",
+    "greetingMessage": "🪔 Happy Diwali! May your business and stock shine bright with prosperity and abundance!",
+    "badgeText": "🪔 DIWALI FEST",
+    "accentColorHex": "#D97706",
+    "bannerImageUrl": "https://images.unsplash.com/photo-1604085572928-091206539223?auto=format&fit=crop&w=800&q=80"
   }
 }
