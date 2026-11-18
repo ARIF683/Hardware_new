@@ -388,6 +388,82 @@ fun HomeScreen(viewModel: StockViewModel) {
             }
         }
 
+        // Server-Driven Festival Theme Banner (GitHub Configurable without code changes)
+        if (uiConfig.festival.enabled && uiConfig.festival.greetingMessage.isNotBlank()) {
+            item {
+                val festColor = try {
+                    Color(android.graphics.Color.parseColor(uiConfig.festival.accentColorHex))
+                } catch (_: Exception) {
+                    MaterialTheme.colorScheme.primary
+                }
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = festColor.copy(alpha = 0.14f)),
+                    border = BorderStroke(1.5.dp, festColor.copy(alpha = 0.45f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = festColor
+                            ) {
+                                Text(
+                                    text = uiConfig.festival.badgeText.ifBlank { "✨ FESTIVAL" },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                            if (uiConfig.festival.festivalName.isNotBlank()) {
+                                Text(
+                                    text = uiConfig.festival.festivalName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = festColor
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = uiConfig.festival.greetingMessage,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        if (uiConfig.festival.bannerImageUrl.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, festColor.copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(130.dp)
+                            ) {
+                                AsyncImage(
+                                    model = uiConfig.festival.bannerImageUrl,
+                                    contentDescription = uiConfig.festival.festivalName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Dynamic Announcement Banner (Server-Driven UI)
         if (uiConfig.announcement.enabled && !isAnnouncementDismissed && uiConfig.announcement.message.isNotBlank()) {
             item {

@@ -6,7 +6,8 @@ import com.squareup.moshi.JsonClass
 data class DynamicUiConfig(
     val theme: ThemeConfig = ThemeConfig(),
     val announcement: AnnouncementConfig = AnnouncementConfig(),
-    val features: FeaturesConfig = FeaturesConfig()
+    val features: FeaturesConfig = FeaturesConfig(),
+    val festival: FestivalConfig = FestivalConfig()
 )
 
 @JsonClass(generateAdapter = true)
@@ -31,4 +32,14 @@ data class FeaturesConfig(
     val showLowStockAlert: Boolean = true,
     val showRecentTransactions: Boolean = true,
     val allowDirectBilling: Boolean = true
+)
+
+@JsonClass(generateAdapter = true)
+data class FestivalConfig(
+    val enabled: Boolean = false,
+    val festivalName: String = "",
+    val greetingMessage: String = "",
+    val badgeText: String = "✨ FESTIVAL",
+    val accentColorHex: String = "#D97757",
+    val bannerImageUrl: String = ""
 )
