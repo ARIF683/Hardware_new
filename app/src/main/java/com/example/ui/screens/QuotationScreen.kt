@@ -1719,10 +1719,10 @@ fun QuotationFormDialog(
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
-                                // Aligned 2x2 Grid: Row 1 (Qty + Unit), Row 2 (Rate + Line Total), followed by optional Unit Switch chip
+                                // Single-line 4-column aligned row for Qty, Unit, Rate, and Total
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.Top
                                 ) {
                                     OutlinedTextField(
@@ -1741,7 +1741,7 @@ fun QuotationFormDialog(
                                         },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(0.85f)
                                             .widthIn(min = 0.dp)
                                             .testTag("quote_item_qty_$rowKey"),
                                         singleLine = true
@@ -1759,20 +1759,12 @@ fun QuotationFormDialog(
                                             )
                                         },
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(0.85f)
                                             .widthIn(min = 0.dp)
                                             .testTag("quote_item_unit_$rowKey"),
                                         singleLine = true
                                     )
-                                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.Top
-                                ) {
                                     OutlinedTextField(
                                         value = if (item.unitPrice == 0.0) "" else item.unitPrice.toString(),
                                         onValueChange = { rStr ->
@@ -1781,7 +1773,7 @@ fun QuotationFormDialog(
                                         },
                                         label = {
                                             Text(
-                                                text = "Rate (₹)",
+                                                text = "Rate",
                                                 maxLines = 1,
                                                 softWrap = false,
                                                 overflow = TextOverflow.Ellipsis
@@ -1789,19 +1781,18 @@ fun QuotationFormDialog(
                                         },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(1.05f)
                                             .widthIn(min = 0.dp)
                                             .testTag("quote_item_rate_$rowKey"),
                                         singleLine = true
                                     )
 
-                                    // Top 8.dp offset matches Material 3 OutlinedTextField label clearance so borders align on the exact same line
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
                                         color = MaterialTheme.colorScheme.surface,
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(1.25f)
                                             .widthIn(min = 0.dp)
                                             .padding(top = 8.dp)
                                             .height(56.dp)
@@ -1809,12 +1800,12 @@ fun QuotationFormDialog(
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(horizontal = 12.dp),
+                                                .padding(horizontal = 6.dp),
                                             verticalArrangement = Arrangement.Center,
                                             horizontalAlignment = Alignment.End
                                         ) {
                                             Text(
-                                                text = "Line Total",
+                                                text = "Total",
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
@@ -1823,7 +1814,7 @@ fun QuotationFormDialog(
                                             Text(
                                                 text = String.format(Locale.US, "₹%.2f", item.total),
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
+                                                fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.primary,
                                                 maxLines = 1,
                                                 softWrap = false,

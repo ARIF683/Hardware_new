@@ -715,7 +715,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.Top,
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -725,31 +725,22 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 label = { Text("Qty", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                modifier = Modifier.weight(0.85f).widthIn(min = 0.dp)
                             )
                             OutlinedTextField(
                                 value = row.rate.toString(),
                                 onValueChange = { rStr -> updateThisRow { it.copy(rate = rStr.toDoubleOrNull() ?: 0.0) } },
-                                label = { Text("Rate (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                label = { Text("Rate", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                modifier = Modifier.weight(1.05f).widthIn(min = 0.dp)
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
                             OutlinedTextField(
                                 value = row.hsnCode,
                                 onValueChange = { newHsn -> updateThisRow { it.copy(hsnCode = newHsn) } },
-                                label = { Text("HSN/SAC", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                label = { Text("HSN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                modifier = Modifier.weight(0.95f).widthIn(min = 0.dp)
                             )
                             val rowGrand = (row.qty * row.rate) * (1.0 + row.taxRatePercent / 100.0)
                             Surface(
@@ -757,18 +748,19 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .weight(1.25f)
                                     .padding(top = 8.dp)
                                     .height(56.dp)
                             ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(horizontal = 10.dp),
-                                    verticalArrangement = Arrangement.Center
+                                        .padding(horizontal = 6.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.End
                                 ) {
                                     Text(
-                                        text = "Line Total",
+                                        text = "Total",
                                         fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1
@@ -776,7 +768,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     Text(
                                         text = "₹%.2f".format(rowGrand),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
+                                        fontSize = 12.sp,
                                         color = ext.positive,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis

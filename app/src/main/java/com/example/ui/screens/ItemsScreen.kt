@@ -410,6 +410,8 @@ fun ItemsScreen(
                 }
             }
 
+            com.example.ui.components.FestivalHeaderPill(festivalConfig = uiConfig.festival)
+
             // 2. Search Bar + Barcode Scanner Button
             Row(
                 modifier = Modifier

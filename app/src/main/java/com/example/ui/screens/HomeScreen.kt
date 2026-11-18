@@ -451,12 +451,38 @@ fun HomeScreen(viewModel: StockViewModel) {
                                     .fillMaxWidth()
                                     .height(130.dp)
                             ) {
-                                AsyncImage(
-                                    model = uiConfig.festival.bannerImageUrl,
-                                    contentDescription = uiConfig.festival.festivalName,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    festColor.copy(alpha = 0.25f),
+                                                    festColor.copy(alpha = 0.08f)
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = ImageModelHelper.rememberImageModel(uiConfig.festival.bannerImageUrl),
+                                        contentDescription = uiConfig.festival.festivalName,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(8.dp)
+                                    ) {
+                                        Text("✨ 🪔 ✨", fontSize = 22.sp)
+                                        Text(
+                                            text = uiConfig.festival.festivalName.ifBlank { "Celebration Time" },
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = festColor
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
