@@ -27,6 +27,7 @@ data class RemoteStoreProfile(
     val upiId: String? = null,
     val signatureUrl: String? = null,
     val qrCodeUrl: String? = null,
+    val festivalConfigJson: String? = null,
     val updatedAt: Long = 0L
 )
 
@@ -59,6 +60,7 @@ object StoreProfileSyncCodec {
             upiId = first.optPresentString("upiId"),
             signatureUrl = first.optPresentString("signatureUrl"),
             qrCodeUrl = first.optPresentString("qrCodeUrl"),
+            festivalConfigJson = first.optPresentString("festivalConfigJson"),
             updatedAt = first.optLong("updatedAt", 0L)
         )
     }
@@ -109,6 +111,7 @@ object StoreProfileSyncCodec {
             profile.upiId?.let { put("upiId", it) }
             profile.signatureUrl?.let { put("signatureUrl", it) }
             profile.qrCodeUrl?.let { put("qrCodeUrl", it) }
+            profile.festivalConfigJson?.let { put("festivalConfigJson", it) }
             if (profile.updatedAt > 0L) {
                 put("updatedAt", profile.updatedAt)
             } else {
@@ -152,6 +155,7 @@ object StoreProfileSyncCodec {
             upiId = override.upiId ?: base.upiId,
             signatureUrl = override.signatureUrl ?: base.signatureUrl,
             qrCodeUrl = override.qrCodeUrl ?: base.qrCodeUrl,
+            festivalConfigJson = override.festivalConfigJson ?: base.festivalConfigJson,
             updatedAt = maxOf(base.updatedAt, override.updatedAt)
         )
     }

@@ -109,6 +109,7 @@ fun HomeScreen(viewModel: StockViewModel) {
     val recentTx by viewModel.recentTransactions.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
     val isAnnouncementDismissed by viewModel.isAnnouncementDismissed.collectAsState()
@@ -388,8 +389,7 @@ fun HomeScreen(viewModel: StockViewModel) {
             }
         }
 
-        // Server-Driven Festival Carousel (Scheduled + Style Presets + Multi-Festival Swipe)
-        val activeFestivals = uiConfig.activeFestivals()
+        // Server-Driven + Auto-Calendar Festival Carousel
         if (activeFestivals.isNotEmpty()) {
             item {
                 com.example.ui.components.FestivalCarouselSection(

@@ -14,6 +14,8 @@ import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
 import com.example.data.pref.BankingPreferenceManager
+import com.example.data.pref.FestivalPreferenceManager
+import com.example.data.pref.FestivalStudioConfig
 import com.example.data.pref.LogoPreferenceManager
 import com.example.data.pref.StoreProfilePreferenceManager
 import com.example.data.remote.RemoteStoreProfile
@@ -75,6 +77,7 @@ class StockRepository(
     private val logoPreferenceManager by lazy { LogoPreferenceManager(context) }
     private val bankingPreferenceManager by lazy { BankingPreferenceManager(context) }
     private val storeProfilePreferenceManager by lazy { StoreProfilePreferenceManager(context) }
+    private val festivalPreferenceManager by lazy { FestivalPreferenceManager(context) }
     @Volatile
     private var lastKnownRemoteProfile: RemoteStoreProfile? = null
 
@@ -1679,6 +1682,7 @@ class StockRepository(
             upiId = bank.upiId,
             signatureUrl = sigUrl,
             qrCodeUrl = qrUrl,
+            festivalConfigJson = festivalPreferenceManager.getRawJsonOrNull(),
             updatedAt = System.currentTimeMillis()
         )
     }
@@ -1755,6 +1759,7 @@ class StockRepository(
             branchName = remote.branchName,
             upiId = remote.upiId
         )
+        festivalPreferenceManager.applyRemoteJson(remote.festivalConfigJson)
 
         val currentBank = bankingPreferenceManager.currentBankingInfo.value
         val sigUrl = remote.signatureUrl
@@ -1907,6 +1912,49 @@ class StockRepository(
     suspend fun clearAndSyncQrCode() = withContext(Dispatchers.IO) {
         bankingPreferenceManager.clearQrCode(markClearedForSync = true)
         pushStoreProfileMerged(buildLocalStoreProfileSnapshot(clearedQrCode = true))
+    }
+
+    suspend fun saveAndSyncFestivalStudio(
+        config: FestivalStudioConfig,
+        localBannerUri: android.net.Uri? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        var resolvedBannerUrl = config.customFestival.bannerImageUrl.trim()
+        var uploadFailed = false
+
+        if (localBannerUri != null) {
+            val bytes = try {
+                context.contentResolver.openInputStream(localBannerUri)?.use { it.readBytes() }
+            } catch (_: Exception) {
+                null
+            }
+            if (bytes != null && bytes.isNotEmpty()) {
+                if (supabaseClient.isConfigured() && isOnline()) {
+                    val uploaded = supabaseClient.uploadImageToCloudinary(
+                        bytes,
+                        "festival_banner_${System.currentTimeMillis()}.jpg"
+                    ).getOrNull()
+                    if (!uploaded.isNullOrBlank()) {
+                        resolvedBannerUrl = uploaded
+                    } else {
+                        uploadFailed = true
+                    }
+                } else {
+                    uploadFailed = true
+                }
+            }
+        }
+
+        val stampedConfig = config.copy(
+            customFestival = config.customFestival.copy(bannerImageUrl = resolvedBannerUrl),
+            updatedAt = System.currentTimeMillis()
+        )
+        val rawJson = festivalPreferenceManager.saveConfig(stampedConfig)
+        val snapshot = buildLocalStoreProfileSnapshot().copy(
+            festivalConfigJson = rawJson,
+            updatedAt = stampedConfig.updatedAt
+        )
+        pushStoreProfileMerged(snapshot)
+        !uploadFailed
     }
 
     suspend fun getProcessedTintRecordIds(): Set<String> = withContext(Dispatchers.IO) {

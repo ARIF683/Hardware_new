@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CurrencyRupee
@@ -130,6 +131,8 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val isAdmin by viewModel.isAdmin.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val festivalStudioConfig by viewModel.festivalStudioConfig.collectAsState()
+    val activeFestivals by viewModel.activeFestivals.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
     val bankingInfo by viewModel.bankingInfo.collectAsState()
@@ -167,6 +170,11 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showDataBackupDialog by remember { mutableStateOf(false) }
     var showSyncUpdatesDialog by remember { mutableStateOf(false) }
     var showSupportDialog by remember { mutableStateOf(false) }
+    var showFestivalStudioDialog by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(isAdmin) {
+        if (!isAdmin) showFestivalStudioDialog = false
+    }
 
     var showAdminPinDialog by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
@@ -306,7 +314,8 @@ fun SettingsScreen(viewModel: StockViewModel) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("settings_lazy_column"),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -1028,6 +1037,50 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             Text("Delete All Data", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
+                    SettingsRowDivider()
+                    val studioSummary = when (festivalStudioConfig.overrideMode) {
+                        com.example.data.pref.FestivalStudioConfig.MODE_OFF -> "Paused across all devices"
+                        com.example.data.pref.FestivalStudioConfig.MODE_CUSTOM ->
+                            if (festivalStudioConfig.customFestival.enabled) {
+                                "Custom: ${festivalStudioConfig.customFestival.festivalName.ifBlank { "Active" }}"
+                            } else {
+                                "Custom Only • Inactive"
+                            }
+                        else -> {
+                            val autoLabel = if (festivalStudioConfig.autoCalendarEnabled) "Auto Calendar On" else "Auto Off"
+                            if (activeFestivals.isNotEmpty()) {
+                                "$autoLabel • ${activeFestivals.size} active"
+                            } else {
+                                "$autoLabel • Tap to customize & sync"
+                            }
+                        }
+                    }
+                    SettingsItemRow(
+                        icon = Icons.Filled.AutoAwesome,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        title = "Festival Studio",
+                        subtitle = studioSummary,
+                        onClick = { showFestivalStudioDialog = true },
+                        testTag = "settings_festival_studio_row",
+                        trailingContent = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                SettingsInlinePill(
+                                    text = "Admin",
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
                 }
                 SettingsRowDivider()
 
@@ -1338,6 +1391,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
             viewModel = viewModel,
             terminalId = terminalId,
             onDismiss = { showSupportDialog = false }
+        )
+    }
+
+    if (showFestivalStudioDialog && isAdmin) {
+        FestivalStudioDialog(
+            viewModel = viewModel,
+            onDismiss = { showFestivalStudioDialog = false }
         )
     }
 

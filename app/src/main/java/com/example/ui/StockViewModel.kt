@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.auth.AuthManager
 import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
+import com.example.data.model.AutoFestivalCalendar
 import com.example.data.model.DynamicUiConfig
+import com.example.data.model.FestivalConfig
 import com.example.data.model.Item
 import com.example.data.model.TransactionRecord
 import com.example.data.model.LedgerAccount
@@ -19,6 +21,8 @@ import com.example.data.model.GstBillRecord
 import com.example.data.pref.AppLogoStyle
 import com.example.data.pref.BankingInfo
 import com.example.data.pref.BankingPreferenceManager
+import com.example.data.pref.FestivalPreferenceManager
+import com.example.data.pref.FestivalStudioConfig
 import com.example.data.pref.LogoPreferenceManager
 import com.example.data.pref.StoreIdentity
 import com.example.data.pref.StoreProfilePreferenceManager
@@ -79,8 +83,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val logoPreferenceManager = LogoPreferenceManager(application)
     val bankingPreferenceManager = BankingPreferenceManager(application)
     val storeProfilePreferenceManager = StoreProfilePreferenceManager(application)
+    val festivalPreferenceManager = FestivalPreferenceManager(application)
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
     val storeIdentity: StateFlow<StoreIdentity> = storeProfilePreferenceManager.currentStoreIdentity
+    val festivalStudioConfig: StateFlow<FestivalStudioConfig> = festivalPreferenceManager.currentConfig
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
     private val _customThemeColor = MutableStateFlow(
@@ -181,6 +187,28 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val isUiConfigRefreshing: StateFlow<Boolean> = dynamicUiManager.isRefreshing
     val lastUiSyncedTime: StateFlow<Long> = dynamicUiManager.lastSyncedTime
     val uiSyncError: StateFlow<String?> = dynamicUiManager.lastSyncError
+    val activeFestivals: StateFlow<List<FestivalConfig>> = combine(festivalStudioConfig, uiConfig) { studio, remoteCfg ->
+        AutoFestivalCalendar.resolveEffectiveFestivals(studio, remoteCfg)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        AutoFestivalCalendar.resolveEffectiveFestivals(festivalStudioConfig.value, uiConfig.value)
+    )
+    val effectiveThemeColor: StateFlow<String> = combine(
+        _customThemeColor,
+        festivalStudioConfig,
+        activeFestivals
+    ) { manualHex, studio, active ->
+        AutoFestivalCalendar.resolveEffectiveThemeHex(studio, active, manualHex)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        AutoFestivalCalendar.resolveEffectiveThemeHex(
+            festivalStudioConfig.value,
+            activeFestivals.value,
+            _customThemeColor.value
+        )
+    )
     val updateStatus: StateFlow<UpdateStatus> = appUpdateManager.status
 
     val isAnnouncementDismissed = MutableStateFlow(false)
@@ -340,6 +368,20 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 is com.example.data.remote.UiSyncResult.NetworkError -> {
                     showToast("Could not reach GitHub. Using cached local UI.")
                 }
+            }
+        }
+    }
+
+    fun saveAndSyncFestivalStudio(
+        config: FestivalStudioConfig,
+        localBannerUri: android.net.Uri? = null
+    ) {
+        viewModelScope.launch {
+            val uploadOk = repository.saveAndSyncFestivalStudio(config, localBannerUri)
+            if (uploadOk) {
+                showToast("Festival Studio saved & synced across devices!")
+            } else {
+                showToast("Saved Festival settings. Custom image upload requires internet.")
             }
         }
     }

@@ -128,6 +128,7 @@ fun ItemsScreen(
     val isAdmin by viewModel.isAdmin.collectAsState()
     val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
@@ -410,7 +411,7 @@ fun ItemsScreen(
                 }
             }
 
-            com.example.ui.components.FestivalHeaderPill(festivals = uiConfig.activeFestivals())
+            com.example.ui.components.FestivalHeaderPill(festivals = activeFestivals)
 
             // 2. Search Bar + Barcode Scanner Button
             Row(

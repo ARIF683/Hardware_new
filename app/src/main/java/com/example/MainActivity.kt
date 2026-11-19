@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleIncomingReportIntent(intent)
         setContent {
-            val customThemeColor by viewModel.customThemeColor.collectAsState()
+            val effectiveThemeColor by viewModel.effectiveThemeColor.collectAsState()
             val themeMode by viewModel.themeMode.collectAsState()
             val systemInDark = isSystemInDarkTheme()
             val isDarkTheme = when (themeMode) {
@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 else -> systemInDark
             }
-            StockManagerTheme(darkTheme = isDarkTheme, customThemeColor = customThemeColor) {
+            StockManagerTheme(darkTheme = isDarkTheme, customThemeColor = effectiveThemeColor) {
                 MainAppRoot(viewModel = viewModel)
             }
         }

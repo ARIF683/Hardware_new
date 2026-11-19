@@ -92,6 +92,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
     val dailyCashflow by viewModel.allDailyCashflow.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     val uiConfig by viewModel.uiConfig.collectAsState()
+    val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
@@ -326,7 +327,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
             }
         }
 
-        com.example.ui.components.FestivalHeaderPill(festivals = uiConfig.activeFestivals())
+        com.example.ui.components.FestivalHeaderPill(festivals = activeFestivals)
 
         // Unified 5-Tab Sub-Navigation Strip: POS | Estimates | GST Bills | Khata | Transactions
         LazyRow(
