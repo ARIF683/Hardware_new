@@ -180,6 +180,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     )
     val isUiConfigRefreshing: StateFlow<Boolean> = dynamicUiManager.isRefreshing
     val lastUiSyncedTime: StateFlow<Long> = dynamicUiManager.lastSyncedTime
+    val uiSyncError: StateFlow<String?> = dynamicUiManager.lastSyncError
     val updateStatus: StateFlow<UpdateStatus> = appUpdateManager.status
 
     val isAnnouncementDismissed = MutableStateFlow(false)
@@ -326,11 +327,19 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshUiConfig() {
         viewModelScope.launch {
-            val success = dynamicUiManager.refreshConfig()
-            if (success) {
-                showToast("UI configuration updated from GitHub!")
-            } else {
-                showToast("Could not reach GitHub. Using offline cached UI.")
+            when (val result = dynamicUiManager.refreshConfigWithStatus()) {
+                is com.example.data.remote.UiSyncResult.Success -> {
+                    showToast("UI configuration updated from GitHub!")
+                }
+                is com.example.data.remote.UiSyncResult.InvalidJson -> {
+                    showToast("${result.reason}. Check closing } braces on GitHub.")
+                }
+                is com.example.data.remote.UiSyncResult.HttpError -> {
+                    showToast("GitHub sync failed (HTTP ${result.code}). Push ui_config.json to main.")
+                }
+                is com.example.data.remote.UiSyncResult.NetworkError -> {
+                    showToast("Could not reach GitHub. Using cached local UI.")
+                }
             }
         }
     }

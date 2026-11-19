@@ -3,23 +3,31 @@ package com.example.data.remote
 import android.content.Context
 import android.util.Log
 import com.example.data.model.DynamicUiConfig
+import com.squareup.moshi.JsonDataException
+import com.squareup.moshi.JsonEncodingException
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.EOFException
 import java.util.concurrent.TimeUnit
+
+sealed class UiSyncResult {
+    data object Success : UiSyncResult()
+    data class HttpError(val code: Int) : UiSyncResult()
+    data class InvalidJson(val reason: String) : UiSyncResult()
+    data class NetworkError(val reason: String) : UiSyncResult()
+}
 
 class DynamicUiManager(private val context: Context) {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val moshi = Moshi.Builder()
@@ -37,6 +45,9 @@ class DynamicUiManager(private val context: Context) {
 
     private val _lastSyncedTime = MutableStateFlow(prefs.getLong("last_synced_time", 0L))
     val lastSyncedTime: StateFlow<Long> = _lastSyncedTime.asStateFlow()
+
+    private val _lastSyncError = MutableStateFlow<String?>(null)
+    val lastSyncError: StateFlow<String?> = _lastSyncError.asStateFlow()
 
     companion object {
         private const val TAG = "DynamicUiManager"
@@ -56,7 +67,7 @@ class DynamicUiManager(private val context: Context) {
         return DynamicUiConfig()
     }
 
-    suspend fun refreshConfig(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun refreshConfigWithStatus(): UiSyncResult = withContext(Dispatchers.IO) {
         _isRefreshing.value = true
         try {
             val request = Request.Builder()
@@ -66,35 +77,72 @@ class DynamicUiManager(private val context: Context) {
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.w(TAG, "Dynamic UI config HTTP ${response.code} from GitHub")
-                    return@withContext false
+                    val msg = if (response.code == 404) {
+                        "ui_config.json not found on GitHub (HTTP 404)"
+                    } else {
+                        "GitHub returned HTTP ${response.code}"
+                    }
+                    Log.w(TAG, msg)
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.HttpError(response.code)
                 }
+
                 val body = response.body?.string()
                 if (body.isNullOrBlank()) {
-                    Log.w(TAG, "Dynamic UI config response body was empty")
-                    return@withContext false
+                    val msg = "GitHub ui_config.json is empty"
+                    Log.w(TAG, msg)
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.InvalidJson(msg)
                 }
-                val parsed = adapter.fromJson(body)
-                if (parsed != null) {
-                    val now = System.currentTimeMillis()
-                    prefs.edit()
-                        .putString(PREF_KEY_CONFIG, body)
-                        .putLong("last_synced_time", now)
-                        .apply()
-                    _lastSyncedTime.value = now
-                    _uiConfig.value = parsed
-                    Log.d(
-                        TAG,
-                        "Successfully refreshed dynamic UI config: ${parsed.theme.storeTitle}, activeFestivals=${parsed.activeFestivals().size}"
-                    )
-                    return@withContext true
+
+                val parsed = try {
+                    adapter.fromJson(body)
+                } catch (e: JsonEncodingException) {
+                    val msg = "Invalid JSON syntax in GitHub ui_config.json"
+                    Log.w(TAG, "$msg: ${e.message}")
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.InvalidJson(msg)
+                } catch (e: JsonDataException) {
+                    val msg = "Invalid JSON field types in GitHub ui_config.json"
+                    Log.w(TAG, "$msg: ${e.message}")
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.InvalidJson(msg)
+                } catch (e: EOFException) {
+                    val msg = "Incomplete/truncated JSON in GitHub ui_config.json"
+                    Log.w(TAG, "$msg: ${e.message}")
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.InvalidJson(msg)
                 }
+
+                if (parsed == null) {
+                    val msg = "Could not parse GitHub ui_config.json"
+                    _lastSyncError.value = msg
+                    return@withContext UiSyncResult.InvalidJson(msg)
+                }
+
+                val now = System.currentTimeMillis()
+                prefs.edit()
+                    .putString(PREF_KEY_CONFIG, body)
+                    .putLong("last_synced_time", now)
+                    .apply()
+                _lastSyncedTime.value = now
+                _lastSyncError.value = null
+                _uiConfig.value = parsed
+                Log.d(
+                    TAG,
+                    "Successfully refreshed dynamic UI config: ${parsed.theme.storeTitle}, activeFestivals=${parsed.activeFestivals().size}"
+                )
+                UiSyncResult.Success
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not fetch or parse dynamic UI config: ${e.javaClass.simpleName}: ${e.message}")
+            val msg = "Network error reaching GitHub: ${e.localizedMessage ?: e.javaClass.simpleName}"
+            Log.w(TAG, msg)
+            _lastSyncError.value = msg
+            UiSyncResult.NetworkError(msg)
         } finally {
             _isRefreshing.value = false
         }
-        false
     }
+
+    suspend fun refreshConfig(): Boolean = refreshConfigWithStatus() is UiSyncResult.Success
 }

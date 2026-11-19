@@ -960,6 +960,7 @@ fun SettingsSyncAndUpdatesDialog(
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val isUiConfigRefreshing by viewModel.isUiConfigRefreshing.collectAsState()
     val lastUiSyncedTime by viewModel.lastUiSyncedTime.collectAsState()
+    val uiSyncError by viewModel.uiSyncError.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
 
     Dialog(
@@ -1103,10 +1104,19 @@ fun SettingsSyncAndUpdatesDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Dynamic UI Config", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        val uiError = uiSyncError
                         Text(
-                            if (lastUiSyncedTime > 0) "Synced with GitHub" else "Store: $effectiveStoreTitle",
+                            text = when {
+                                !uiError.isNullOrBlank() -> uiError
+                                lastUiSyncedTime > 0 -> "Synced with GitHub"
+                                else -> "Store: $effectiveStoreTitle"
+                            },
                             fontSize = 11.sp,
-                            color = if (lastUiSyncedTime > 0) ext.positive else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = when {
+                                !uiError.isNullOrBlank() -> ext.danger
+                                lastUiSyncedTime > 0 -> ext.positive
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                     if (isUiConfigRefreshing) {

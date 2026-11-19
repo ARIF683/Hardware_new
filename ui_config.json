@@ -23,4 +23,33 @@
     "greetingMessage": "🪔 Happy Diwali! May your business and stock shine bright with prosperity and abundance!",
     "badgeText": "🪔 DIWALI FEST",
     "accentColorHex": "#D97706",
-    "bannerImageUrl": "https://www.shutterstock.com/image-vector/happy-diwali-festival-light-modern-260nw-2357978799.jpg"
+    "bannerImageUrl": "https://www.shutterstock.com/image-vector/happy-diwali-festival-light-modern-260nw-2357978799.jpg",
+    "startDate": "2026-11-01",
+    "endDate": "2026-11-30",
+    "stylePreset": "diwali"
+  },
+  "festivals": [
+    {
+      "enabled": true,
+      "festivalName": "Diwali Festival Special",
+      "greetingMessage": "🪔 Happy Diwali! May your business and stock shine bright with prosperity and abundance!",
+      "badgeText": "🪔 DIWALI FEST",
+      "accentColorHex": "#D97706",
+      "bannerImageUrl": "https://www.shutterstock.com/image-vector/happy-diwali-festival-light-modern-260nw-2357978799.jpg",
+      "startDate": "2026-11-01",
+      "endDate": "2026-11-30",
+      "stylePreset": "diwali"
+    },
+    {
+      "enabled": true,
+      "festivalName": "Festive Paint & Hardware Offer",
+      "greetingMessage": "✨ Special festive deals on bulk paints, putty & hardware supplies — create instant GST bills & estimates!",
+      "badgeText": "🏷️ FESTIVE OFFER",
+      "accentColorHex": "#D97757",
+      "bannerImageUrl": "",
+      "startDate": "2026-11-01",
+      "endDate": "2026-11-30",
+      "stylePreset": "sale"
+    }
+  ]
+}
