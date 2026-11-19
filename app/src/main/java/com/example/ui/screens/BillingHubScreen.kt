@@ -326,7 +326,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
             }
         }
 
-        com.example.ui.components.FestivalHeaderPill(festivalConfig = uiConfig.festival)
+        com.example.ui.components.FestivalHeaderPill(festivals = uiConfig.activeFestivals())
 
         // Unified 5-Tab Sub-Navigation Strip: POS | Estimates | GST Bills | Khata | Transactions
         LazyRow(

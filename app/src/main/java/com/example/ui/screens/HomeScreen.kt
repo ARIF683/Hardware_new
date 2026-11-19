@@ -388,105 +388,14 @@ fun HomeScreen(viewModel: StockViewModel) {
             }
         }
 
-        // Server-Driven Festival Theme Banner (GitHub Configurable without code changes)
-        if (uiConfig.festival.enabled && uiConfig.festival.greetingMessage.isNotBlank()) {
+        // Server-Driven Festival Carousel (Scheduled + Style Presets + Multi-Festival Swipe)
+        val activeFestivals = uiConfig.activeFestivals()
+        if (activeFestivals.isNotEmpty()) {
             item {
-                val festColor = try {
-                    Color(android.graphics.Color.parseColor(uiConfig.festival.accentColorHex))
-                } catch (_: Exception) {
-                    MaterialTheme.colorScheme.primary
-                }
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = festColor.copy(alpha = 0.14f)),
-                    border = BorderStroke(1.5.dp, festColor.copy(alpha = 0.45f)),
+                com.example.ui.components.FestivalCarouselSection(
+                    festivals = activeFestivals,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = festColor
-                            ) {
-                                Text(
-                                    text = uiConfig.festival.badgeText.ifBlank { "✨ FESTIVAL" },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                            if (uiConfig.festival.festivalName.isNotBlank()) {
-                                Text(
-                                    text = uiConfig.festival.festivalName,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = festColor
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = uiConfig.festival.greetingMessage,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        if (uiConfig.festival.bannerImageUrl.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, festColor.copy(alpha = 0.3f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(130.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(
-                                                    festColor.copy(alpha = 0.25f),
-                                                    festColor.copy(alpha = 0.08f)
-                                                )
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    AsyncImage(
-                                        model = ImageModelHelper.rememberImageModel(uiConfig.festival.bannerImageUrl),
-                                        contentDescription = uiConfig.festival.festivalName,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(8.dp)
-                                    ) {
-                                        Text("✨ 🪔 ✨", fontSize = 22.sp)
-                                        Text(
-                                            text = uiConfig.festival.festivalName.ifBlank { "Celebration Time" },
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = festColor
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
 

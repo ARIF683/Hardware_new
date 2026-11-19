@@ -112,15 +112,19 @@ class SmallScreenUiAlignmentRobolectricTest {
             abs(qtyBounds.top - unitBounds.top) <= 2f
         )
         assertTrue(
+            "Expected Qty (${qtyBounds.top}) and Rate (${rateBounds.top}) boxes to align on the same line",
+            abs(qtyBounds.top - rateBounds.top) <= 2f
+        )
+        assertTrue(
             "Expected Qty (${qtyBounds.height}) and Unit (${unitBounds.height}) heights to match",
             abs(qtyBounds.height - unitBounds.height) <= 2f
+        )
+        assertTrue(
+            "Expected Qty (${qtyBounds.height}) and Rate (${rateBounds.height}) heights to match",
+            abs(qtyBounds.height - rateBounds.height) <= 2f
         )
         assertTrue("Expected Qty box width (${qtyBounds.width}) >= 60px", qtyBounds.width >= 60f)
         assertTrue("Expected Unit box width (${unitBounds.width}) >= 60px", unitBounds.width >= 60f)
         assertTrue("Expected Rate box width (${rateBounds.width}) >= 60px", rateBounds.width >= 60f)
-        assertTrue(
-            "Expected Rate row (${rateBounds.top}) to sit cleanly below Qty/Unit row (${qtyBounds.bottom})",
-            rateBounds.top >= qtyBounds.bottom - 1f
-        )
     }
 }

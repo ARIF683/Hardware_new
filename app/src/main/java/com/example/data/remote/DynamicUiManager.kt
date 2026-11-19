@@ -65,26 +65,33 @@ class DynamicUiManager(private val context: Context) {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (!body.isNullOrBlank()) {
-                        val parsed = adapter.fromJson(body)
-                        if (parsed != null) {
-                            val now = System.currentTimeMillis()
-                            prefs.edit()
-                                .putString(PREF_KEY_CONFIG, body)
-                                .putLong("last_synced_time", now)
-                                .apply()
-                            _lastSyncedTime.value = now
-                            _uiConfig.value = parsed
-                            Log.d(TAG, "Successfully refreshed dynamic UI config from GitHub: ${parsed.theme.storeTitle}")
-                            return@withContext true
-                        }
-                    }
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Dynamic UI config HTTP ${response.code} from GitHub")
+                    return@withContext false
+                }
+                val body = response.body?.string()
+                if (body.isNullOrBlank()) {
+                    Log.w(TAG, "Dynamic UI config response body was empty")
+                    return@withContext false
+                }
+                val parsed = adapter.fromJson(body)
+                if (parsed != null) {
+                    val now = System.currentTimeMillis()
+                    prefs.edit()
+                        .putString(PREF_KEY_CONFIG, body)
+                        .putLong("last_synced_time", now)
+                        .apply()
+                    _lastSyncedTime.value = now
+                    _uiConfig.value = parsed
+                    Log.d(
+                        TAG,
+                        "Successfully refreshed dynamic UI config: ${parsed.theme.storeTitle}, activeFestivals=${parsed.activeFestivals().size}"
+                    )
+                    return@withContext true
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not fetch dynamic UI config (offline or network error): ${e.message}")
+            Log.w(TAG, "Could not fetch or parse dynamic UI config: ${e.javaClass.simpleName}: ${e.message}")
         } finally {
             _isRefreshing.value = false
         }
