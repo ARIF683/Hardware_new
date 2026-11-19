@@ -130,9 +130,9 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val pendingCount by viewModel.pendingQueueCount.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
     val festivalStudioConfig by viewModel.festivalStudioConfig.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
+    val activeAnnouncement by viewModel.activeAnnouncement.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
     val bankingInfo by viewModel.bankingInfo.collectAsState()
@@ -1038,30 +1038,30 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         }
                     }
                     SettingsRowDivider()
-                    val studioSummary = when (festivalStudioConfig.overrideMode) {
-                        com.example.data.pref.FestivalStudioConfig.MODE_OFF -> "Paused across all devices"
+                    val noticeActive = activeAnnouncement.isActiveAt()
+                    val noticeScheduled = !noticeActive && festivalStudioConfig.announcement.enabled && festivalStudioConfig.announcement.message.isNotBlank()
+                    val customActiveCount = festivalStudioConfig.effectiveCustomFestivals().count { it.enabled }
+                    val festSummary = when (festivalStudioConfig.overrideMode) {
+                        com.example.data.pref.FestivalStudioConfig.MODE_OFF -> "Festivals Off"
                         com.example.data.pref.FestivalStudioConfig.MODE_CUSTOM ->
-                            if (festivalStudioConfig.customFestival.enabled) {
-                                "Custom: ${festivalStudioConfig.customFestival.festivalName.ifBlank { "Active" }}"
-                            } else {
-                                "Custom Only • Inactive"
-                            }
+                            if (customActiveCount > 0) "$customActiveCount Custom Card${if (customActiveCount > 1) "s" else ""}" else "Custom Inactive"
                         else -> {
-                            val autoLabel = if (festivalStudioConfig.autoCalendarEnabled) "Auto Calendar On" else "Auto Off"
-                            if (activeFestivals.isNotEmpty()) {
-                                "$autoLabel • ${activeFestivals.size} active"
-                            } else {
-                                "$autoLabel • Tap to customize & sync"
-                            }
+                            val calLabel = if (festivalStudioConfig.autoCalendarEnabled) "Calendar + Custom" else "Custom Only"
+                            if (activeFestivals.isNotEmpty()) "$calLabel (${activeFestivals.size} live)" else calLabel
                         }
+                    }
+                    val studioSummary = when {
+                        noticeActive -> "Notice Live • $festSummary"
+                        noticeScheduled -> "Notice Scheduled • $festSummary"
+                        else -> "$festSummary • Notices & Festivals"
                     }
                     SettingsItemRow(
                         icon = Icons.Filled.AutoAwesome,
                         iconTint = MaterialTheme.colorScheme.primary,
-                        title = "Festival Studio",
+                        title = "Announcement Studio",
                         subtitle = studioSummary,
                         onClick = { showFestivalStudioDialog = true },
-                        testTag = "settings_festival_studio_row",
+                        testTag = "settings_announcement_studio_row",
                         trailingContent = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1144,7 +1144,6 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     .clip(RoundedCornerShape(16.dp))
                     .clickable {
                         showSyncUpdatesDialog = true
-                        viewModel.refreshUiConfig()
                         viewModel.checkForUpdates()
                     }
                     .testTag("settings_updates_button")

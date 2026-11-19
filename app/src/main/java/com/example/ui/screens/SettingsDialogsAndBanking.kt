@@ -957,10 +957,6 @@ fun SettingsSyncAndUpdatesDialog(
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
     val pendingCount by viewModel.pendingQueueCount.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
-    val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
-    val isUiConfigRefreshing by viewModel.isUiConfigRefreshing.collectAsState()
-    val lastUiSyncedTime by viewModel.lastUiSyncedTime.collectAsState()
-    val uiSyncError by viewModel.uiSyncError.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
 
     Dialog(
@@ -1096,45 +1092,7 @@ fun SettingsSyncAndUpdatesDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Dynamic UI & APK Release
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Dynamic UI Config", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        val uiError = uiSyncError
-                        Text(
-                            text = when {
-                                !uiError.isNullOrBlank() -> uiError
-                                lastUiSyncedTime > 0 -> "Synced with GitHub"
-                                else -> "Store: $effectiveStoreTitle"
-                            },
-                            fontSize = 11.sp,
-                            color = when {
-                                !uiError.isNullOrBlank() -> ext.danger
-                                lastUiSyncedTime > 0 -> ext.positive
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                    if (isUiConfigRefreshing) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        OutlinedButton(
-                            onClick = { viewModel.refreshUiConfig() },
-                            modifier = Modifier.height(40.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Sync UI", fontSize = 11.sp)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
+                // APK Release Updates
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

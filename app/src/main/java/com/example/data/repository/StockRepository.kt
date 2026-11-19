@@ -1916,14 +1916,15 @@ class StockRepository(
 
     suspend fun saveAndSyncFestivalStudio(
         config: FestivalStudioConfig,
-        localBannerUri: android.net.Uri? = null
+        localBannerUris: Map<Int, android.net.Uri> = emptyMap()
     ): Boolean = withContext(Dispatchers.IO) {
-        var resolvedBannerUrl = config.customFestival.bannerImageUrl.trim()
+        val sourceList = config.effectiveCustomFestivals().toMutableList()
         var uploadFailed = false
 
-        if (localBannerUri != null) {
+        localBannerUris.forEach { (idx, localUri) ->
+            if (idx !in sourceList.indices) return@forEach
             val bytes = try {
-                context.contentResolver.openInputStream(localBannerUri)?.use { it.readBytes() }
+                context.contentResolver.openInputStream(localUri)?.use { it.readBytes() }
             } catch (_: Exception) {
                 null
             }
@@ -1931,10 +1932,10 @@ class StockRepository(
                 if (supabaseClient.isConfigured() && isOnline()) {
                     val uploaded = supabaseClient.uploadImageToCloudinary(
                         bytes,
-                        "festival_banner_${System.currentTimeMillis()}.jpg"
+                        "festival_banner_${System.currentTimeMillis()}_$idx.jpg"
                     ).getOrNull()
                     if (!uploaded.isNullOrBlank()) {
-                        resolvedBannerUrl = uploaded
+                        sourceList[idx] = sourceList[idx].copy(bannerImageUrl = uploaded)
                     } else {
                         uploadFailed = true
                     }
@@ -1944,8 +1945,10 @@ class StockRepository(
             }
         }
 
+        val finalCustomList = sourceList.toList()
         val stampedConfig = config.copy(
-            customFestival = config.customFestival.copy(bannerImageUrl = resolvedBannerUrl),
+            customFestival = finalCustomList.firstOrNull() ?: com.example.data.model.FestivalConfig(),
+            customFestivals = finalCustomList,
             updatedAt = System.currentTimeMillis()
         )
         val rawJson = festivalPreferenceManager.saveConfig(stampedConfig)

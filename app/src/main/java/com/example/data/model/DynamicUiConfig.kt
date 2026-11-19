@@ -37,8 +37,33 @@ data class AnnouncementConfig(
     val enabled: Boolean = false,
     val message: String = "",
     val severity: String = "info", // "info", "warning", "success", "alert"
-    val dismissible: Boolean = true
-)
+    val dismissible: Boolean = true,
+    val startAtMillis: Long = 0L,
+    val endAtMillis: Long = 0L
+) {
+    fun isActiveAt(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!enabled || message.isBlank()) return false
+        if (startAtMillis > 0L && nowMillis < startAtMillis) return false
+        if (endAtMillis > 0L && nowMillis > endAtMillis) return false
+        return true
+    }
+
+    fun hasValidTimerRange(): Boolean {
+        return startAtMillis <= 0L || endAtMillis <= 0L || endAtMillis > startAtMillis
+    }
+
+    fun timerSummaryLabel(): String? {
+        if (startAtMillis <= 0L && endAtMillis <= 0L) return null
+        val fmt = SimpleDateFormat("MMM d, h:mm a", Locale.US)
+        return when {
+            startAtMillis > 0L && endAtMillis > 0L ->
+                "${fmt.format(Date(startAtMillis))} – ${fmt.format(Date(endAtMillis))}"
+            endAtMillis > 0L -> "Ends ${fmt.format(Date(endAtMillis))}"
+            startAtMillis > 0L -> "Starts ${fmt.format(Date(startAtMillis))}"
+            else -> null
+        }
+    }
+}
 
 @JsonClass(generateAdapter = true)
 data class FeaturesConfig(

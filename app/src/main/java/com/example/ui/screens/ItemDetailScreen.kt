@@ -117,7 +117,6 @@ fun ItemDetailScreen(
     val items by viewModel.allItems.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()

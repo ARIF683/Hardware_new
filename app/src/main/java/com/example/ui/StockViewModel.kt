@@ -9,8 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.auth.AuthManager
 import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
+import com.example.data.model.AnnouncementConfig
 import com.example.data.model.AutoFestivalCalendar
-import com.example.data.model.DynamicUiConfig
 import com.example.data.model.FestivalConfig
 import com.example.data.model.Item
 import com.example.data.model.TransactionRecord
@@ -27,11 +27,12 @@ import com.example.data.pref.LogoPreferenceManager
 import com.example.data.pref.StoreIdentity
 import com.example.data.pref.StoreProfilePreferenceManager
 import com.example.data.remote.AppUpdateManager
-import com.example.data.remote.DynamicUiManager
 import com.example.data.remote.UpdateStatus
 import com.example.data.repository.BillRowData
 import com.example.data.repository.StockRepository
 import com.example.util.InvoicePrintManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +43,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
@@ -78,7 +81,6 @@ data class StockFlowDayPoint(
 class StockViewModel(application: Application) : AndroidViewModel(application) {
     val authManager = AuthManager(application)
     val repository = StockRepository(application)
-    val dynamicUiManager = DynamicUiManager(application)
     val appUpdateManager = AppUpdateManager(application)
     val logoPreferenceManager = LogoPreferenceManager(application)
     val bankingPreferenceManager = BankingPreferenceManager(application)
@@ -176,23 +178,42 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         showToast("Store logo updated & saved!")
     }
 
-    val uiConfig: StateFlow<DynamicUiConfig> = dynamicUiManager.uiConfig
-    val effectiveStoreTitle: StateFlow<String> = storeIdentity.combine(uiConfig) { identity, cfg ->
-        identity.storeName.ifBlank { cfg.theme.storeTitle }.ifBlank { "S.A. HARDWARE" }
+    val effectiveStoreTitle: StateFlow<String> = storeIdentity.map { identity ->
+        identity.storeName.ifBlank { "S.A. HARDWARE" }
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        storeIdentity.value.storeName.ifBlank { uiConfig.value.theme.storeTitle }.ifBlank { "S.A. HARDWARE" }
+        storeIdentity.value.storeName.ifBlank { "S.A. HARDWARE" }
     )
-    val isUiConfigRefreshing: StateFlow<Boolean> = dynamicUiManager.isRefreshing
-    val lastUiSyncedTime: StateFlow<Long> = dynamicUiManager.lastSyncedTime
-    val uiSyncError: StateFlow<String?> = dynamicUiManager.lastSyncError
-    val activeFestivals: StateFlow<List<FestivalConfig>> = combine(festivalStudioConfig, uiConfig) { studio, remoteCfg ->
-        AutoFestivalCalendar.resolveEffectiveFestivals(studio, remoteCfg)
+    val activeFestivals: StateFlow<List<FestivalConfig>> = festivalStudioConfig.map { studio ->
+        AutoFestivalCalendar.resolveEffectiveFestivals(studio)
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        AutoFestivalCalendar.resolveEffectiveFestivals(festivalStudioConfig.value, uiConfig.value)
+        AutoFestivalCalendar.resolveEffectiveFestivals(festivalStudioConfig.value)
+    )
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val activeAnnouncement: StateFlow<AnnouncementConfig> = festivalStudioConfig.transformLatest { studio ->
+        val raw = studio.announcement
+        while (true) {
+            val now = System.currentTimeMillis()
+            val live = if (raw.isActiveAt(now)) raw else raw.copy(enabled = false)
+            emit(live)
+            val nextWake = when {
+                !raw.enabled || raw.message.isBlank() -> null
+                raw.startAtMillis > 0L && now < raw.startAtMillis -> raw.startAtMillis
+                raw.endAtMillis > 0L && now < raw.endAtMillis -> raw.endAtMillis
+                else -> null
+            } ?: break
+            val waitMs = (nextWake - now + 100L).coerceIn(1000L, 3_600_000L)
+            delay(waitMs)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        festivalStudioConfig.value.announcement.let { raw ->
+            if (raw.isActiveAt()) raw else raw.copy(enabled = false)
+        }
     )
     val effectiveThemeColor: StateFlow<String> = combine(
         _customThemeColor,
@@ -343,9 +364,11 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.loadFromRemote()
         }
-        // Fetch dynamic UI config from GitHub
+        // Reset announcement dismissal whenever a new announcement arrives from Supabase
         viewModelScope.launch {
-            dynamicUiManager.refreshConfig()
+            activeAnnouncement.collect {
+                isAnnouncementDismissed.value = false
+            }
         }
         // Check for latest APK updates from GitHub Releases
         viewModelScope.launch {
@@ -353,35 +376,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshUiConfig() {
-        viewModelScope.launch {
-            when (val result = dynamicUiManager.refreshConfigWithStatus()) {
-                is com.example.data.remote.UiSyncResult.Success -> {
-                    showToast("UI configuration updated from GitHub!")
-                }
-                is com.example.data.remote.UiSyncResult.InvalidJson -> {
-                    showToast("${result.reason}. Check closing } braces on GitHub.")
-                }
-                is com.example.data.remote.UiSyncResult.HttpError -> {
-                    showToast("GitHub sync failed (HTTP ${result.code}). Push ui_config.json to main.")
-                }
-                is com.example.data.remote.UiSyncResult.NetworkError -> {
-                    showToast("Could not reach GitHub. Using cached local UI.")
-                }
-            }
-        }
-    }
-
     fun saveAndSyncFestivalStudio(
         config: FestivalStudioConfig,
-        localBannerUri: android.net.Uri? = null
+        localBannerUris: Map<Int, android.net.Uri> = emptyMap()
     ) {
         viewModelScope.launch {
-            val uploadOk = repository.saveAndSyncFestivalStudio(config, localBannerUri)
+            isAnnouncementDismissed.value = false
+            val uploadOk = repository.saveAndSyncFestivalStudio(config, localBannerUris)
             if (uploadOk) {
-                showToast("Festival Studio saved & synced across devices!")
+                showToast("Announcement Studio saved & synced across devices!")
             } else {
-                showToast("Saved Festival settings. Custom image upload requires internet.")
+                showToast("Saved Announcement Studio settings. Custom image upload requires internet.")
             }
         }
     }

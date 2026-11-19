@@ -108,7 +108,7 @@ fun HomeScreen(viewModel: StockViewModel) {
     val items by viewModel.allItems.collectAsState()
     val recentTx by viewModel.recentTransactions.collectAsState()
     val allTransactions by viewModel.allTransactions.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
+    val activeAnnouncement by viewModel.activeAnnouncement.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
@@ -399,24 +399,25 @@ fun HomeScreen(viewModel: StockViewModel) {
             }
         }
 
-        // Dynamic Announcement Banner (Server-Driven UI)
-        if (uiConfig.announcement.enabled && !isAnnouncementDismissed && uiConfig.announcement.message.isNotBlank()) {
+        // Admin-Synced Store Announcement Banner (via Announcement Studio)
+        if (activeAnnouncement.isActiveAt() && !isAnnouncementDismissed) {
             item {
-                val bannerTint = when (uiConfig.announcement.severity) {
+                val bannerTint = when (activeAnnouncement.severity) {
                     "warning" -> ext.warning
                     "alert" -> ext.danger
                     "success" -> ext.positive
                     else -> MaterialTheme.colorScheme.primary
                 }
-                val bannerIcon = when (uiConfig.announcement.severity) {
+                val bannerIcon = when (activeAnnouncement.severity) {
                     "warning", "alert" -> Icons.Default.Warning
                     else -> Icons.Default.Info
                 }
+                val timerCaption = activeAnnouncement.timerSummaryLabel()
                 Card(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = bannerTint.copy(alpha = 0.12f)),
                     border = BorderStroke(1.dp, bannerTint.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("home_announcement_banner")
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -424,14 +425,24 @@ fun HomeScreen(viewModel: StockViewModel) {
                     ) {
                         Icon(imageVector = bannerIcon, contentDescription = null, tint = bannerTint)
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = uiConfig.announcement.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (uiConfig.announcement.dismissible) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = activeAnnouncement.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (timerCaption != null) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = timerCaption,
+                                    fontSize = 11.sp,
+                                    color = bannerTint,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                        if (activeAnnouncement.dismissible) {
                             IconButton(onClick = { viewModel.isAnnouncementDismissed.value = true }) {
                                 Icon(
                                     Icons.Default.Close,

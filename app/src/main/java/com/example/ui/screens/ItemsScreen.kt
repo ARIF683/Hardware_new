@@ -127,7 +127,6 @@ fun ItemsScreen(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
     val itemsViewLayout by viewModel.itemsViewLayout.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()

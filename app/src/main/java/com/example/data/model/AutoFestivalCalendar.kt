@@ -238,9 +238,31 @@ object AutoFestivalCalendar {
         return candidates.minByOrNull { it.first }?.second
     }
 
+    fun autoFestivalKey(festivalName: String): String =
+        festivalName.trim().lowercase(Locale.ROOT)
+
+    fun upcomingAndActiveCalendarEntries(
+        isoDate: String = FestivalScheduleHelper.todayIsoDate()
+    ): List<FestivalConfig> {
+        val todayKey = FestivalScheduleHelper.parseIsoDateKey(isoDate) ?: return emptyList()
+        val year = todayKey / 10000
+        val out = mutableListOf<Pair<Int, FestivalConfig>>()
+        for (entry in entries) {
+            val thisYearWin = entry.windowForYear(year)
+            val thisYearEnd = thisYearWin?.let { FestivalScheduleHelper.parseIsoDateKey(it.second) }
+            val chosenWin = if (thisYearWin != null && thisYearEnd != null && thisYearEnd >= todayKey) {
+                thisYearWin
+            } else {
+                entry.windowForYear(year + 1) ?: thisYearWin
+            } ?: continue
+            val startKey = FestivalScheduleHelper.parseIsoDateKey(chosenWin.first) ?: Int.MAX_VALUE
+            out += startKey to entry.toFestivalConfig(chosenWin)
+        }
+        return out.sortedBy { it.first }.map { it.second }
+    }
+
     fun resolveEffectiveFestivals(
         studioConfig: FestivalStudioConfig,
-        remoteUiConfig: DynamicUiConfig,
         isoDate: String = FestivalScheduleHelper.todayIsoDate()
     ): List<FestivalConfig> {
         if (studioConfig.overrideMode == FestivalStudioConfig.MODE_OFF) {
@@ -253,35 +275,38 @@ object AutoFestivalCalendar {
         fun addUnique(cfg: FestivalConfig) {
             val presetKey = cfg.stylePreset.trim().lowercase(Locale.ROOT)
             val nameKey = cfg.festivalName.trim().lowercase(Locale.ROOT)
+            val greetKey = cfg.greetingMessage.trim().lowercase(Locale.ROOT)
             val key = if (presetKey.isNotBlank() && presetKey != "default") {
-                "preset:$presetKey:$nameKey"
+                "preset:$presetKey:$nameKey:$greetKey"
             } else {
-                "name:$nameKey"
+                "name:$nameKey:$greetKey"
             }
             if (seenKeys.add(key)) {
                 combined += cfg
             }
         }
 
-        // 1. Supabase Admin Custom Festival (highest priority)
-        if (studioConfig.customFestival.isActiveOn(isoDate)) {
-            addUnique(studioConfig.customFestival)
+        // 1. Admin Custom Festival / Offer Cards (supports 2+ simultaneous cards)
+        studioConfig.effectiveCustomFestivals().forEach { customCard ->
+            if (customCard.isActiveOn(isoDate)) {
+                addUnique(customCard)
+            }
         }
 
-        if (studioConfig.overrideMode != FestivalStudioConfig.MODE_CUSTOM) {
-            // 2. GitHub DynamicUiConfig festivals (if configured)
-            remoteUiConfig.activeFestivals(isoDate).forEach { addUnique(it) }
+        // 2. Built-in Automatic Indian Festival Calendar (minus any hidden by Admin)
+        val hiddenSet = studioConfig.hiddenAutoFestivalKeys
+            .map { autoFestivalKey(it) }
+            .toSet()
 
-            // 3. Built-in Automatic Indian Festival Calendar
-            if (studioConfig.autoCalendarEnabled) {
-                activeFestivalsOn(isoDate).forEach { autoCfg ->
-                    val autoPreset = autoCfg.stylePreset.trim().lowercase(Locale.ROOT)
-                    val alreadyCoveredByPreset = combined.any {
-                        it.stylePreset.trim().lowercase(Locale.ROOT) == autoPreset && autoPreset != "default"
-                    }
-                    if (!alreadyCoveredByPreset) {
-                        addUnique(autoCfg)
-                    }
+        if (studioConfig.overrideMode != FestivalStudioConfig.MODE_CUSTOM && studioConfig.autoCalendarEnabled) {
+            activeFestivalsOn(isoDate).forEach { autoCfg ->
+                if (autoFestivalKey(autoCfg.festivalName) in hiddenSet) return@forEach
+                val autoPreset = autoCfg.stylePreset.trim().lowercase(Locale.ROOT)
+                val alreadyCoveredByPreset = combined.any {
+                    it.stylePreset.trim().lowercase(Locale.ROOT) == autoPreset && autoPreset != "default"
+                }
+                if (!alreadyCoveredByPreset) {
+                    addUnique(autoCfg)
                 }
             }
         }

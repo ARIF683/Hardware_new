@@ -7,26 +7,28 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -37,9 +39,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
+import com.example.data.model.AnnouncementConfig
 import com.example.data.model.AutoFestivalCalendar
 import com.example.data.model.FestivalConfig
-import com.example.data.model.FestivalScheduleHelper
 import com.example.data.pref.FestivalStudioConfig
 import com.example.ui.StockViewModel
 import com.example.ui.components.FestivalBannerCard
@@ -116,44 +118,55 @@ fun FestivalStudioDialog(
     viewModel: StockViewModel,
     onDismiss: () -> Unit
 ) {
+    AnnouncementStudioDialog(viewModel = viewModel, onDismiss = onDismiss)
+}
+
+@Composable
+fun AnnouncementStudioDialog(
+    viewModel: StockViewModel,
+    onDismiss: () -> Unit
+) {
     val ext = LocalExtendedColors.current
     val currentConfig by viewModel.festivalStudioConfig.collectAsState()
     val nextAutoFestival = remember { AutoFestivalCalendar.nextUpcomingFestival() }
 
+    // Announcement state (with timer)
+    var announcementEnabled by remember(currentConfig) { mutableStateOf(currentConfig.announcement.enabled) }
+    var announcementMessage by remember(currentConfig) { mutableStateOf(currentConfig.announcement.message) }
+    var announcementSeverity by remember(currentConfig) { mutableStateOf(currentConfig.announcement.severity.ifBlank { "info" }) }
+    var announcementDismissible by remember(currentConfig) { mutableStateOf(currentConfig.announcement.dismissible) }
+    var announcementStartAtMillis by remember(currentConfig) { mutableLongStateOf(currentConfig.announcement.startAtMillis) }
+    var announcementEndAtMillis by remember(currentConfig) { mutableLongStateOf(currentConfig.announcement.endAtMillis) }
+
+    // Festival & theme state
     var autoCalendarEnabled by remember(currentConfig) { mutableStateOf(currentConfig.autoCalendarEnabled) }
     var applyThemeToApp by remember(currentConfig) { mutableStateOf(currentConfig.applyFestivalThemeToApp) }
     var overrideMode by remember(currentConfig) { mutableStateOf(currentConfig.overrideMode) }
 
-    var customEnabled by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.enabled) }
-    var stylePreset by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.stylePreset.ifBlank { "diwali" }) }
-    var festivalName by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.festivalName) }
-    var badgeText by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.badgeText) }
-    var accentColorHex by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.accentColorHex) }
-    var greetingMessage by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.greetingMessage) }
-    var startDate by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.startDate) }
-    var endDate by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.endDate) }
-    var bannerImageUrl by remember(currentConfig) { mutableStateOf(currentConfig.customFestival.bannerImageUrl) }
-    var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
+    // Multiple custom cards + hidden auto-calendar keys
+    val customCards = remember(currentConfig) {
+        currentConfig.effectiveCustomFestivals().toMutableStateList()
+    }
+    val hiddenAutoKeys = remember(currentConfig) {
+        currentConfig.hiddenAutoFestivalKeys.toMutableStateList()
+    }
+    var editingIndex by remember(currentConfig) {
+        mutableStateOf(if (customCards.isNotEmpty()) 0 else null)
+    }
+    val pickedImageUris = remember(currentConfig) { mutableStateMapOf<Int, Uri>() }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        if (uri != null) {
-            pickedImageUri = uri
+        val idx = editingIndex
+        if (uri != null && idx != null && idx in customCards.indices) {
+            pickedImageUris[idx] = uri
         }
     }
 
-    val draftCustomFestival = FestivalConfig(
-        enabled = customEnabled,
-        festivalName = festivalName.trim(),
-        greetingMessage = greetingMessage.trim(),
-        badgeText = badgeText.trim(),
-        accentColorHex = accentColorHex.trim(),
-        bannerImageUrl = pickedImageUri?.toString() ?: bannerImageUrl.trim(),
-        startDate = startDate.trim(),
-        endDate = endDate.trim(),
-        stylePreset = stylePreset
-    )
+    val isTimerValid = announcementStartAtMillis <= 0L ||
+        announcementEndAtMillis <= 0L ||
+        announcementEndAtMillis > announcementStartAtMillis
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -166,8 +179,8 @@ fun FestivalStudioDialog(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .widthIn(max = 520.dp)
-                .heightIn(max = 760.dp)
-                .testTag("festival_studio_dialog")
+                .heightIn(max = 780.dp)
+                .testTag("announcement_studio_dialog")
         ) {
             Column(
                 modifier = Modifier
@@ -201,7 +214,7 @@ fun FestivalStudioDialog(
                             )
                         }
                         Column {
-                            Text("Festival Studio", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("Announcement Studio", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             Text(
                                 "Admin Only • Syncs Across All Devices",
                                 fontSize = 11.5.sp,
@@ -211,11 +224,169 @@ fun FestivalStudioDialog(
                         }
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close Festival Studio")
+                        Icon(Icons.Default.Close, contentDescription = "Close Announcement Studio")
                     }
                 }
 
-                // 1. Automatic Calendar & App-Wide Theme Switches
+                // SECTION 1: Store Announcement Notice + Timer
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Campaign,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        "Store Announcement Notice",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Show a live or timed notice banner on Home",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = announcementEnabled,
+                                onCheckedChange = { announcementEnabled = it },
+                                modifier = Modifier.testTag("studio_announcement_enabled_switch")
+                            )
+                        }
+
+                        if (announcementEnabled || announcementMessage.isNotBlank()) {
+                            OutlinedTextField(
+                                value = announcementMessage,
+                                onValueChange = { announcementMessage = it },
+                                label = { Text("Notice Message") },
+                                placeholder = { Text("e.g., Shop closed Sunday / New paint shipment arrived") },
+                                maxLines = 3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("studio_announcement_message_input")
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val severities = listOf(
+                                    "info" to "Info",
+                                    "success" to "Success",
+                                    "warning" to "Warning",
+                                    "alert" to "Alert"
+                                )
+                                severities.forEach { (sevKey, sevLabel) ->
+                                    FilterChip(
+                                        selected = announcementSeverity == sevKey,
+                                        onClick = { announcementSeverity = sevKey },
+                                        label = { Text(sevLabel, fontSize = 11.5.sp) }
+                                    )
+                                }
+                            }
+
+                            AnnouncementTimerSection(
+                                startAtMillis = announcementStartAtMillis,
+                                endAtMillis = announcementEndAtMillis,
+                                onUpdateRange = { start, end ->
+                                    announcementStartAtMillis = start
+                                    announcementEndAtMillis = end
+                                }
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Allow staff to dismiss notice",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Switch(
+                                    checked = announcementDismissible,
+                                    onCheckedChange = { announcementDismissible = it }
+                                )
+                            }
+
+                            if (announcementEnabled && announcementMessage.isNotBlank()) {
+                                val previewTint = when (announcementSeverity) {
+                                    "warning" -> ext.warning
+                                    "alert" -> ext.danger
+                                    "success" -> ext.positive
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
+                                val previewIcon = when (announcementSeverity) {
+                                    "warning", "alert" -> Icons.Default.Warning
+                                    else -> Icons.Default.Info
+                                }
+                                val previewTimer = AnnouncementConfig(
+                                    enabled = true,
+                                    message = announcementMessage.trim(),
+                                    startAtMillis = announcementStartAtMillis,
+                                    endAtMillis = announcementEndAtMillis
+                                ).timerSummaryLabel()
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = previewTint.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, previewTint.copy(alpha = 0.35f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(previewIcon, contentDescription = null, tint = previewTint, modifier = Modifier.size(18.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = announcementMessage.trim(),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (previewTimer != null) {
+                                                Text(
+                                                    text = previewTimer,
+                                                    fontSize = 10.5.sp,
+                                                    color = previewTint,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // SECTION 2: Built-in Calendar & App-Wide Theme Switches
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
@@ -234,12 +405,12 @@ fun FestivalStudioDialog(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "Auto Indian Festival Calendar",
+                                    "Built-in Indian Festival Calendar",
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    "Auto-shows Diwali, Holi, Eid, Christmas & National days",
+                                    "Offline calendar (Diwali, Holi, Eid, Christmas & National days)",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -263,7 +434,7 @@ fun FestivalStudioDialog(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "Next auto: ${nextAutoFestival.festivalName} (${nextAutoFestival.scheduleSummaryLabel() ?: ""})",
+                                    text = "Next on calendar: ${nextAutoFestival.festivalName} (${nextAutoFestival.scheduleSummaryLabel() ?: ""})",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Medium,
@@ -271,6 +442,20 @@ fun FestivalStudioDialog(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                        }
+
+                        if (autoCalendarEnabled && overrideMode != FestivalStudioConfig.MODE_CUSTOM) {
+                            BuiltInCalendarFestivalsManager(
+                                hiddenKeys = hiddenAutoKeys,
+                                onToggleHideKey = { key, shouldHide ->
+                                    if (shouldHide) {
+                                        if (key !in hiddenAutoKeys) hiddenAutoKeys.add(key)
+                                    } else {
+                                        hiddenAutoKeys.removeAll { it.equals(key, ignoreCase = true) }
+                                    }
+                                },
+                                onRestoreAll = { hiddenAutoKeys.clear() }
+                            )
                         }
 
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
@@ -298,7 +483,7 @@ fun FestivalStudioDialog(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        "Auto-tints buttons & active tabs while festival is live",
+                                        "Tints buttons & active tabs while festival is live",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -313,10 +498,10 @@ fun FestivalStudioDialog(
                     }
                 }
 
-                // 2. Priority / Display Mode Selector
+                // SECTION 3: Festival Display Mode Selector
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "Display Mode",
+                        "Festival Display Mode",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -326,7 +511,7 @@ fun FestivalStudioDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val modes = listOf(
-                            FestivalStudioConfig.MODE_AUTO to "Auto + Custom",
+                            FestivalStudioConfig.MODE_AUTO to "Calendar + Custom",
                             FestivalStudioConfig.MODE_CUSTOM to "Custom Only",
                             FestivalStudioConfig.MODE_OFF to "Off / Pause"
                         )
@@ -338,7 +523,7 @@ fun FestivalStudioDialog(
                                 label = {
                                     Text(
                                         modeLabel,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -351,7 +536,7 @@ fun FestivalStudioDialog(
                     }
                 }
 
-                // 3. Custom Banner Override Card
+                // SECTION 4: Multiple Custom Festival / Offer Cards
                 if (overrideMode != FestivalStudioConfig.MODE_OFF) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -371,240 +556,319 @@ fun FestivalStudioDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        "Custom Store Banner Override",
+                                        "Custom Festival & Offer Cards (${customCards.size})",
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        "Create or push a festive offer banner anytime",
+                                        "Add 2+ cards to rotate in Home carousel & header strip",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Switch(
-                                    checked = customEnabled,
-                                    onCheckedChange = { customEnabled = it },
-                                    modifier = Modifier.testTag("studio_custom_enabled_switch")
-                                )
-                            }
-
-                            // Preset Selector Row
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                studioPresetTemplates.forEach { tpl ->
-                                    val isChosen = stylePreset.equals(tpl.preset.key, ignoreCase = true)
-                                    FilterChip(
-                                        selected = isChosen,
-                                        onClick = {
-                                            val oldTpl = studioPresetTemplates.find {
-                                                it.preset.key.equals(stylePreset, ignoreCase = true)
-                                            }
-                                            stylePreset = tpl.preset.key
-                                            accentColorHex = tpl.defaultHex
-                                            if (festivalName.isBlank() || festivalName == oldTpl?.defaultTitle) {
-                                                festivalName = tpl.defaultTitle
-                                            }
-                                            if (greetingMessage.isBlank() || greetingMessage == oldTpl?.defaultGreeting) {
-                                                greetingMessage = tpl.defaultGreeting
-                                            }
-                                            if (badgeText.isBlank() || badgeText == oldTpl?.preset?.defaultBadge) {
-                                                badgeText = tpl.preset.defaultBadge
-                                            }
-                                            customEnabled = true
-                                        },
-                                        label = { Text(tpl.label, fontSize = 11.5.sp) }
-                                    )
-                                }
-                            }
-
-                            OutlinedTextField(
-                                value = festivalName,
-                                onValueChange = { festivalName = it },
-                                label = { Text("Festival / Offer Title") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = badgeText,
-                                    onValueChange = { badgeText = it },
-                                    label = { Text("Badge Text") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1.3f)
-                                )
-                                OutlinedTextField(
-                                    value = accentColorHex,
-                                    onValueChange = { accentColorHex = it },
-                                    label = { Text("Color Hex") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(0.9f)
-                                )
-                            }
-
-                            OutlinedTextField(
-                                value = greetingMessage,
-                                onValueChange = { greetingMessage = it },
-                                label = { Text("Greeting / Offer Message") },
-                                maxLines = 3,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            // Schedule Dates + Quick Helpers
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = startDate,
-                                    onValueChange = { startDate = it },
-                                    label = { Text("Start (YYYY-MM-DD)") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = endDate,
-                                    onValueChange = { endDate = it },
-                                    label = { Text("End (YYYY-MM-DD)") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                AssistChip(
+                                FilledTonalButton(
                                     onClick = {
-                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                        val today = Date()
-                                        val cal = Calendar.getInstance().apply {
-                                            time = today
-                                            add(Calendar.DAY_OF_YEAR, 7)
+                                        val tpl = if (customCards.isEmpty()) {
+                                            studioPresetTemplates.first()
+                                        } else {
+                                            studioPresetTemplates.last() // Festive Offer default for additional card
                                         }
-                                        startDate = sdf.format(today)
-                                        endDate = sdf.format(cal.time)
+                                        customCards.add(
+                                            FestivalConfig(
+                                                enabled = true,
+                                                festivalName = tpl.defaultTitle,
+                                                greetingMessage = tpl.defaultGreeting,
+                                                badgeText = tpl.preset.defaultBadge,
+                                                accentColorHex = tpl.defaultHex,
+                                                stylePreset = tpl.preset.key
+                                            )
+                                        )
+                                        editingIndex = customCards.lastIndex
                                     },
-                                    label = { Text("Today – +7d", fontSize = 11.sp) }
-                                )
-                                AssistChip(
-                                    onClick = {
-                                        val cal = Calendar.getInstance()
-                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                        cal.set(Calendar.DAY_OF_MONTH, 1)
-                                        startDate = sdf.format(cal.time)
-                                        cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
-                                        endDate = sdf.format(cal.time)
-                                    },
-                                    label = { Text("Full Month", fontSize = 11.sp) }
-                                )
-                                AssistChip(
-                                    onClick = {
-                                        startDate = ""
-                                        endDate = ""
-                                    },
-                                    label = { Text("No Dates", fontSize = 11.sp) }
-                                )
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .height(40.dp)
+                                        .testTag("studio_add_custom_card_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Add Card", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
 
-                            // Gallery Image Picker & Preview
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        imagePicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            if (customCards.isEmpty()) {
+                                Text(
+                                    "No custom cards yet. Tap \"Add Card\" to create a custom festival or store sale banner.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    customCards.forEachIndexed { idx, card ->
+                                        CustomFestivalCardItemRow(
+                                            card = card,
+                                            index = idx,
+                                            isEditing = editingIndex == idx,
+                                            onToggleEnabled = { checked ->
+                                                customCards[idx] = card.copy(enabled = checked)
+                                            },
+                                            onSelectEdit = {
+                                                editingIndex = if (editingIndex == idx) null else idx
+                                            },
+                                            onDelete = {
+                                                customCards.removeAt(idx)
+                                                val remappedUris = pickedImageUris.entries
+                                                    .filter { it.key != idx }
+                                                    .associate { (k, v) -> (if (k > idx) k - 1 else k) to v }
+                                                pickedImageUris.clear()
+                                                pickedImageUris.putAll(remappedUris)
+                                                editingIndex = when {
+                                                    customCards.isEmpty() -> null
+                                                    editingIndex == idx -> 0
+                                                    (editingIndex ?: 0) > idx -> (editingIndex ?: 1) - 1
+                                                    else -> editingIndex
+                                                }
+                                            }
                                         )
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp)
-                                ) {
-                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        if (pickedImageUri != null || bannerImageUrl.isNotBlank()) "Change Banner Image" else "Pick Banner Photo",
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                if (pickedImageUri != null || bannerImageUrl.isNotBlank()) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            pickedImageUri = null
-                                            bannerImageUrl = ""
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
-                                        modifier = Modifier.height(44.dp)
-                                    ) {
-                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Clear banner image", modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
 
-                            if (pickedImageUri != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(90.dp)
-                                ) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(model = pickedImageUri),
-                                        contentDescription = "Selected festival banner",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            } else if (bannerImageUrl.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(90.dp)
-                                ) {
-                                    AsyncImage(
-                                        model = ImageModelHelper.rememberImageModel(bannerImageUrl),
-                                        contentDescription = "Synced festival banner",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            }
+                            val activeEditIdx = editingIndex?.takeIf { it in customCards.indices }
+                            if (activeEditIdx != null) {
+                                val card = customCards[activeEditIdx]
+                                val pickedForCard = pickedImageUris[activeEditIdx]
 
-                            if (customEnabled && (festivalName.isNotBlank() || greetingMessage.isNotBlank())) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+
                                 Text(
-                                    "Live Card Preview",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    "Editing Card #${activeEditIdx + 1}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
-                                FestivalBannerCard(
-                                    festival = draftCustomFestival.copy(enabled = true),
-                                    pageIndex = 0,
-                                    totalPages = 1,
-                                    modifier = Modifier.fillMaxWidth()
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    studioPresetTemplates.forEach { tpl ->
+                                        val isChosen = card.stylePreset.equals(tpl.preset.key, ignoreCase = true)
+                                        FilterChip(
+                                            selected = isChosen,
+                                            onClick = {
+                                                val oldTpl = studioPresetTemplates.find {
+                                                    it.preset.key.equals(card.stylePreset, ignoreCase = true)
+                                                }
+                                                customCards[activeEditIdx] = card.copy(
+                                                    enabled = true,
+                                                    stylePreset = tpl.preset.key,
+                                                    accentColorHex = tpl.defaultHex,
+                                                    festivalName = if (card.festivalName.isBlank() || card.festivalName == oldTpl?.defaultTitle) tpl.defaultTitle else card.festivalName,
+                                                    greetingMessage = if (card.greetingMessage.isBlank() || card.greetingMessage == oldTpl?.defaultGreeting) tpl.defaultGreeting else card.greetingMessage,
+                                                    badgeText = if (card.badgeText.isBlank() || card.badgeText == oldTpl?.preset?.defaultBadge) tpl.preset.defaultBadge else card.badgeText
+                                                )
+                                            },
+                                            label = { Text(tpl.label, fontSize = 11.5.sp) }
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = card.festivalName,
+                                    onValueChange = { customCards[activeEditIdx] = card.copy(festivalName = it) },
+                                    label = { Text("Festival / Offer Title") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("studio_card_title_input")
                                 )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = card.badgeText,
+                                        onValueChange = { customCards[activeEditIdx] = card.copy(badgeText = it) },
+                                        label = { Text("Badge Text") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1.3f)
+                                    )
+                                    OutlinedTextField(
+                                        value = card.accentColorHex,
+                                        onValueChange = { customCards[activeEditIdx] = card.copy(accentColorHex = it) },
+                                        label = { Text("Color Hex") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(0.9f)
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = card.greetingMessage,
+                                    onValueChange = { customCards[activeEditIdx] = card.copy(greetingMessage = it) },
+                                    label = { Text("Greeting / Offer Message") },
+                                    maxLines = 3,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("studio_card_message_input")
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = card.startDate,
+                                        onValueChange = { customCards[activeEditIdx] = card.copy(startDate = it) },
+                                        label = { Text("Start (YYYY-MM-DD)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = card.endDate,
+                                        onValueChange = { customCards[activeEditIdx] = card.copy(endDate = it) },
+                                        label = { Text("End (YYYY-MM-DD)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    AssistChip(
+                                        onClick = {
+                                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                            val today = Date()
+                                            val cal = Calendar.getInstance().apply {
+                                                time = today
+                                                add(Calendar.DAY_OF_YEAR, 7)
+                                            }
+                                            customCards[activeEditIdx] = card.copy(
+                                                startDate = sdf.format(today),
+                                                endDate = sdf.format(cal.time)
+                                            )
+                                        },
+                                        label = { Text("Today – +7d", fontSize = 11.sp) }
+                                    )
+                                    AssistChip(
+                                        onClick = {
+                                            val cal = Calendar.getInstance()
+                                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                            cal.set(Calendar.DAY_OF_MONTH, 1)
+                                            val s = sdf.format(cal.time)
+                                            cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                                            val e = sdf.format(cal.time)
+                                            customCards[activeEditIdx] = card.copy(startDate = s, endDate = e)
+                                        },
+                                        label = { Text("Full Month", fontSize = 11.sp) }
+                                    )
+                                    AssistChip(
+                                        onClick = {
+                                            customCards[activeEditIdx] = card.copy(startDate = "", endDate = "")
+                                        },
+                                        label = { Text("No Dates", fontSize = 11.sp) }
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            imagePicker.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(44.dp)
+                                    ) {
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (pickedForCard != null || card.bannerImageUrl.isNotBlank()) "Change Banner Image" else "Pick Banner Photo",
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (pickedForCard != null || card.bannerImageUrl.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                pickedImageUris.remove(activeEditIdx)
+                                                customCards[activeEditIdx] = card.copy(bannerImageUrl = "")
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ext.danger),
+                                            modifier = Modifier.height(44.dp)
+                                        ) {
+                                            Icon(Icons.Default.DeleteOutline, contentDescription = "Clear banner image", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+
+                                if (pickedForCard != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(90.dp)
+                                    ) {
+                                        Image(
+                                            painter = rememberAsyncImagePainter(model = pickedForCard),
+                                            contentDescription = "Selected festival banner",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                } else if (card.bannerImageUrl.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(90.dp)
+                                    ) {
+                                        AsyncImage(
+                                            model = ImageModelHelper.rememberImageModel(card.bannerImageUrl),
+                                            contentDescription = "Synced festival banner",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+
+                                if (card.festivalName.isNotBlank() || card.greetingMessage.isNotBlank()) {
+                                    Text(
+                                        "Live Card Preview",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    FestivalBannerCard(
+                                        festival = card.copy(
+                                            enabled = true,
+                                            bannerImageUrl = pickedForCard?.toString() ?: card.bannerImageUrl
+                                        ),
+                                        pageIndex = 0,
+                                        totalPages = 1,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // 4. Save & Sync CTA
+                // SECTION 5: Save & Sync CTA
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -619,26 +883,38 @@ fun FestivalStudioDialog(
                         Text("Cancel")
                     }
                     Button(
+                        enabled = isTimerValid,
                         onClick = {
-                            val cleanCustom = FestivalConfig(
-                                enabled = customEnabled,
-                                festivalName = festivalName.trim(),
-                                greetingMessage = greetingMessage.trim(),
-                                badgeText = badgeText.trim(),
-                                accentColorHex = accentColorHex.trim(),
-                                bannerImageUrl = bannerImageUrl.trim(),
-                                startDate = startDate.trim(),
-                                endDate = endDate.trim(),
-                                stylePreset = stylePreset
+                            val cleanCustomList = customCards.map { card ->
+                                card.copy(
+                                    festivalName = card.festivalName.trim(),
+                                    greetingMessage = card.greetingMessage.trim(),
+                                    badgeText = card.badgeText.trim(),
+                                    accentColorHex = card.accentColorHex.trim(),
+                                    bannerImageUrl = card.bannerImageUrl.trim(),
+                                    startDate = card.startDate.trim(),
+                                    endDate = card.endDate.trim()
+                                )
+                            }
+                            val cleanAnnouncement = AnnouncementConfig(
+                                enabled = announcementEnabled,
+                                message = announcementMessage.trim(),
+                                severity = announcementSeverity,
+                                dismissible = announcementDismissible,
+                                startAtMillis = announcementStartAtMillis,
+                                endAtMillis = announcementEndAtMillis
                             )
                             val updatedStudio = FestivalStudioConfig(
                                 autoCalendarEnabled = autoCalendarEnabled,
                                 applyFestivalThemeToApp = applyThemeToApp,
                                 overrideMode = overrideMode,
-                                customFestival = cleanCustom,
+                                customFestival = cleanCustomList.firstOrNull() ?: FestivalConfig(),
+                                customFestivals = cleanCustomList,
+                                hiddenAutoFestivalKeys = hiddenAutoKeys.distinct(),
+                                announcement = cleanAnnouncement,
                                 updatedAt = System.currentTimeMillis()
                             )
-                            viewModel.saveAndSyncFestivalStudio(updatedStudio, pickedImageUri)
+                            viewModel.saveAndSyncFestivalStudio(updatedStudio, pickedImageUris.toMap())
                             onDismiss()
                         },
                         shape = RoundedCornerShape(10.dp),

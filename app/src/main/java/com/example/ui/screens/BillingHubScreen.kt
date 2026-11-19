@@ -91,7 +91,6 @@ fun BillingHubScreen(viewModel: StockViewModel) {
     val ledgerAccounts by viewModel.allLedgerAccounts.collectAsState()
     val dailyCashflow by viewModel.allDailyCashflow.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    val uiConfig by viewModel.uiConfig.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()

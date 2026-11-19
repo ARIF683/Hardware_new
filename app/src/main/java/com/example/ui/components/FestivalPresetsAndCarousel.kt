@@ -7,6 +7,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -16,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -175,6 +179,18 @@ fun FestivalCarouselSection(
     }
 
     val pagerState = rememberPagerState(pageCount = { festivals.size })
+    val coroutineScope = rememberCoroutineScope()
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+
+    LaunchedEffect(festivals.size, isDragged) {
+        if (festivals.size > 1 && !isDragged) {
+            while (true) {
+                delay(5000L)
+                val nextPage = (pagerState.currentPage + 1) % festivals.size
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -220,6 +236,11 @@ fun FestivalCarouselSection(
                         .width(dotWidth)
                         .clip(CircleShape)
                         .background(dotColor)
+                        .clickable {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(index)
+                            }
+                        }
                 )
             }
         }
