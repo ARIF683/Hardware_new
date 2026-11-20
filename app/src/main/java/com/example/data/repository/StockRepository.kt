@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.data.auth.AuthManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
@@ -70,7 +71,8 @@ data class BillRowData(
 class StockRepository(
     private val context: Context,
     private val database: AppDatabase = AppDatabase.getDatabase(context),
-    private val supabaseClient: SupabaseClient = SupabaseClient()
+    private val supabaseClient: SupabaseClient = SupabaseClient(),
+    private val authManager: AuthManager = AuthManager(context)
 ) {
     private val tag = "StockRepository"
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1683,6 +1685,7 @@ class StockRepository(
             signatureUrl = sigUrl,
             qrCodeUrl = qrUrl,
             festivalConfigJson = festivalPreferenceManager.getRawJsonOrNull(),
+            adminPinHash = authManager.getCustomAdminPinVerifierOrNull(),
             updatedAt = System.currentTimeMillis()
         )
     }
@@ -1760,6 +1763,7 @@ class StockRepository(
             upiId = remote.upiId
         )
         festivalPreferenceManager.applyRemoteJson(remote.festivalConfigJson)
+        authManager.applyRemoteAdminPinHash(remote.adminPinHash, remote.updatedAt)
 
         val currentBank = bankingPreferenceManager.currentBankingInfo.value
         val sigUrl = remote.signatureUrl
@@ -1958,6 +1962,15 @@ class StockRepository(
         )
         pushStoreProfileMerged(snapshot)
         !uploadFailed
+    }
+
+    suspend fun saveAndSyncAdminPinHash(verifier: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val snapshot = buildLocalStoreProfileSnapshot().copy(
+            adminPinHash = verifier,
+            updatedAt = now
+        )
+        pushStoreProfileMerged(snapshot)
     }
 
     suspend fun getProcessedTintRecordIds(): Set<String> = withContext(Dispatchers.IO) {

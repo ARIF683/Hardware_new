@@ -80,7 +80,7 @@ data class StockFlowDayPoint(
 
 class StockViewModel(application: Application) : AndroidViewModel(application) {
     val authManager = AuthManager(application)
-    val repository = StockRepository(application)
+    val repository = StockRepository(application, authManager = authManager)
     val appUpdateManager = AppUpdateManager(application)
     val logoPreferenceManager = LogoPreferenceManager(application)
     val bankingPreferenceManager = BankingPreferenceManager(application)
@@ -238,6 +238,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val isAuthed: StateFlow<Boolean> = authManager.isAuthed
     val isAdmin: StateFlow<Boolean> = authManager.isAdmin
     val lockRemainingSeconds: StateFlow<Int> = authManager.lockRemainingSeconds
+    val adminLockRemainingSeconds: StateFlow<Int> = authManager.adminLockRemainingSeconds
+    val hasCustomAdminPin: StateFlow<Boolean> = authManager.hasCustomAdminPin
 
     val isCloudConfigured: Boolean = repository.isCloudConfigured()
     val syncStatus: StateFlow<String> = repository.syncStatus
@@ -389,6 +391,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 showToast("Saved Announcement Studio settings. Custom image upload requires internet.")
             }
         }
+    }
+
+    fun changeAdminPin(currentPin: String, newPin: String): AuthManager.AdminAuthResult {
+        val (result, verifier) = authManager.setCustomAdminPin(currentPin, newPin)
+        if (result is AuthManager.AdminAuthResult.Success && verifier != null) {
+            viewModelScope.launch {
+                repository.saveAndSyncAdminPinHash(verifier)
+            }
+            showToast("Admin PIN updated & synced across devices!")
+        }
+        return result
     }
 
     fun checkForUpdates() {

@@ -68,6 +68,7 @@ import com.example.data.model.Item
 import com.example.ui.CurrentScreen
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
+import com.example.ui.components.AdminPinUnlockDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.screens.AuthGateScreen
 import com.example.ui.screens.BillScreen
@@ -462,20 +463,11 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
     // Admin PIN shortcut dialog
     if (showAdminPinDialog) {
-        InputPromptDialog(
-            title = "Admin access",
-            message = "Enter the admin PIN to reveal restricted actions.",
-            placeholder = "PIN",
-            confirmText = "Unlock",
-            isPassword = true,
-            onConfirm = { pin ->
-                val ok = viewModel.authManager.unlockAdmin(pin)
-                if (ok) {
-                    viewModel.showToast("Admin mode on")
-                    showAdminPinDialog = false
-                } else {
-                    viewModel.showToast("Wrong PIN")
-                }
+        AdminPinUnlockDialog(
+            viewModel = viewModel,
+            onSuccess = {
+                viewModel.showToast("Admin mode on")
+                showAdminPinDialog = false
             },
             onDismiss = { showAdminPinDialog = false }
         )

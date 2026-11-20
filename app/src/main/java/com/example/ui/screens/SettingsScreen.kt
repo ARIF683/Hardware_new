@@ -101,6 +101,8 @@ import com.example.data.model.Item
 import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
+import com.example.ui.components.AdminPinUnlockDialog
+import com.example.ui.components.ChangeAdminPinDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.LocalExtendedColors
@@ -171,9 +173,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showSyncUpdatesDialog by remember { mutableStateOf(false) }
     var showSupportDialog by remember { mutableStateOf(false) }
     var showFestivalStudioDialog by remember { mutableStateOf(false) }
+    var showChangeAdminPinDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(isAdmin) {
-        if (!isAdmin) showFestivalStudioDialog = false
+        if (!isAdmin) {
+            showFestivalStudioDialog = false
+            showChangeAdminPinDialog = false
+        }
     }
 
     var showAdminPinDialog by remember { mutableStateOf(false) }
@@ -1081,6 +1087,38 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             }
                         }
                     )
+                    SettingsRowDivider()
+                    val hasCustomAdminPin by viewModel.hasCustomAdminPin.collectAsState()
+                    SettingsItemRow(
+                        icon = Icons.Filled.Key,
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        title = "Change Admin PIN",
+                        subtitle = if (hasCustomAdminPin) {
+                            "Custom salted PIN synced across devices"
+                        } else {
+                            "Using default PIN • Tap to set a private salted PIN"
+                        },
+                        onClick = { showChangeAdminPinDialog = true },
+                        testTag = "settings_change_admin_pin_row",
+                        trailingContent = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                SettingsInlinePill(
+                                    text = if (hasCustomAdminPin) "Custom" else "Default",
+                                    containerColor = (if (hasCustomAdminPin) ext.positive else ext.warning).copy(alpha = 0.14f),
+                                    contentColor = if (hasCustomAdminPin) ext.positive else ext.warning
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
                 }
                 SettingsRowDivider()
 
@@ -1401,22 +1439,20 @@ fun SettingsScreen(viewModel: StockViewModel) {
     }
 
     if (showAdminPinDialog) {
-        InputPromptDialog(
-            title = "Admin access",
-            message = "Enter the admin PIN to reveal restricted actions.",
-            placeholder = "PIN",
-            confirmText = "Unlock",
-            isPassword = true,
-            onConfirm = { pin ->
-                val ok = viewModel.authManager.unlockAdmin(pin)
-                if (ok) {
-                    viewModel.showToast("Admin mode on")
-                    showAdminPinDialog = false
-                } else {
-                    viewModel.showToast("Wrong PIN")
-                }
+        AdminPinUnlockDialog(
+            viewModel = viewModel,
+            onSuccess = {
+                viewModel.showToast("Admin mode on")
+                showAdminPinDialog = false
             },
             onDismiss = { showAdminPinDialog = false }
+        )
+    }
+
+    if (showChangeAdminPinDialog && isAdmin) {
+        ChangeAdminPinDialog(
+            viewModel = viewModel,
+            onDismiss = { showChangeAdminPinDialog = false }
         )
     }
 
