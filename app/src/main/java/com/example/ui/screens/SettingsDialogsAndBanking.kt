@@ -1434,7 +1434,7 @@ fun SettingsSupportDiagnosticsDialog(
 
     val reportText = remember(syncStatus, isRealtimeLive, pendingCount, allItems.size, terminalId) {
         buildString {
-            appendLine("HardwareStock Diagnostics Report")
+            appendLine("Stock Diagnostics Report")
             appendLine("Version: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})")
             appendLine("Terminal: $terminalId")
             appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (API ${android.os.Build.VERSION.SDK_INT})")
@@ -1486,7 +1486,7 @@ fun SettingsSupportDiagnosticsDialog(
                     onClick = {
                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "HardwareStock Diagnostics ($terminalId)")
+                            putExtra(Intent.EXTRA_SUBJECT, "Stock Diagnostics ($terminalId)")
                             putExtra(Intent.EXTRA_TEXT, reportText)
                         }
                         context.startActivity(Intent.createChooser(sendIntent, "Share Diagnostics Report"))

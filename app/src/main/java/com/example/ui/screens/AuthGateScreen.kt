@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MarkEmailRead
@@ -68,6 +69,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.auth.AuthManager
 import com.example.ui.StockViewModel
+import com.example.ui.components.OTP_CODE_LENGTH
+import com.example.ui.components.OtpCodeBoxesInput
+import com.example.ui.components.OtpCountdownBanner
 import com.example.ui.theme.LocalExtendedColors
 
 enum class AuthMode { SIGN_IN, CREATE_ACCOUNT }
@@ -76,6 +80,7 @@ enum class AuthMode { SIGN_IN, CREATE_ACCOUNT }
 fun AuthGateScreen(viewModel: StockViewModel) {
     val ext = LocalExtendedColors.current
     val lockRemaining by viewModel.lockRemainingSeconds.collectAsState()
+    val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
     val pendingVerificationEmail by viewModel.authManager.pendingVerificationEmail.collectAsState()
     val deepLinkMessage by viewModel.authManager.authDeepLinkMessage.collectAsState()
     val deepLinkError by viewModel.authManager.authDeepLinkError.collectAsState()
@@ -88,7 +93,16 @@ fun AuthGateScreen(viewModel: StockViewModel) {
     }
     var email by remember { mutableStateOf(viewModel.authManager.getLastSignedInEmail()) }
     var password by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+
+    // Forgot Password state
+    var showForgotPassword by remember { mutableStateOf(false) }
+    var resetOtpSent by remember { mutableStateOf(false) }
+    var resetOtp by remember { mutableStateOf("") }
+    var resetNewPassword by remember { mutableStateOf("") }
+    var resetPasswordVisible by remember { mutableStateOf(false) }
+
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
     var isChecking by remember { mutableStateOf(false) }
@@ -158,7 +172,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 errorMessage = "Enter your email and password."
             }
         } else {
-            // Create Account: Email + Password + Email Deep Link Confirmation (No OTP required)
+            // Create Account: Email + Password + Email OTP Verification (only for new accounts)
             if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
                 errorMessage = "Enter a valid email address."
                 return
@@ -168,10 +182,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 return
             }
             isChecking = true
+            otpCode = ""
             viewModel.authManager.signUpEmailPassword(cleanEmail, cleanPass) { success, msg ->
                 isChecking = false
                 if (success) {
-                    successMessage = msg ?: "Confirmation link sent to $cleanEmail."
+                    successMessage = msg ?: "OTP code sent to $cleanEmail."
                 } else {
                     errorMessage = msg ?: "Could not create account."
                 }
@@ -213,7 +228,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                val waitingForLink = authMode == AuthMode.CREATE_ACCOUNT && !pendingVerificationEmail.isNullOrBlank()
+                val waitingForOtp = authMode == AuthMode.CREATE_ACCOUNT && !pendingVerificationEmail.isNullOrBlank()
 
                 Box(
                     modifier = Modifier
@@ -222,8 +237,8 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (waitingForLink) Icons.Default.MarkEmailRead else Icons.Default.Lock,
-                        contentDescription = if (waitingForLink) "Check Email" else "Authentication Lock",
+                        imageVector = if (waitingForOtp) Icons.Default.MarkEmailRead else Icons.Default.Lock,
+                        contentDescription = if (waitingForOtp) "Verify Email OTP" else "Authentication Lock",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
@@ -232,7 +247,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = if (waitingForLink) "Check Your Email" else "HardwareStock Portal",
+                    text = when {
+                        showForgotPassword -> "Reset Password"
+                        waitingForOtp -> "Verify Email OTP"
+                        else -> "Stock"
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -242,9 +261,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                 Text(
                     text = when {
-                        waitingForLink -> "Tap the verification link sent to your inbox to activate your account."
+                        showForgotPassword && !resetOtpSent -> "Enter your registered email to receive a 5-minute reset OTP."
+                        showForgotPassword && resetOtpSent -> "Enter the OTP sent to your email and set a new password."
+                        waitingForOtp -> "Enter the verification OTP code sent to your inbox."
                         authMode == AuthMode.SIGN_IN -> "Sign in with your email and password"
-                        else -> "Create an account using email link verification"
+                        else -> "Create an account with email OTP verification"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -254,43 +275,267 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Mode Selector Tabs
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    TabButton(
-                        text = "Sign In",
-                        selected = authMode == AuthMode.SIGN_IN,
+                if (!showForgotPassword) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .testTag("auth_tab_signin")
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        authMode = AuthMode.SIGN_IN
-                        errorMessage = ""
-                        successMessage = ""
-                        viewModel.authManager.clearDeepLinkStatus()
+                        TabButton(
+                            text = "Sign In",
+                            selected = authMode == AuthMode.SIGN_IN,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("auth_tab_signin")
+                        ) {
+                            authMode = AuthMode.SIGN_IN
+                            errorMessage = ""
+                            successMessage = ""
+                            viewModel.authManager.clearDeepLinkStatus()
+                        }
+                        TabButton(
+                            text = "Create Account",
+                            selected = authMode == AuthMode.CREATE_ACCOUNT,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("auth_tab_signup")
+                        ) {
+                            authMode = AuthMode.CREATE_ACCOUNT
+                            errorMessage = ""
+                            successMessage = ""
+                            viewModel.authManager.clearDeepLinkStatus()
+                        }
                     }
-                    TabButton(
-                        text = "Create Account",
-                        selected = authMode == AuthMode.CREATE_ACCOUNT,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("auth_tab_signup")
-                    ) {
-                        authMode = AuthMode.CREATE_ACCOUNT
-                        errorMessage = ""
-                        successMessage = ""
-                        viewModel.authManager.clearDeepLinkStatus()
-                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                if (showForgotPassword) {
+                    fun sendResetOtp() {
+                        if (isChecking) return
+                        errorMessage = ""
+                        successMessage = ""
+                        isChecking = true
+                        viewModel.authManager.requestPasswordResetOtp(email) { ok, msg ->
+                            isChecking = false
+                            if (ok) {
+                                resetOtpSent = true
+                                successMessage = msg ?: "Reset OTP sent."
+                            } else {
+                                errorMessage = msg ?: "Could not send reset OTP."
+                            }
+                        }
+                    }
 
-                if (waitingForLink) {
+                    fun submitResetPassword() {
+                        if (isChecking) return
+                        errorMessage = ""
+                        successMessage = ""
+                        isChecking = true
+                        viewModel.authManager.verifyPasswordResetAndUpdate(
+                            email = email,
+                            otp = resetOtp,
+                            newPassword = resetNewPassword
+                        ) { ok, msg ->
+                            isChecking = false
+                            if (ok) {
+                                resetOtp = ""
+                                resetNewPassword = ""
+                                resetOtpSent = false
+                                showForgotPassword = false
+                                successMessage = msg ?: "Password updated!"
+                            } else {
+                                errorMessage = msg ?: "Could not reset password."
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it; errorMessage = "" },
+                        label = { Text("Account Email Address") },
+                        placeholder = { Text("user@store.com") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        singleLine = true,
+                        enabled = !isChecking && !resetOtpSent,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Done
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("auth_forgot_email_input")
+                    )
+
+                    if (!resetOtpSent) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = { sendResetOtp() },
+                            enabled = !isChecking,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("auth_send_reset_otp_button")
+                        ) {
+                            if (isChecking) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text("Send Reset OTP", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OtpCountdownBanner(
+                            secondsRemaining = otpRemaining,
+                            tag = "auth_otp_timer_badge"
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OtpCodeBoxesInput(
+                            value = resetOtp,
+                            onValueChange = { input ->
+                                resetOtp = input
+                                errorMessage = ""
+                            },
+                            label = "Verification Code (6-digit)",
+                            testTag = "auth_forgot_otp_input",
+                            enabled = !isChecking,
+                            imeAction = ImeAction.Next
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = resetNewPassword,
+                            onValueChange = { resetNewPassword = it; errorMessage = "" },
+                            label = { Text("New Password (min 6 chars)") },
+                            placeholder = { Text("••••••••") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            singleLine = true,
+                            enabled = !isChecking,
+                            visualTransformation = if (resetPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submitResetPassword() }),
+                            trailingIcon = {
+                                IconButton(onClick = { resetPasswordVisible = !resetPasswordVisible }) {
+                                    Icon(
+                                        imageVector = if (resetPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (resetPasswordVisible) "Hide password" else "Show password"
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_forgot_new_password_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = { submitResetPassword() },
+                            enabled = !isChecking,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("auth_confirm_reset_button")
+                        ) {
+                            if (isChecking) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text("Verify OTP & Reset Password", fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = { sendResetOtp() },
+                            enabled = !isChecking,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("auth_resend_reset_otp_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Resend Reset OTP")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    TextButton(
+                        onClick = {
+                            showForgotPassword = false
+                            resetOtpSent = false
+                            resetOtp = ""
+                            resetNewPassword = ""
+                            errorMessage = ""
+                            successMessage = ""
+                        },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("auth_back_to_signin_button")
+                    ) {
+                        Text("Back to Sign In", fontSize = 13.sp)
+                    }
+                } else if (waitingForOtp) {
                     val targetEmail = pendingVerificationEmail.orEmpty()
+
+                    fun submitOtp() {
+                        if (isChecking) return
+                        errorMessage = ""
+                        successMessage = ""
+                        val cleanOtp = otpCode.trim()
+                        if (cleanOtp.length != OTP_CODE_LENGTH || !cleanOtp.all { it.isDigit() }) {
+                            errorMessage = "Enter the 6-digit OTP code from your email."
+                            return
+                        }
+                        isChecking = true
+                        viewModel.authManager.verifySignupOtp(targetEmail, cleanOtp) { success, msg ->
+                            isChecking = false
+                            if (success) {
+                                otpCode = ""
+                                successMessage = msg ?: "Email verified! Welcome to Stock."
+                            } else {
+                                errorMessage = msg ?: "Invalid or expired OTP code."
+                            }
+                        }
+                    }
+
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
@@ -298,8 +543,8 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
                                 text = targetEmail,
@@ -308,44 +553,46 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "Open the email on this phone and tap the confirmation link. It will automatically open HardwareStock and sign you in.",
-                                fontSize = 12.5.sp,
-                                lineHeight = 18.sp,
+                                text = "Check your inbox (or Spam folder) for the verification code and enter it below.",
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OtpCountdownBanner(
+                        secondsRemaining = otpRemaining,
+                        tag = "auth_otp_timer_badge"
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OtpCodeBoxesInput(
+                        value = otpCode,
+                        onValueChange = { input ->
+                            otpCode = input
+                            errorMessage = ""
+                        },
+                        label = "Verification Code (6-digit)",
+                        testTag = "auth_otp_input",
+                        enabled = !isChecking,
+                        imeAction = ImeAction.Done,
+                        keyboardActions = KeyboardActions(onDone = { submitOtp() })
+                    )
+
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
-                        onClick = {
-                            if (isChecking) return@Button
-                            errorMessage = ""
-                            successMessage = ""
-                            val cleanPass = password.trim()
-                            if (cleanPass.isEmpty()) {
-                                email = targetEmail
-                                authMode = AuthMode.SIGN_IN
-                                errorMessage = "Enter your password and tap Sign In after clicking the confirmation link."
-                            } else {
-                                isChecking = true
-                                viewModel.authManager.signInEmailPassword(targetEmail, cleanPass) { success, err ->
-                                    isChecking = false
-                                    if (success) {
-                                        successMessage = "Email verified! Signed in successfully."
-                                    } else {
-                                        errorMessage = err ?: "Your email is not verified yet. Open your inbox and tap the confirmation link first."
-                                    }
-                                }
-                            }
-                        },
+                        onClick = { submitOtp() },
                         enabled = !isChecking,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
-                            .testTag("auth_verified_signin_button")
+                            .testTag("auth_verify_otp_button")
                     ) {
                         if (isChecking) {
                             CircularProgressIndicator(
@@ -355,7 +602,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("I've Clicked the Link — Verify & Sign In", fontWeight = FontWeight.Bold)
+                        Text("Verify OTP & Enter", fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -369,9 +616,9 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             viewModel.authManager.resendConfirmationEmail(targetEmail) { ok, msg ->
                                 isChecking = false
                                 if (ok) {
-                                    successMessage = msg ?: "Confirmation link re-sent."
+                                    successMessage = msg ?: "New OTP code sent."
                                 } else {
-                                    errorMessage = msg ?: "Could not resend link."
+                                    errorMessage = msg ?: "Could not resend OTP code."
                                 }
                             }
                         },
@@ -380,7 +627,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
-                            .testTag("auth_resend_link_button")
+                            .testTag("auth_resend_otp_button")
                     ) {
                         if (isChecking) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -389,13 +636,14 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("Resend Confirmation Link")
+                        Text("Resend OTP Code")
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
 
                     TextButton(
                         onClick = {
+                            otpCode = ""
                             viewModel.authManager.clearPendingVerification()
                             errorMessage = ""
                             successMessage = ""
@@ -504,6 +752,27 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             fontWeight = FontWeight.Bold
                         )
                     }
+
+                    if (authMode == AuthMode.SIGN_IN) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(
+                            onClick = {
+                                showForgotPassword = true
+                                resetOtpSent = false
+                                resetOtp = ""
+                                resetNewPassword = ""
+                                errorMessage = ""
+                                successMessage = ""
+                                viewModel.authManager.clearDeepLinkStatus()
+                            },
+                            enabled = !isChecking,
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("auth_forgot_password_button")
+                        ) {
+                            Text("Forgot Password?", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
 
                 AnimatedVisibility(visible = errorMessage.isNotEmpty()) {
@@ -513,7 +782,9 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             shape = RoundedCornerShape(10.dp),
                             color = ext.danger.copy(alpha = 0.1f),
                             border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_error_banner")
                         ) {
                             Text(
                                 text = errorMessage,
@@ -533,15 +804,30 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             shape = RoundedCornerShape(10.dp),
                             color = ext.positive.copy(alpha = 0.1f),
                             border = BorderStroke(1.dp, ext.positive.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_success_banner")
                         ) {
-                            Text(
-                                text = successMessage,
-                                color = ext.positive,
-                                fontSize = 13.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(10.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = ext.positive,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = successMessage,
+                                    color = ext.positive,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 }

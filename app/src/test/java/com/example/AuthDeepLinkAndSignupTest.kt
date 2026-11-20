@@ -90,6 +90,7 @@ class AuthDeepLinkAndSignupTest {
         }
         composeRule.waitForIdle()
 
+        composeRule.onNodeWithText("Stock").assertIsDisplayed()
         composeRule.onNodeWithTag("auth_tab_signin").assertIsDisplayed()
         composeRule.onNodeWithTag("auth_tab_signup").assertIsDisplayed()
         composeRule.onNodeWithTag("auth_email_input").assertIsDisplayed()
@@ -121,7 +122,7 @@ class AuthDeepLinkAndSignupTest {
     }
 
     @Test
-    fun `pending verification button does not bypass login without verification`() {
+    fun `pending verification shows otp input and blocks invalid or empty otp`() {
         app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
             .edit()
             .putString("pending_signup_email", "newuser@store.com")
@@ -135,10 +136,28 @@ class AuthDeepLinkAndSignupTest {
         }
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("auth_verified_signin_button").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("auth_verified_signin_button").performClick()
-        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("auth_otp_input").performScrollTo().assertIsDisplayed()
+        for (i in 0 until 6) {
+            composeRule.onNodeWithTag("auth_otp_input_box_$i", useUnmergedTree = true).assertIsDisplayed()
+        }
+        composeRule.onNodeWithTag("auth_otp_input_box_6", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithTag("auth_verify_otp_button").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("auth_resend_otp_button").performScrollTo().assertIsDisplayed()
 
+        // Submit without OTP -> blocked
+        composeRule.onNodeWithTag("auth_verify_otp_button").performClick()
+        composeRule.waitForIdle()
+        assertFalse(vm.isAuthed.value)
+
+        // Direct short OTP call -> rejected
+        var verified = true
+        var message: String? = null
+        vm.authManager.verifySignupOtp("newuser@store.com", "123") { ok, msg ->
+            verified = ok
+            message = msg
+        }
+        assertFalse(verified)
+        assertTrue(message?.contains("OTP", ignoreCase = true) == true)
         assertFalse(vm.isAuthed.value)
     }
 }

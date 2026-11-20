@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Stock Manager"
+rootProject.name = "Stock"
 
 include(":app")

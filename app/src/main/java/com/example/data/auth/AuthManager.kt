@@ -31,6 +31,8 @@ class AuthManager(context: Context) {
         const val APP_HASH = "2f03a273df7e7fc706f021d3722238fcceda044783a8c9082087b8b941de8c3e"
         const val MAX_TRIES = 3
         const val LOCK_MS = 60_000L
+        const val OTP_EXPIRY_SECONDS = 300
+        const val OTP_EXPIRY_MS = 300_000L
 
         const val AUTH_REDIRECT_SCHEME = "hardwarestock"
         const val AUTH_REDIRECT_HOST = "auth-callback"
@@ -42,11 +44,19 @@ class AuthManager(context: Context) {
         private const val KEY_CURRENT_USER_EMAIL = "current_user_email"
         private const val KEY_FAILS = "login_fails"
         private const val KEY_LOCK_UNTIL = "lock_until"
+        private const val KEY_OTP_EXPIRES_AT = "otp_expires_at"
         private const val KEY_REGISTERED_USERS = "registered_users"
         private const val KEY_ROLES_UPDATED_AT = "registered_users_updated_at"
         private const val KEY_PENDING_SIGNUP_EMAIL = "pending_signup_email"
         private const val KEY_LAST_EMAIL = "last_signed_in_email"
         private const val KEY_SUPABASE_ACCESS_TOKEN = "supabase_access_token"
+
+        fun formatOtpCountdown(seconds: Int): String {
+            val safe = seconds.coerceAtLeast(0)
+            val mins = safe / 60
+            val secs = safe % 60
+            return "%02d:%02d".format(mins, secs)
+        }
 
         fun isAuthDeepLink(uri: Uri?): Boolean {
             return uri != null &&
@@ -131,6 +141,9 @@ class AuthManager(context: Context) {
     private val _lockRemainingSeconds = MutableStateFlow(0)
     val lockRemainingSeconds: StateFlow<Int> = _lockRemainingSeconds.asStateFlow()
 
+    private val _otpRemainingSeconds = MutableStateFlow(0)
+    val otpRemainingSeconds: StateFlow<Int> = _otpRemainingSeconds.asStateFlow()
+
     private val _registeredUsers = MutableStateFlow<List<UserAccount>>(loadInitialUsers())
     val registeredUsers: StateFlow<List<UserAccount>> = _registeredUsers.asStateFlow()
 
@@ -149,10 +162,12 @@ class AuthManager(context: Context) {
 
     private var loginFails = prefs.getInt(KEY_FAILS, 0)
     private var lockUntil = prefs.getLong(KEY_LOCK_UNTIL, 0L)
+    private var otpExpiresAt = prefs.getLong(KEY_OTP_EXPIRES_AT, 0L)
     private var tickerJob: Job? = null
+    private var otpTickerJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
-    private val httpClient = OkHttpClient.Builder()
+    internal val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -166,6 +181,12 @@ class AuthManager(context: Context) {
             loginFails = 0
             prefs.edit().remove(KEY_LOCK_UNTIL).remove(KEY_FAILS).apply()
         }
+        if (otpExpiresAt > now) {
+            launchOtpCountdown()
+        } else {
+            otpExpiresAt = 0L
+            prefs.edit().remove(KEY_OTP_EXPIRES_AT).apply()
+        }
     }
 
     fun isLocked(): Boolean = System.currentTimeMillis() < lockUntil
@@ -173,6 +194,46 @@ class AuthManager(context: Context) {
     fun getRemainingSeconds(): Int {
         val diff = lockUntil - System.currentTimeMillis()
         return if (diff > 0) ((diff + 999) / 1000).toInt() else 0
+    }
+
+    private fun getOtpRemainingSecondsNow(): Int {
+        val diff = otpExpiresAt - System.currentTimeMillis()
+        return if (diff > 0) ((diff + 999) / 1000).toInt() else 0
+    }
+
+    internal fun isCurrentOtpExpired(): Boolean {
+        return otpExpiresAt > 0L && System.currentTimeMillis() > otpExpiresAt
+    }
+
+    internal fun startOtpExpiryTimer(durationMs: Long = OTP_EXPIRY_MS) {
+        otpExpiresAt = System.currentTimeMillis() + durationMs
+        prefs.edit().putLong(KEY_OTP_EXPIRES_AT, otpExpiresAt).apply()
+        launchOtpCountdown()
+    }
+
+    internal fun clearOtpTimer() {
+        otpTickerJob?.cancel()
+        otpExpiresAt = 0L
+        _otpRemainingSeconds.value = 0
+        prefs.edit().remove(KEY_OTP_EXPIRES_AT).apply()
+    }
+
+    internal fun setOtpExpiresAtForTest(expiresAtMs: Long) {
+        otpExpiresAt = expiresAtMs
+        prefs.edit().putLong(KEY_OTP_EXPIRES_AT, expiresAtMs).apply()
+        _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
+    }
+
+    private fun launchOtpCountdown() {
+        otpTickerJob?.cancel()
+        _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
+        otpTickerJob = scope.launch {
+            while (isActive && System.currentTimeMillis() < otpExpiresAt) {
+                _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
+                delay(500)
+            }
+            _otpRemainingSeconds.value = 0
+        }
     }
 
     private fun startLockCountdown() {
@@ -239,6 +300,7 @@ class AuthManager(context: Context) {
     }
 
     fun logout() {
+        clearOtpTimer()
         prefs.edit()
             .putBoolean(KEY_AUTHED, false)
             .putBoolean(KEY_ADMIN, false)
@@ -254,6 +316,7 @@ class AuthManager(context: Context) {
         prefs.getString(KEY_LAST_EMAIL, "").orEmpty()
 
     fun clearPendingVerification() {
+        clearOtpTimer()
         prefs.edit().remove(KEY_PENDING_SIGNUP_EMAIL).apply()
         _pendingVerificationEmail.value = null
     }
@@ -379,13 +442,84 @@ class AuthManager(context: Context) {
         upsertUser(email, isAdmin)
     }
 
-    private fun isSupabaseConfigured(): Boolean {
+    internal fun isSupabaseConfigured(): Boolean {
         val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
         val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
         return baseUrl.isNotBlank() &&
             apiKey.isNotBlank() &&
             !baseUrl.contains("YOUR_SUPABASE") &&
             !apiKey.contains("YOUR_SUPABASE")
+    }
+
+    internal fun activeAccessToken(): String =
+        prefs.getString(KEY_SUPABASE_ACCESS_TOKEN, null).orEmpty()
+
+    internal fun saveLastSignedInEmail(email: String) {
+        prefs.edit().putString(KEY_LAST_EMAIL, email.trim().lowercase()).apply()
+    }
+
+    internal suspend fun completeEmailChangeLocally(
+        oldEmail: String?,
+        newEmail: String,
+        newAccessToken: String
+    ) {
+        val cleanNew = newEmail.trim().lowercase()
+        val cleanOld = oldEmail?.trim()?.lowercase()
+        val existingRole = _registeredUsers.value
+            .find { cleanOld != null && it.email.equals(cleanOld, ignoreCase = true) }
+            ?.isAdmin ?: _isAdmin.value
+
+        withContext(Dispatchers.Main) {
+            val updatedList = _registeredUsers.value
+                .filter { cleanOld == null || !it.email.equals(cleanOld, ignoreCase = true) }
+                .filter { !it.email.equals(cleanNew, ignoreCase = true) } +
+                UserAccount(cleanNew, existingRole)
+            val now = System.currentTimeMillis()
+            saveUsersLocally(updatedList, now)
+            onRolesChangedListener?.invoke(serializeUsers(updatedList), now)
+            prefs.edit()
+                .putString(KEY_CURRENT_USER_EMAIL, cleanNew)
+                .putString(KEY_LAST_EMAIL, cleanNew)
+                .apply {
+                    if (newAccessToken.isNotBlank()) {
+                        putString(KEY_SUPABASE_ACCESS_TOKEN, newAccessToken)
+                    }
+                }
+                .apply()
+            _currentUserEmail.value = cleanNew
+            _isAdmin.value = existingRole
+            clearOtpTimer()
+        }
+
+        if (isSupabaseConfigured()) {
+            val tok = newAccessToken.takeIf { it.isNotBlank() } ?: activeAccessToken().takeIf { it.isNotBlank() }
+            pushRemoteUserUpsert(cleanNew, existingRole, tok)
+            if (!cleanOld.isNullOrBlank() && !cleanOld.equals(cleanNew, ignoreCase = true)) {
+                pushRemoteUserDelete(cleanOld)
+            }
+        }
+    }
+
+    internal suspend fun completeAccountDeletionLocally(deletedEmail: String) {
+        val clean = deletedEmail.trim().lowercase()
+        withContext(Dispatchers.Main) {
+            val remaining = _registeredUsers.value.filter { !it.email.equals(clean, ignoreCase = true) }
+            val now = System.currentTimeMillis()
+            saveUsersLocally(remaining, now)
+            onRolesChangedListener?.invoke(serializeUsers(remaining), now)
+            prefs.edit()
+                .remove(KEY_LAST_EMAIL)
+                .remove(KEY_PENDING_SIGNUP_EMAIL)
+                .apply()
+            _pendingVerificationEmail.value = null
+            logout()
+            _authDeepLinkError.value = null
+            _authDeepLinkMessage.value = if (clean.isNotBlank()) {
+                "Account ($clean) has been permanently deleted."
+            } else {
+                "Your account has been permanently deleted."
+            }
+        }
     }
 
     private fun activeAuthHeader(): String {
@@ -583,11 +717,20 @@ class AuthManager(context: Context) {
                 .remove(KEY_PENDING_SIGNUP_EMAIL)
                 .apply()
 
+            clearOtpTimer()
             _pendingVerificationEmail.value = null
             _currentUserEmail.value = clean
             _isAdmin.value = resolvedAdmin
             _isAuthed.value = true
         }
+    }
+
+    internal suspend fun completeSessionBlocking(
+        email: String,
+        accessToken: String = "",
+        metadataIsAdmin: Boolean = false
+    ) {
+        resolveAndCompleteSessionBlocking(email, accessToken, metadataIsAdmin)
     }
 
     fun signUpEmailPassword(
@@ -618,14 +761,13 @@ class AuthManager(context: Context) {
 
                 val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
                 val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val encodedRedirect = URLEncoder.encode(AUTH_REDIRECT_URL, "UTF-8")
                 val json = JSONObject()
                     .put("email", clean)
                     .put("password", password)
                     .toString()
 
                 val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/signup?redirect_to=$encodedRedirect")
+                    .url("$baseUrl/auth/v1/signup")
                     .addHeader("apikey", apiKey)
                     .addHeader("Authorization", "Bearer $apiKey")
                     .addHeader("Content-Type", "application/json")
@@ -675,9 +817,10 @@ class AuthManager(context: Context) {
                                     }
                                     prefs.edit().putString(KEY_LAST_EMAIL, clean).apply()
                                     setPendingVerificationEmail(clean)
+                                    startOtpExpiryTimer()
                                     callback(
                                         true,
-                                        "Confirmation link sent to $clean. Tap the link in your email to verify and open the app."
+                                        "OTP code sent to $clean (expires in 5 minutes). Enter the code below."
                                     )
                                 }
                             }
@@ -697,6 +840,90 @@ class AuthManager(context: Context) {
         }
     }
 
+    fun verifySignupOtp(
+        email: String,
+        otp: String,
+        callback: (Boolean, String?) -> Unit
+    ) {
+        val clean = email.trim().lowercase()
+        val cleanOtp = otp.trim()
+        if (!clean.contains("@")) {
+            callback(false, "Enter a valid email address.")
+            return
+        }
+        if (cleanOtp.length != 6 || !cleanOtp.all { it.isDigit() }) {
+            callback(false, "Enter the 6-digit OTP code sent to your email.")
+            return
+        }
+        if (isCurrentOtpExpired()) {
+            callback(false, "OTP code has expired (5-minute limit). Tap Resend OTP Code for a new one.")
+            return
+        }
+        clearDeepLinkStatus()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (!isSupabaseConfigured()) {
+                    resolveAndCompleteSessionBlocking(clean)
+                    withContext(Dispatchers.Main) {
+                        callback(true, "Email verified! Welcome to Stock.")
+                    }
+                    return@launch
+                }
+
+                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
+                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                val payload = JSONObject()
+                    .put("type", "signup")
+                    .put("email", clean)
+                    .put("token", cleanOtp)
+                    .toString()
+
+                val req = Request.Builder()
+                    .url("$baseUrl/auth/v1/verify")
+                    .addHeader("apikey", apiKey)
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+
+                httpClient.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful) {
+                        val obj = try { JSONObject(body) } catch (_: Exception) { null }
+                        val userObj = obj?.optJSONObject("user")
+                        val accessToken = obj?.optString("access_token").orEmpty()
+                        val hasConfirmationMetadata = userObj != null &&
+                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                        if (accessToken.isBlank() || (hasConfirmationMetadata && !isEmailConfirmed(userObj))) {
+                            withContext(Dispatchers.Main) {
+                                callback(false, "OTP verification incomplete. Please check the code and try again.")
+                            }
+                            return@use
+                        }
+                        resolveAndCompleteSessionBlocking(
+                            email = clean,
+                            accessToken = accessToken,
+                            metadataIsAdmin = isMetadataAdmin(userObj)
+                        )
+                        withContext(Dispatchers.Main) {
+                            callback(true, "Email verified! Welcome to Stock.")
+                        }
+                    } else {
+                        val msg = friendlySupabaseError(body, resp.code)
+                        withContext(Dispatchers.Main) {
+                            callback(false, msg)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    callback(false, "Failed to verify OTP: ${e.message ?: "Network error"}")
+                }
+            }
+        }
+    }
+
     fun resendConfirmationEmail(email: String, callback: (Boolean, String?) -> Unit) {
         val clean = email.trim().lowercase()
         if (!clean.contains("@")) {
@@ -707,20 +934,20 @@ class AuthManager(context: Context) {
             try {
                 if (!isSupabaseConfigured()) {
                     withContext(Dispatchers.Main) {
-                        callback(true, "Confirmation link ready for $clean.")
+                        startOtpExpiryTimer()
+                        callback(true, "OTP code ready for $clean (valid for 5 minutes).")
                     }
                     return@launch
                 }
                 val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
                 val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val encodedRedirect = URLEncoder.encode(AUTH_REDIRECT_URL, "UTF-8")
                 val json = JSONObject()
                     .put("type", "signup")
                     .put("email", clean)
                     .toString()
 
                 val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/resend?redirect_to=$encodedRedirect")
+                    .url("$baseUrl/auth/v1/resend")
                     .addHeader("apikey", apiKey)
                     .addHeader("Authorization", "Bearer $apiKey")
                     .addHeader("Content-Type", "application/json")
@@ -731,10 +958,11 @@ class AuthManager(context: Context) {
                     val respBody = resp.body?.string().orEmpty()
                     if (resp.isSuccessful) {
                         withContext(Dispatchers.Main) {
-                            callback(true, "Confirmation link re-sent to $clean.")
+                            startOtpExpiryTimer()
+                            callback(true, "New OTP code sent to $clean (expires in 5 minutes).")
                         }
                     } else {
-                        val msg = extractSupabaseError(respBody, resp.code)
+                        val msg = friendlySupabaseError(respBody, resp.code)
                         withContext(Dispatchers.Main) {
                             callback(false, msg)
                         }
@@ -742,7 +970,7 @@ class AuthManager(context: Context) {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    callback(false, "Failed to resend email: ${e.message ?: "Network error"}")
+                    callback(false, "Failed to resend OTP: ${e.message ?: "Network error"}")
                 }
             }
         }
@@ -810,7 +1038,7 @@ class AuthManager(context: Context) {
                                         metadataIsAdmin = isMetadataAdmin(userObj)
                                     )
                                     withContext(Dispatchers.Main) {
-                                        _authDeepLinkMessage.value = "Email verified! Welcome to HardwareStock."
+                                        _authDeepLinkMessage.value = "Email verified! Welcome to Stock."
                                     }
                                 } else {
                                     withContext(Dispatchers.Main) {
@@ -854,7 +1082,7 @@ class AuthManager(context: Context) {
                                         metadataIsAdmin = isMetadataAdmin(userObj)
                                     )
                                     withContext(Dispatchers.Main) {
-                                        _authDeepLinkMessage.value = "Email verified! Welcome to HardwareStock."
+                                        _authDeepLinkMessage.value = "Email verified! Welcome to Stock."
                                     }
                                 } else {
                                     withContext(Dispatchers.Main) {
@@ -959,4 +1187,31 @@ class AuthManager(context: Context) {
             }
         }
     }
+
+    private val accountOps by lazy { SupabaseAccountOperations(this) }
+
+    fun requestPasswordResetOtp(email: String, callback: (Boolean, String?) -> Unit) =
+        accountOps.requestPasswordResetOtp(email, callback)
+
+    fun verifyPasswordResetAndUpdate(
+        email: String,
+        otp: String,
+        newPassword: String,
+        callback: (Boolean, String?) -> Unit
+    ) = accountOps.verifyPasswordResetAndUpdate(email, otp, newPassword, callback)
+
+    fun requestChangeEmailOtp(newEmail: String, callback: (Boolean, String?) -> Unit) =
+        accountOps.requestChangeEmailOtp(newEmail, callback)
+
+    fun confirmChangeEmailOtp(
+        newEmail: String,
+        otp: String,
+        callback: (Boolean, String?) -> Unit
+    ) = accountOps.confirmChangeEmailOtp(newEmail, otp, callback)
+
+    fun requestDeleteAccountOtp(callback: (Boolean, String?) -> Unit) =
+        accountOps.requestDeleteAccountOtp(callback)
+
+    fun confirmDeleteAccountWithOtp(otp: String, callback: (Boolean, String?) -> Unit) =
+        accountOps.confirmDeleteAccountWithOtp(otp, callback)
 }

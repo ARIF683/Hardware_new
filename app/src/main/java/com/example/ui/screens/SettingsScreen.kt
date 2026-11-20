@@ -33,10 +33,12 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CurrencyRupee
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -102,6 +104,8 @@ import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.components.AdminUserManagementDialog
+import com.example.ui.components.ChangeEmailDialog
+import com.example.ui.components.DeleteAccountOtpDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.LocalExtendedColors
@@ -185,6 +189,8 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showChangeEmailDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showExportXlsDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -1101,6 +1107,25 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 }
                 SettingsRowDivider()
 
+                // Change Account Email Address (OTP-verified)
+                SettingsItemRow(
+                    icon = Icons.Filled.AlternateEmail,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    title = "Change Email Address",
+                    subtitle = currentUserEmail ?: "Update login email via OTP verification",
+                    onClick = { showChangeEmailDialog = true },
+                    testTag = "settings_change_email_row",
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Change Email Address",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+                SettingsRowDivider()
+
                 // Row 2: Inventory Data Export & Import
                 SettingsItemRow(
                     icon = Icons.Filled.Download,
@@ -1252,7 +1277,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     val appVersionCode = packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) }
                         ?: BuildConfig.VERSION_CODE.toLong()
                     Text(
-                        text = "HardwareStock Core • App v$appVersionName (Build $appVersionCode)",
+                        text = "Stock Core • App v$appVersionName (Build $appVersionCode)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1330,6 +1355,41 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             text = "Sign Out from Depot Terminal",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
+                            color = ext.danger
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Permanently Delete Account (OTP Verified)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showDeleteAccountDialog = true }
+                        .testTag("settings_delete_account_button")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DeleteForever,
+                            contentDescription = null,
+                            tint = ext.danger,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Delete Account (OTP Verified)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
                             color = ext.danger
                         )
                     }
@@ -1528,6 +1588,20 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 showLogoutDialog = false
             },
             onDismiss = { showLogoutDialog = false }
+        )
+    }
+
+    if (showChangeEmailDialog) {
+        ChangeEmailDialog(
+            viewModel = viewModel,
+            onDismiss = { showChangeEmailDialog = false }
+        )
+    }
+
+    if (showDeleteAccountDialog) {
+        DeleteAccountOtpDialog(
+            viewModel = viewModel,
+            onDismiss = { showDeleteAccountDialog = false }
         )
     }
 

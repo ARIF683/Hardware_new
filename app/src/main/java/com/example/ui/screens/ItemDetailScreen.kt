@@ -286,7 +286,7 @@ fun ItemDetailScreen(
                                 letterSpacing = 0.4.sp
                             )
                             Text(
-                                text = effectiveStoreTitle.ifBlank { "HardwareStock" },
+                                text = effectiveStoreTitle.ifBlank { "Stock" },
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
