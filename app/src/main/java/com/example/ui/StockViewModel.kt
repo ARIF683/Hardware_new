@@ -237,9 +237,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     val isAuthed: StateFlow<Boolean> = authManager.isAuthed
     val isAdmin: StateFlow<Boolean> = authManager.isAdmin
+    val currentUserEmail: StateFlow<String?> = authManager.currentUserEmail
     val lockRemainingSeconds: StateFlow<Int> = authManager.lockRemainingSeconds
-    val adminLockRemainingSeconds: StateFlow<Int> = authManager.adminLockRemainingSeconds
-    val hasCustomAdminPin: StateFlow<Boolean> = authManager.hasCustomAdminPin
 
     val isCloudConfigured: Boolean = repository.isCloudConfigured()
     val syncStatus: StateFlow<String> = repository.syncStatus
@@ -362,6 +361,12 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             }
             editor.apply()
         }
+        // Sync user/admin role changes across devices via store profile backup + Supabase app_users
+        authManager.onRolesChangedListener = { rolesJson, updatedAt ->
+            viewModelScope.launch {
+                repository.saveAndSyncUserRoles(rolesJson, updatedAt)
+            }
+        }
         // Trigger initial remote load when ViewModel initializes
         viewModelScope.launch {
             repository.loadFromRemote()
@@ -393,15 +398,23 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun changeAdminPin(currentPin: String, newPin: String): AuthManager.AdminAuthResult {
-        val (result, verifier) = authManager.setCustomAdminPin(currentPin, newPin)
-        if (result is AuthManager.AdminAuthResult.Success && verifier != null) {
-            viewModelScope.launch {
-                repository.saveAndSyncAdminPinHash(verifier)
+    fun refreshCurrentUserRole(showFeedback: Boolean = false) {
+        authManager.refreshCurrentUserRole { resolvedAdmin ->
+            if (showFeedback) {
+                showToast(
+                    if (resolvedAdmin) "Admin role verified & active"
+                    else "Role synced: Staff Operator"
+                )
             }
-            showToast("Admin PIN updated & synced across devices!")
         }
-        return result
+    }
+
+    fun syncUserRolesFromCloud() {
+        authManager.syncUsersFromCloud { ok ->
+            if (ok) {
+                showToast("User roles synced from database")
+            }
+        }
     }
 
     fun checkForUpdates() {

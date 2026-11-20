@@ -101,6 +101,16 @@
                 <action android:name="android.nfc.action.TAG_DISCOVERED" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <!-- Deep Link for Supabase Email Verification Callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="hardwarestock"
+                    android:host="auth-callback" />
+            </intent-filter>
         </activity>
     </application>
 

@@ -1685,7 +1685,7 @@ class StockRepository(
             signatureUrl = sigUrl,
             qrCodeUrl = qrUrl,
             festivalConfigJson = festivalPreferenceManager.getRawJsonOrNull(),
-            adminPinHash = authManager.getCustomAdminPinVerifierOrNull(),
+            userRolesJson = authManager.getUserRolesJsonOrNull(),
             updatedAt = System.currentTimeMillis()
         )
     }
@@ -1763,7 +1763,8 @@ class StockRepository(
             upiId = remote.upiId
         )
         festivalPreferenceManager.applyRemoteJson(remote.festivalConfigJson)
-        authManager.applyRemoteAdminPinHash(remote.adminPinHash, remote.updatedAt)
+        authManager.applyRemoteUserRoles(remote.userRolesJson, remote.updatedAt)
+        authManager.refreshCurrentUserRole()
 
         val currentBank = bankingPreferenceManager.currentBankingInfo.value
         val sigUrl = remote.signatureUrl
@@ -1964,11 +1965,10 @@ class StockRepository(
         !uploadFailed
     }
 
-    suspend fun saveAndSyncAdminPinHash(verifier: String) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
+    suspend fun saveAndSyncUserRoles(rolesJson: String, updatedAt: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
         val snapshot = buildLocalStoreProfileSnapshot().copy(
-            adminPinHash = verifier,
-            updatedAt = now
+            userRolesJson = rolesJson,
+            updatedAt = updatedAt
         )
         pushStoreProfileMerged(snapshot)
     }

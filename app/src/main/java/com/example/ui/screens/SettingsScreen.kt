@@ -101,9 +101,7 @@ import com.example.data.model.Item
 import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
-import com.example.ui.components.AdminPinUnlockDialog
 import com.example.ui.components.AdminUserManagementDialog
-import com.example.ui.components.ChangeAdminPinDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.LocalExtendedColors
@@ -132,6 +130,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
     val pendingCount by viewModel.pendingQueueCount.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
+    val currentUserEmail by viewModel.currentUserEmail.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     val festivalStudioConfig by viewModel.festivalStudioConfig.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
@@ -174,18 +173,15 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showSyncUpdatesDialog by remember { mutableStateOf(false) }
     var showSupportDialog by remember { mutableStateOf(false) }
     var showFestivalStudioDialog by remember { mutableStateOf(false) }
-    var showChangeAdminPinDialog by remember { mutableStateOf(false) }
     var showAdminUserManagementDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(isAdmin) {
         if (!isAdmin) {
             showFestivalStudioDialog = false
-            showChangeAdminPinDialog = false
             showAdminUserManagementDialog = false
         }
     }
 
-    var showAdminPinDialog by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -554,17 +550,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                             1.dp,
                                             if (isAdmin) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline
                                         ),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .clickable {
-                                                if (isAdmin) {
-                                                    viewModel.authManager.exitAdmin()
-                                                    viewModel.showToast("Admin mode locked")
-                                                } else {
-                                                    showAdminPinDialog = true
-                                                }
-                                            }
-                                            .testTag("settings_admin_badge")
+                                        modifier = Modifier.testTag("settings_admin_badge")
                                     ) {
                                         Text(
                                             text = if (isAdmin) "ADMIN" else "STAFF",
@@ -978,23 +964,18 @@ fun SettingsScreen(viewModel: StockViewModel) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             SettingsGroupedCard {
-                // Row 1: Staff & Admin Access Control
+                // Row 1: Role & Account Access Control
                 SettingsItemRow(
                     icon = Icons.Filled.AdminPanelSettings,
                     iconTint = ext.info,
-                    title = "Staff Access Control",
+                    title = if (isAdmin) "Admin Role Active" else "Staff Operator Access",
                     subtitle = if (isAdmin) {
-                        "Admin Mode Unlocked • Restricted actions visible"
+                        "${currentUserEmail ?: "Admin Account"} • Manage user roles below"
                     } else {
-                        "Standard Operator • Enter Admin PIN to unlock"
+                        "${currentUserEmail ?: "Staff Account"} • Tap to refresh role from database"
                     },
                     onClick = {
-                        if (isAdmin) {
-                            viewModel.authManager.exitAdmin()
-                            viewModel.showToast("Admin mode locked")
-                        } else {
-                            showAdminPinDialog = true
-                        }
+                        viewModel.refreshCurrentUserRole(showFeedback = true)
                     },
                     testTag = "settings_admin_access_row",
                     trailingContent = {
@@ -1002,17 +983,16 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            SettingsInlinePill(
+                                text = if (isAdmin) "ADMIN" else "STAFF",
+                                containerColor = if (isAdmin) ext.positive.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (isAdmin) ext.positive else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Icon(
                                 imageVector = if (isAdmin) Icons.Filled.LockOpen else Icons.Filled.Lock,
                                 contentDescription = null,
                                 tint = if (isAdmin) ext.positive else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -1080,38 +1060,6 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                     text = "Admin",
                                     containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                                     contentColor = MaterialTheme.colorScheme.primary
-                                )
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    )
-                    SettingsRowDivider()
-                    val hasCustomAdminPin by viewModel.hasCustomAdminPin.collectAsState()
-                    SettingsItemRow(
-                        icon = Icons.Filled.Key,
-                        iconTint = MaterialTheme.colorScheme.secondary,
-                        title = "Change Admin PIN",
-                        subtitle = if (hasCustomAdminPin) {
-                            "Custom salted PIN synced across devices"
-                        } else {
-                            "Using default PIN • Tap to set a private salted PIN"
-                        },
-                        onClick = { showChangeAdminPinDialog = true },
-                        testTag = "settings_change_admin_pin_row",
-                        trailingContent = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                SettingsInlinePill(
-                                    text = if (hasCustomAdminPin) "Custom" else "Default",
-                                    containerColor = (if (hasCustomAdminPin) ext.positive else ext.warning).copy(alpha = 0.14f),
-                                    contentColor = if (hasCustomAdminPin) ext.positive else ext.warning
                                 )
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1466,24 +1414,6 @@ fun SettingsScreen(viewModel: StockViewModel) {
         FestivalStudioDialog(
             viewModel = viewModel,
             onDismiss = { showFestivalStudioDialog = false }
-        )
-    }
-
-    if (showAdminPinDialog) {
-        AdminPinUnlockDialog(
-            viewModel = viewModel,
-            onSuccess = {
-                viewModel.showToast("Admin mode on")
-                showAdminPinDialog = false
-            },
-            onDismiss = { showAdminPinDialog = false }
-        )
-    }
-
-    if (showChangeAdminPinDialog && isAdmin) {
-        ChangeAdminPinDialog(
-            viewModel = viewModel,
-            onDismiss = { showChangeAdminPinDialog = false }
         )
     }
 

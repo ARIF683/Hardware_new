@@ -7,12 +7,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,12 +22,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.data.auth.AuthManager
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.rememberAppHaptics
@@ -38,11 +40,16 @@ fun AdminUserManagementDialog(
     val ext = LocalExtendedColors.current
     val haptics = rememberAppHaptics()
     val users by viewModel.authManager.registeredUsers.collectAsState()
+    val currentUserEmail by viewModel.currentUserEmail.collectAsState()
 
     var showAddUserDialog by remember { mutableStateOf(false) }
     var newUserEmail by remember { mutableStateOf("") }
     var newUserIsAdmin by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        viewModel.authManager.syncUsersFromCloud()
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -89,7 +96,7 @@ fun AdminUserManagementDialog(
                             )
                         }
                         Column {
-                            Text("User & Admin Management", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("User & Role Management", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             Text(
                                 "${users.size} Registered Accounts",
                                 fontSize = 11.5.sp,
@@ -98,8 +105,22 @@ fun AdminUserManagementDialog(
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                viewModel.syncUserRolesFromCloud()
+                                haptics.tick()
+                            },
+                            modifier = Modifier.testTag("admin_users_refresh_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync Users")
+                        }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.testTag("admin_users_close_button")
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
                     }
                 }
 
@@ -109,19 +130,24 @@ fun AdminUserManagementDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Manage authorized staff and admin accounts directly in app.",
+                        text = "Promote staff to Admin or remove accounts without editing the DB.",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 10.dp)
                     )
                     Button(
                         onClick = { showAddUserDialog = true },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(36.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .height(40.dp)
+                            .testTag("admin_users_add_button")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add User", fontSize = 11.5.sp)
+                        Text("Add User", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
@@ -135,7 +161,7 @@ fun AdminUserManagementDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            "No other users registered. Tap \"Add User\" to register staff.",
+                            "No other users registered. Tap \"Add User\" to add staff or admin emails.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -147,12 +173,16 @@ fun AdminUserManagementDialog(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(users) { user ->
+                        items(users, key = { it.email }) { user ->
+                            val isSelf = !currentUserEmail.isNullOrBlank() &&
+                                user.email.equals(currentUserEmail, ignoreCase = true)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("admin_user_row_${user.email}")
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -179,13 +209,33 @@ fun AdminUserManagementDialog(
                                         )
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = user.email,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = user.email,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            if (isSelf) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                                ) {
+                                                    Text(
+                                                        text = "You",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Text(
                                             text = if (user.isAdmin) "Administrator (Full Access)" else "Staff Operator",
                                             fontSize = 11.sp,
@@ -196,29 +246,46 @@ fun AdminUserManagementDialog(
                                     // Toggle Admin Role
                                     TextButton(
                                         onClick = {
-                                            viewModel.authManager.setUserAdminRole(user.email, !user.isAdmin)
-                                            haptics.confirm()
-                                        }
+                                            if (isSelf && user.isAdmin) {
+                                                viewModel.showToast("Cannot demote your own active admin account")
+                                            } else {
+                                                viewModel.authManager.setUserAdminRole(user.email, !user.isAdmin)
+                                                haptics.confirm()
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("admin_user_toggle_${user.email}")
                                     ) {
                                         Text(
                                             text = if (user.isAdmin) "Demote" else "Make Admin",
                                             fontSize = 11.sp,
-                                            color = if (user.isAdmin) ext.danger else MaterialTheme.colorScheme.primary
+                                            color = if (isSelf && user.isAdmin) {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            } else if (user.isAdmin) {
+                                                ext.danger
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            }
                                         )
                                     }
 
                                     // Remove user
                                     IconButton(
                                         onClick = {
-                                            viewModel.authManager.removeUser(user.email)
-                                            haptics.reject()
+                                            if (isSelf) {
+                                                viewModel.showToast("Cannot remove your own active account")
+                                            } else {
+                                                viewModel.authManager.removeUser(user.email)
+                                                haptics.reject()
+                                            }
                                         },
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .testTag("admin_user_delete_${user.email}")
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.DeleteOutline,
                                             contentDescription = "Remove user",
-                                            tint = ext.danger,
+                                            tint = if (isSelf) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else ext.danger,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -232,7 +299,8 @@ fun AdminUserManagementDialog(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(48.dp)
+                        .testTag("admin_users_done_button")
                 ) {
                     Text("Done", fontWeight = FontWeight.Bold)
                 }
@@ -255,7 +323,10 @@ fun AdminUserManagementDialog(
                         label = { Text("Staff / Admin Email") },
                         placeholder = { Text("user@store.com") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_user_email_input")
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -265,7 +336,8 @@ fun AdminUserManagementDialog(
                         Text("Grant Admin Privileges", fontSize = 13.sp)
                         Switch(
                             checked = newUserIsAdmin,
-                            onCheckedChange = { newUserIsAdmin = it }
+                            onCheckedChange = { newUserIsAdmin = it },
+                            modifier = Modifier.testTag("admin_user_admin_switch")
                         )
                     }
                 }
@@ -283,7 +355,8 @@ fun AdminUserManagementDialog(
                         newUserIsAdmin = false
                         showAddUserDialog = false
                         haptics.confirm()
-                    }
+                    },
+                    modifier = Modifier.testTag("admin_user_confirm_add_button")
                 ) {
                     Text("Add User")
                 }

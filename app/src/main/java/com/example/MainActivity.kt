@@ -68,7 +68,6 @@ import com.example.data.model.Item
 import com.example.ui.CurrentScreen
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
-import com.example.ui.components.AdminPinUnlockDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.screens.AuthGateScreen
 import com.example.ui.screens.BillScreen
@@ -132,7 +131,11 @@ class MainActivity : ComponentActivity() {
         }
 
         if (uri != null) {
-            viewModel.loadExternalTintReport(this, uri)
+            if (com.example.data.auth.AuthManager.isAuthDeepLink(uri)) {
+                viewModel.authManager.handleAuthDeepLink(uri)
+            } else {
+                viewModel.loadExternalTintReport(this, uri)
+            }
         }
     }
 }
@@ -166,11 +169,6 @@ fun MainAppRoot(viewModel: StockViewModel) {
     var itemForTransaction by remember { mutableStateOf<Item?>(null) }
     var transactionInitialAction by remember { mutableStateOf("in") }
     var showTransactionDialog by remember { mutableStateOf(false) }
-    var showAdminPinDialog by remember { mutableStateOf(false) }
-
-    // Gear triple tap tracking
-    var gearTapCount by remember { mutableIntStateOf(0) }
-    var lastGearTapTime by remember { mutableStateOf(0L) }
 
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collect { message ->
@@ -181,6 +179,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
     LaunchedEffect(isAuthed) {
         if (isAuthed) {
             viewModel.ensureRealtimeConnected()
+            viewModel.refreshCurrentUserRole()
         }
     }
 
@@ -190,6 +189,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isAuthed) {
                 viewModel.ensureRealtimeConnected()
                 viewModel.reloadFromDatabase()
+                viewModel.refreshCurrentUserRole()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -269,25 +269,6 @@ fun MainAppRoot(viewModel: StockViewModel) {
                                     onClick = {
                                         if (currentTab != spec.tab) {
                                             haptics.tick()
-                                        }
-                                        if (spec.tab == NavigationTab.SETTINGS) {
-                                            val now = System.currentTimeMillis()
-                                            if (now - lastGearTapTime < 600) {
-                                                gearTapCount++
-                                                if (gearTapCount >= 3) {
-                                                    haptics.confirm()
-                                                    if (isAdmin) {
-                                                        viewModel.authManager.exitAdmin()
-                                                        viewModel.showToast("Admin mode off")
-                                                    } else {
-                                                        showAdminPinDialog = true
-                                                    }
-                                                    gearTapCount = 0
-                                                }
-                                            } else {
-                                                gearTapCount = 1
-                                            }
-                                            lastGearTapTime = now
                                         }
                                         viewModel.navigateTo(spec.tab)
                                     },
@@ -458,18 +439,6 @@ fun MainAppRoot(viewModel: StockViewModel) {
                 showTransactionDialog = false
                 itemForTransaction = null
             }
-        )
-    }
-
-    // Admin PIN shortcut dialog
-    if (showAdminPinDialog) {
-        AdminPinUnlockDialog(
-            viewModel = viewModel,
-            onSuccess = {
-                viewModel.showToast("Admin mode on")
-                showAdminPinDialog = false
-            },
-            onDismiss = { showAdminPinDialog = false }
         )
     }
 

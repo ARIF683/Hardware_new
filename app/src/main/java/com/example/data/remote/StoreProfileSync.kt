@@ -28,7 +28,7 @@ data class RemoteStoreProfile(
     val signatureUrl: String? = null,
     val qrCodeUrl: String? = null,
     val festivalConfigJson: String? = null,
-    val adminPinHash: String? = null,
+    val userRolesJson: String? = null,
     val updatedAt: Long = 0L
 )
 
@@ -62,7 +62,7 @@ object StoreProfileSyncCodec {
             signatureUrl = first.optPresentString("signatureUrl"),
             qrCodeUrl = first.optPresentString("qrCodeUrl"),
             festivalConfigJson = first.optPresentString("festivalConfigJson"),
-            adminPinHash = first.optPresentString("adminPinHash"),
+            userRolesJson = first.optPresentString("userRolesJson"),
             updatedAt = first.optLong("updatedAt", 0L)
         )
     }
@@ -114,7 +114,7 @@ object StoreProfileSyncCodec {
             profile.signatureUrl?.let { put("signatureUrl", it) }
             profile.qrCodeUrl?.let { put("qrCodeUrl", it) }
             profile.festivalConfigJson?.let { put("festivalConfigJson", it) }
-            profile.adminPinHash?.let { put("adminPinHash", it) }
+            profile.userRolesJson?.let { put("userRolesJson", it) }
             if (profile.updatedAt > 0L) {
                 put("updatedAt", profile.updatedAt)
             } else {
@@ -159,7 +159,7 @@ object StoreProfileSyncCodec {
             signatureUrl = override.signatureUrl ?: base.signatureUrl,
             qrCodeUrl = override.qrCodeUrl ?: base.qrCodeUrl,
             festivalConfigJson = override.festivalConfigJson ?: base.festivalConfigJson,
-            adminPinHash = override.adminPinHash ?: base.adminPinHash,
+            userRolesJson = override.userRolesJson ?: base.userRolesJson,
             updatedAt = maxOf(base.updatedAt, override.updatedAt)
         )
     }
