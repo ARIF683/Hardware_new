@@ -102,6 +102,7 @@ import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.components.AdminPinUnlockDialog
+import com.example.ui.components.AdminUserManagementDialog
 import com.example.ui.components.ChangeAdminPinDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
@@ -174,11 +175,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var showSupportDialog by remember { mutableStateOf(false) }
     var showFestivalStudioDialog by remember { mutableStateOf(false) }
     var showChangeAdminPinDialog by remember { mutableStateOf(false) }
+    var showAdminUserManagementDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(isAdmin) {
         if (!isAdmin) {
             showFestivalStudioDialog = false
             showChangeAdminPinDialog = false
+            showAdminUserManagementDialog = false
         }
     }
 
@@ -1119,6 +1122,34 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             }
                         }
                     )
+                    SettingsRowDivider()
+                    SettingsItemRow(
+                        icon = Icons.Filled.AdminPanelSettings,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        title = "Staff & Admin Accounts",
+                        subtitle = "Add, remove, or promote staff and admin accounts",
+                        onClick = { showAdminUserManagementDialog = true },
+                        testTag = "settings_admin_user_management_row",
+                        trailingContent = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val userCount by viewModel.authManager.registeredUsers.collectAsState()
+                                SettingsInlinePill(
+                                    text = "${userCount.size} Users",
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
                 }
                 SettingsRowDivider()
 
@@ -1453,6 +1484,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
         ChangeAdminPinDialog(
             viewModel = viewModel,
             onDismiss = { showChangeAdminPinDialog = false }
+        )
+    }
+
+    if (showAdminUserManagementDialog && isAdmin) {
+        AdminUserManagementDialog(
+            viewModel = viewModel,
+            onDismiss = { showAdminUserManagementDialog = false }
         )
     }
 
