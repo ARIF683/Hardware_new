@@ -102,4 +102,43 @@ class AuthDeepLinkAndSignupTest {
         composeRule.onNodeWithText("Create Password (min 6 chars)").assertIsDisplayed()
         composeRule.onNodeWithText("6-Digit Email OTP Code").assertDoesNotExist()
     }
+
+    @Test
+    fun `isEmailConfirmed requires non-null timestamp and friendlySupabaseError explains unverified email`() {
+        val unconfirmed = org.json.JSONObject()
+            .put("email", "test@store.com")
+            .put("email_confirmed_at", org.json.JSONObject.NULL)
+        val confirmed = org.json.JSONObject()
+            .put("email", "test@store.com")
+            .put("email_confirmed_at", "2026-11-20T10:00:00Z")
+
+        assertFalse(AuthManager.isEmailConfirmed(unconfirmed))
+        assertFalse(AuthManager.isEmailConfirmed(null))
+        assertTrue(AuthManager.isEmailConfirmed(confirmed))
+
+        val err = AuthManager.friendlySupabaseError("""{"msg":"Email not confirmed"}""", 400)
+        assertTrue(err.contains("not verified", ignoreCase = true))
+    }
+
+    @Test
+    fun `pending verification button does not bypass login without verification`() {
+        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
+            .edit()
+            .putString("pending_signup_email", "newuser@store.com")
+            .commit()
+
+        val vm = StockViewModel(app)
+        composeRule.setContent {
+            StockManagerTheme(darkTheme = false) {
+                AuthGateScreen(viewModel = vm)
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("auth_verified_signin_button").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("auth_verified_signin_button").performClick()
+        composeRule.waitForIdle()
+
+        assertFalse(vm.isAuthed.value)
+    }
 }

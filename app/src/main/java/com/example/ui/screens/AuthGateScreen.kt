@@ -130,12 +130,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                     if (success) {
                         successMessage = "Signed in successfully!"
                     } else {
-                        val legacyRes = viewModel.authManager.unlockApp(cleanPass)
-                        if (legacyRes is AuthManager.AuthResult.Success) {
-                            successMessage = "Unlocked successfully!"
-                        } else {
-                            errorMessage = err ?: "Invalid email or password."
-                        }
+                        errorMessage = err ?: "Invalid email or password."
                     }
                 }
             } else if (cleanPass.isNotEmpty()) {
@@ -325,19 +320,42 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                     Button(
                         onClick = {
-                            email = targetEmail
-                            viewModel.authManager.clearPendingVerification()
-                            authMode = AuthMode.SIGN_IN
+                            if (isChecking) return@Button
                             errorMessage = ""
                             successMessage = ""
+                            val cleanPass = password.trim()
+                            if (cleanPass.isEmpty()) {
+                                email = targetEmail
+                                authMode = AuthMode.SIGN_IN
+                                errorMessage = "Enter your password and tap Sign In after clicking the confirmation link."
+                            } else {
+                                isChecking = true
+                                viewModel.authManager.signInEmailPassword(targetEmail, cleanPass) { success, err ->
+                                    isChecking = false
+                                    if (success) {
+                                        successMessage = "Email verified! Signed in successfully."
+                                    } else {
+                                        errorMessage = err ?: "Your email is not verified yet. Open your inbox and tap the confirmation link first."
+                                    }
+                                }
+                            }
                         },
+                        enabled = !isChecking,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
                             .testTag("auth_verified_signin_button")
                     ) {
-                        Text("I've Clicked the Link — Sign In", fontWeight = FontWeight.Bold)
+                        if (isChecking) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text("I've Clicked the Link — Verify & Sign In", fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

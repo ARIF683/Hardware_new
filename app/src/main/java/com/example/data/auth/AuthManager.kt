@@ -86,6 +86,23 @@ class AuthManager(context: Context) {
             }
         }
 
+        internal fun isEmailConfirmed(userObj: JSONObject?): Boolean {
+            if (userObj == null) return false
+            val emailConfirmed = userObj.optString("email_confirmed_at").trim()
+            val confirmedAt = userObj.optString("confirmed_at").trim()
+            return (emailConfirmed.isNotBlank() && emailConfirmed != "null") ||
+                (confirmedAt.isNotBlank() && confirmedAt != "null")
+        }
+
+        internal fun friendlySupabaseError(rawBody: String, fallbackCode: Int): String {
+            val extracted = extractSupabaseError(rawBody, fallbackCode)
+            return if (extracted.contains("email not confirmed", ignoreCase = true)) {
+                "Your email is not verified yet. Open your inbox and tap the confirmation link first."
+            } else {
+                extracted
+            }
+        }
+
         internal fun isMetadataAdmin(userObj: JSONObject?): Boolean {
             if (userObj == null) return false
             val appMeta = userObj.optJSONObject("app_metadata")
@@ -623,13 +640,17 @@ class AuthManager(context: Context) {
                         val userObj = obj?.optJSONObject("user")
                         val identitiesEmpty = userObj?.optJSONArray("identities")?.length() == 0
 
+                        val hasConfirmationMetadata = userObj != null &&
+                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                        val emailAlreadyConfirmed = !hasConfirmationMetadata || isEmailConfirmed(userObj)
+
                         when {
                             identitiesEmpty -> {
                                 withContext(Dispatchers.Main) {
                                     callback(false, "An account with this email already exists. Use Sign In instead.")
                                 }
                             }
-                            accessToken.isNotBlank() -> {
+                            accessToken.isNotBlank() && emailAlreadyConfirmed -> {
                                 resolveAndCompleteSessionBlocking(
                                     email = clean,
                                     accessToken = accessToken,
@@ -662,7 +683,7 @@ class AuthManager(context: Context) {
                             }
                         }
                     } else {
-                        val msg = extractSupabaseError(respBody, resp.code)
+                        val msg = friendlySupabaseError(respBody, resp.code)
                         withContext(Dispatchers.Main) {
                             callback(false, msg)
                         }
@@ -901,6 +922,21 @@ class AuthManager(context: Context) {
                         val obj = try { JSONObject(respBody) } catch (_: Exception) { null }
                         val accessToken = obj?.optString("access_token").orEmpty()
                         val userObj = obj?.optJSONObject("user")
+                        val hasConfirmationMetadata = userObj != null &&
+                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                        if (hasConfirmationMetadata && !isEmailConfirmed(userObj)) {
+                            withContext(Dispatchers.Main) {
+                                setPendingVerificationEmail(clean)
+                                callback(false, "Your email is not verified yet. Open your inbox and tap the confirmation link first.")
+                            }
+                            return@use
+                        }
+                        if (accessToken.isBlank()) {
+                            withContext(Dispatchers.Main) {
+                                callback(false, "Sign in failed: missing session token.")
+                            }
+                            return@use
+                        }
                         resolveAndCompleteSessionBlocking(
                             email = clean,
                             accessToken = accessToken,
@@ -910,7 +946,7 @@ class AuthManager(context: Context) {
                             callback(true, null)
                         }
                     } else {
-                        val msg = extractSupabaseError(respBody, resp.code)
+                        val msg = friendlySupabaseError(respBody, resp.code)
                         withContext(Dispatchers.Main) {
                             callback(false, msg)
                         }
