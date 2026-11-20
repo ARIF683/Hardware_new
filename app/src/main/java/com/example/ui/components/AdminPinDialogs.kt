@@ -130,7 +130,7 @@ fun AdminPinUnlockDialog(
                         PasswordVisualTransformation()
                     },
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.NumberPassword,
+                        keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(
@@ -293,7 +293,7 @@ fun ChangeAdminPinDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val visual = if (showPins) VisualTransformation.None else PasswordVisualTransformation()
-                val kbd = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next)
+                val kbd = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next)
 
                 OutlinedTextField(
                     value = currentPin,
@@ -337,7 +337,7 @@ fun ChangeAdminPinDialog(
                     singleLine = true,
                     visualTransformation = visual,
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.NumberPassword,
+                        keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(
