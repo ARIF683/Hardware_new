@@ -393,6 +393,13 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
 
 
+                is CurrentScreen.AuditLogs -> {
+                    com.example.ui.screens.AuditLogsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeAuditLogs() }
+                    )
+                }
+
                 is CurrentScreen.Main -> {
                     when (currentTab) {
                         NavigationTab.HOME -> HomeScreen(viewModel = viewModel)

@@ -1285,5 +1285,58 @@ class SupabaseClient(
             Result.success("data:$mimeType;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP))
         }
     }
+
+    suspend fun fetchAllAuditLogs(): List<com.example.data.model.AuditLogRecord> = withContext(Dispatchers.IO) {
+        try {
+            val req = newRequestBuilder("audit_logs?select=*&order=created_at.desc&limit=500")
+                .get()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) return@withContext emptyList()
+                val body = resp.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                val list = mutableListOf<com.example.data.model.AuditLogRecord>()
+                for (i in 0 until jsonArr.length()) {
+                    val obj = jsonArr.getJSONObject(i)
+                    list.add(
+                        com.example.data.model.AuditLogRecord(
+                            id = obj.optString("id"),
+                            userEmail = obj.optString("user_email", obj.optString("userEmail", "")),
+                            action = obj.optString("action", ""),
+                            details = obj.optString("details", ""),
+                            createdAt = obj.optString("created_at", obj.optString("createdAt", ""))
+                        )
+                    )
+                }
+                list
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch audit logs", e)
+            emptyList()
+        }
+    }
+
+    suspend fun insertAuditLog(record: com.example.data.model.AuditLogRecord): Unit = withContext(Dispatchers.IO) {
+        try {
+            val obj = JSONObject().apply {
+                put("id", record.id)
+                put("user_email", record.userEmail)
+                put("action", record.action)
+                put("details", record.details)
+                put("created_at", record.createdAt)
+            }
+            val req = newRequestBuilder("audit_logs?on_conflict=id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(JSONArray().put(obj).toString().toRequestBody(jsonMediaType))
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    Log.e(tag, "Failed to insert audit log: ${resp.body?.string()}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to insert audit log", e)
+        }
+    }
 }
 

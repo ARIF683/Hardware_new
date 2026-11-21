@@ -57,6 +57,7 @@ sealed class CurrentScreen {
     data class LedgerAccountDetail(val accountId: String) : CurrentScreen()
     object GstCalculator : CurrentScreen()
     object SmartSynonymSearch : CurrentScreen()
+    object AuditLogs : CurrentScreen()
 }
 
 enum class NavigationTab {
@@ -309,6 +310,32 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentScreen = MutableStateFlow<CurrentScreen>(CurrentScreen.Main)
     val currentScreen: StateFlow<CurrentScreen> = _currentScreen.asStateFlow()
+
+    val allAuditLogs: StateFlow<List<com.example.data.local.AuditLogEntity>> = combine(
+        authManager.isAdmin,
+        repository.allAuditLogs
+    ) { admin, logs ->
+        if (admin) logs else emptyList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun syncAuditLogs() {
+        if (!authManager.isAdmin.value) return
+        viewModelScope.launch {
+            repository.syncAuditLogsFromCloud()
+        }
+    }
+
+    fun openAuditLogs() {
+        if (authManager.isAdmin.value) {
+            _currentScreen.value = CurrentScreen.AuditLogs
+        } else {
+            showToast("Admin access required to view audit logs.")
+        }
+    }
+
+    fun closeAuditLogs() {
+        _currentScreen.value = CurrentScreen.Main
+    }
 
 
 

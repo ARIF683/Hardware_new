@@ -96,12 +96,61 @@ class StockRepository(
     val allTintLogs: Flow<List<ColorTintLog>> = database.colorTintDao().getAllTintLogs()
     val pendingQueueCount: Flow<Int> = database.syncQueueDao().getCountFlow()
 
+    val allAuditLogs: Flow<List<com.example.data.local.AuditLogEntity>> = database.auditLogDao().getAllAuditLogs()
+
+    suspend fun recordAudit(action: String, details: String) {
+        val email = authManager.currentUserEmail.value?.trim()?.takeIf { it.isNotBlank() } ?: "system@hardware.com"
+        val record = com.example.data.model.AuditLogRecord(
+            id = "audit_${UUID.randomUUID()}",
+            userEmail = email,
+            action = action,
+            details = details,
+            createdAt = nowIso()
+        )
+        try {
+            database.auditLogDao().insertAuditLog(
+                com.example.data.local.AuditLogEntity(
+                    id = record.id,
+                    userEmail = record.userEmail,
+                    action = record.action,
+                    details = record.details,
+                    createdAt = record.createdAt
+                )
+            )
+            enqueueOp("audit", auditLogAdapter.toJson(record))
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to record audit log: ${e.message}")
+        }
+    }
+
+    suspend fun syncAuditLogsFromCloud() = withContext(Dispatchers.IO) {
+        if (!authManager.isAdmin.value || !supabaseClient.isConfigured()) return@withContext
+        try {
+            val remoteLogs = supabaseClient.fetchAllAuditLogs()
+            if (remoteLogs.isNotEmpty()) {
+                val entities = remoteLogs.map {
+                    com.example.data.local.AuditLogEntity(
+                        id = it.id,
+                        userEmail = it.userEmail,
+                        action = it.action,
+                        details = it.details,
+                        createdAt = it.createdAt
+                    )
+                }
+                database.auditLogDao().insertAuditLogs(entities)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to sync audit logs from cloud", e)
+        }
+    }
+
     suspend fun getAllItemsList(): List<Item> = database.itemDao().getAllItemsList()
 
 
 
     suspend fun updateItem(item: Item) = withContext(Dispatchers.IO) {
         database.itemDao().insert(item)
+        recordAudit("UPDATE_ITEM", "Updated item: ${item.name} (Code: ${item.code})")
         enqueueOp("upsert", itemListAdapter.toJson(listOf(item)))
         flushQueue()
     }
@@ -157,6 +206,7 @@ class StockRepository(
         Types.newParameterizedType(List::class.java, com.example.data.model.LedgerEntry::class.java)
     ).serializeNulls()
     private val purchaseAdapter = moshi.adapter(PurchaseRecord::class.java).serializeNulls()
+    private val auditLogAdapter = moshi.adapter(com.example.data.model.AuditLogRecord::class.java).serializeNulls()
 
     init {
         // Start background realtime listener and queue flusher
@@ -619,6 +669,7 @@ class StockRepository(
                 updatedAt = now
             )
             database.itemDao().insert(updated)
+            recordAudit("UPDATE_ITEM", "Updated item: ${updated.name} (Code: ${updated.code})")
             enqueueOp("upsert", itemListAdapter.toJson(listOf(updated)))
 
             if (existing != null && newQty != existing.qty) {
@@ -669,6 +720,7 @@ class StockRepository(
                 updatedAt = now
             )
             database.itemDao().insert(newItem)
+            recordAudit("ADD_ITEM", "Added new item: $name (Code: $code)")
             enqueueOp("upsert", itemListAdapter.toJson(listOf(newItem)))
 
             if (openingQty != 0.0) {
@@ -756,18 +808,31 @@ class StockRepository(
         }.toString())
 
         enqueueOp("tx", txListAdapter.toJson(listOf(tx)))
+        recordAudit(
+            action = if (action == "in") "STOCK_IN" else "STOCK_OUT",
+            details = "${if (action == "in") "Added" else "Deducted"} $qty ${item.unit} of ${item.name} (Balance: $newBalance ${item.unit})${if (note.isNotBlank()) " · Note: $note" else ""}"
+        )
         flushQueue()
         Result.success(Unit)
     }
 
     suspend fun deleteItem(id: String) = withContext(Dispatchers.IO) {
+        val existing = database.itemDao().getItemByIdOnce(id)
         database.itemDao().deleteById(id)
+        val itemLabel = existing?.let {
+            if (it.code.isNotBlank()) "${it.name} (Code: ${it.code})" else it.name
+        } ?: id
+        recordAudit("DELETE_ITEM", "Deleted item: $itemLabel")
         enqueueOp("delete", id)
         flushQueue()
     }
 
     suspend fun deleteItems(ids: List<String>) = withContext(Dispatchers.IO) {
         database.itemDao().deleteByIds(ids)
+        recordAudit(
+            "DELETE_ITEMS",
+            "Deleted ${ids.size} items (IDs: ${ids.take(5).joinToString(", ")}${if (ids.size > 5) "…" else ""})"
+        )
         enqueueOp("deleteBatch", ids.joinToString(","))
         flushQueue()
     }
@@ -784,12 +849,14 @@ class StockRepository(
         database.ledgerDao().deleteAllEntries()
         
         database.dailyCashflowDao().deleteAll()
+        recordAudit("DELETE_ALL_DATA", "Cleared all inventory, quotation, ledger, and cashflow data")
         
         flushQueue()
     }
 
     suspend fun clearTransactionHistory() = withContext(Dispatchers.IO) {
         database.transactionDao().deleteAll()
+        recordAudit("CLEAR_TRANSACTIONS", "Cleared stock transaction history")
         enqueueOp("clearTx", "{}")
         flushQueue()
     }
@@ -805,6 +872,9 @@ class StockRepository(
             }
         }
         database.itemDao().insertAll(itemsToUpdate)
+        if (itemsToUpdate.isNotEmpty()) {
+            recordAudit("BULK_UPDATE_TYPE", "Updated category/type to '$type' for ${itemsToUpdate.size} items")
+        }
         enqueueOp("upsert", itemListAdapter.toJson(itemsToUpdate))
         flushQueue()
     }
@@ -820,6 +890,9 @@ class StockRepository(
             }
         }
         database.itemDao().insertAll(itemsToUpdate)
+        if (itemsToUpdate.isNotEmpty()) {
+            recordAudit("BULK_UPDATE_UNIT", "Updated unit to '$unit' for ${itemsToUpdate.size} items")
+        }
         enqueueOp("upsert", itemListAdapter.toJson(itemsToUpdate))
         flushQueue()
     }
@@ -835,6 +908,9 @@ class StockRepository(
             }
         }
         database.itemDao().insertAll(itemsToUpdate)
+        if (itemsToUpdate.isNotEmpty()) {
+            recordAudit("BULK_UPDATE_IMAGE", "Updated photo for ${itemsToUpdate.size} items")
+        }
         enqueueOp("upsert", itemListAdapter.toJson(itemsToUpdate))
         flushQueue()
     }
@@ -1029,6 +1105,10 @@ class StockRepository(
             lines = purchaseLines
         )
         enqueueOp("purchase", purchaseAdapter.toJson(purchaseRecord))
+        recordAudit(
+            "CONFIRM_BILL",
+            "Confirmed purchase bill #${billNo.ifBlank { "N/A" }} (${supplier.ifBlank { "Supplier" }}): ${updatedItems.size} updated, ${newItems.size} added"
+        )
         flushQueue()
     }
 
@@ -1106,6 +1186,10 @@ class StockRepository(
         }
         database.itemDao().insertAll(items)
         enqueueOp("upsert", itemListAdapter.toJson(items))
+        recordAudit(
+            "IMPORT_ITEMS",
+            "Imported ${items.size} items (${if (replace) "replaced existing" else "merged"})"
+        )
         flushQueue()
     }
 
@@ -1223,6 +1307,12 @@ class StockRepository(
                                 lastKnownRemoteProfile = merged
                             }
                         }
+                        "audit" -> {
+                            val auditRecord = auditLogAdapter.fromJson(op.payloadJson)
+                            if (auditRecord != null) {
+                                supabaseClient.insertAuditLog(auditRecord)
+                            }
+                        }
                     }
                     opsToDelete.add(op.id)
                 } catch (e: Exception) {
@@ -1336,6 +1426,10 @@ class StockRepository(
                 database.transactionDao().insertAll(txList)
                 enqueueOp("tx", txListAdapter.toJson(txList))
             }
+            recordAudit(
+                "QUOTATION_SALE",
+                "Converted Estimate #${quotation.quotationNo} to sale (${itemsToUpdate.size} stock items deducted)"
+            )
 
             flushQueue()
             Result.success(Unit)
@@ -1478,6 +1572,10 @@ class StockRepository(
                     enqueueOp("tx", txListAdapter.toJson(txList))
                 }
             }
+            recordAudit(
+                "GST_BILL_SALE",
+                "Generated GST Bill #$invNumber from Estimate #${quotation.quotationNo}${if (deductStock) " (stock deducted)" else ""}"
+            )
 
             flushQueue()
             Result.success(gstBill)
@@ -2145,6 +2243,13 @@ class StockRepository(
             val prefs = context.getSharedPreferences("tint_machine_prefs", Context.MODE_PRIVATE)
             prefs.edit().putStringSet("processed_tint_ids", processedIds).apply()
 
+            if (newCount > 0) {
+                recordAudit(
+                    "COLOR_TINT_DEDUCT",
+                    "Deducted stock for $newCount tinting logs ($totalCans cans / $totalLiters L)"
+                )
+            }
+
             flushQueue()
 
             Result.success(
@@ -2216,6 +2321,12 @@ class StockRepository(
             if (newTransactions.isNotEmpty()) {
                 database.transactionDao().insertAll(newTransactions)
                 enqueueOp("tx", txListAdapter.toJson(newTransactions))
+            }
+            if (updatedItems.isNotEmpty()) {
+                recordAudit(
+                    "BILL_SCAN_IMPORT",
+                    "Bill scan #${billNumber.ifBlank { "N/A" }} ($supplierName): updated ${updatedItems.size} items"
+                )
             }
 
             flushQueue()

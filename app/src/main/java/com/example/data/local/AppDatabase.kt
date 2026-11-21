@@ -26,9 +26,10 @@ import com.example.data.model.TransactionRecord
         LedgerEntry::class,
         DailyCashflowRecord::class,
         ColorTintLog::class,
-        GstBillRecord::class
+        GstBillRecord::class,
+        AuditLogEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dailyCashflowDao(): DailyCashflowDao
     abstract fun colorTintDao(): ColorTintDao
     abstract fun gstBillDao(): GstBillDao
+    abstract fun auditLogDao(): AuditLogDao
 
     companion object {
         @Volatile
@@ -143,6 +145,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        userEmail TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        details TEXT NOT NULL,
+                        createdAt TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -150,7 +168,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stock_manager.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_8_9)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
