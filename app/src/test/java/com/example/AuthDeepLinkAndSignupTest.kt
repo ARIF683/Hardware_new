@@ -100,7 +100,7 @@ class AuthDeepLinkAndSignupTest {
         // Switch to Create Account tab -> stays on Email + Password without OTP box
         composeRule.onNodeWithTag("auth_tab_signup").performScrollTo().performClick()
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("Create Password (min 6 chars)").assertIsDisplayed()
+        composeRule.onNodeWithText("Create Password (min 8 chars)").assertIsDisplayed()
         composeRule.onNodeWithText("6-Digit Email OTP Code").assertDoesNotExist()
     }
 

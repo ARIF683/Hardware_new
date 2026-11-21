@@ -21,9 +21,17 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
     private fun supabaseApiKey(): String =
         BuildConfig.SUPABASE_KEY.trim().trim('"')
 
-    fun requestPasswordResetOtp(email: String, callback: (Boolean, String?) -> Unit) {
+    fun requestPasswordResetOtp(
+        email: String,
+        callback: (Boolean, String?) -> Unit
+    ) {
         if (auth.isLocked()) {
             callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
+        val cooldown = auth.getResendCooldownRemainingSeconds()
+        if (cooldown > 0) {
+            callback(false, "Please wait ${cooldown}s before requesting another OTP.")
             return
         }
         val clean = email.trim().lowercase()
@@ -36,15 +44,23 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    withContext(Dispatchers.Main) {
-                        auth.saveLastSignedInEmail(clean)
-                        auth.startOtpExpiryTimer()
-                        callback(true, "Reset OTP ready for $clean (expires in 5 minutes).")
+                    if (auth.allowOfflineTestFallback()) {
+                        withContext(Dispatchers.Main) {
+                            auth.saveLastSignedInEmail(clean)
+                            auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
+                            callback(true, "Reset OTP ready for $clean (expires in 5 minutes).")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }
 
                 val payload = JSONObject().put("email", clean).toString()
+
                 val req = Request.Builder()
                     .url("${supabaseBaseUrl()}/auth/v1/recover")
                     .addHeader("apikey", supabaseApiKey())
@@ -59,6 +75,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         withContext(Dispatchers.Main) {
                             auth.saveLastSignedInEmail(clean)
                             auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
                             callback(true, "Password reset OTP sent to $clean (expires in 5 minutes).")
                         }
                     } else {
@@ -96,8 +113,8 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
             callback(false, "Enter the 6-digit OTP code sent to your email.")
             return
         }
-        if (newPassword.length < 6) {
-            callback(false, "New password must be at least 6 characters.")
+        if (!AuthManager.isValidPassword(newPassword)) {
+            callback(false, "New password must be at least ${AuthManager.MIN_PASSWORD_LENGTH} characters.")
             return
         }
         if (auth.isCurrentOtpExpired()) {
@@ -108,10 +125,16 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    auth.resetAuthFailures()
-                    auth.completeSessionBlocking(clean)
-                    withContext(Dispatchers.Main) {
-                        callback(true, "Password updated! Welcome back to Stock.")
+                    if (auth.allowOfflineTestFallback()) {
+                        auth.resetAuthFailures()
+                        auth.completeSessionBlocking(clean)
+                        withContext(Dispatchers.Main) {
+                            callback(true, "Password updated! Welcome back to Stock.")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }
@@ -131,6 +154,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                     .build()
 
                 var recoveryToken = ""
+                var recoveryRefreshToken = ""
                 var userObj: JSONObject? = null
                 var verifyError: String? = null
 
@@ -139,6 +163,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                     if (resp.isSuccessful) {
                         val obj = try { JSONObject(body) } catch (_: Exception) { null }
                         recoveryToken = obj?.optString("access_token").orEmpty()
+                        recoveryRefreshToken = obj?.optString("refresh_token").orEmpty()
                         userObj = obj?.optJSONObject("user")
                         if (recoveryToken.isBlank()) {
                             verifyError = "Could not verify recovery OTP token."
@@ -172,6 +197,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         auth.completeSessionBlocking(
                             email = clean,
                             accessToken = recoveryToken,
+                            refreshToken = recoveryRefreshToken,
                             metadataIsAdmin = AuthManager.isMetadataAdmin(updatedUser ?: userObj)
                         )
                         withContext(Dispatchers.Main) {
@@ -197,6 +223,11 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
             callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
             return
         }
+        val cooldown = auth.getResendCooldownRemainingSeconds()
+        if (cooldown > 0) {
+            callback(false, "Please wait ${cooldown}s before requesting another OTP.")
+            return
+        }
         val cleanNew = newEmail.trim().lowercase()
         if (!AuthManager.isValidEmail(cleanNew)) {
             callback(false, "Enter a valid new email address.")
@@ -211,14 +242,21 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    withContext(Dispatchers.Main) {
-                        auth.startOtpExpiryTimer()
-                        callback(true, "Verification OTP ready for $cleanNew (expires in 5 minutes).")
+                    if (auth.allowOfflineTestFallback()) {
+                        withContext(Dispatchers.Main) {
+                            auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
+                            callback(true, "Verification OTP ready for $cleanNew (expires in 5 minutes).")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }
 
-                val token = auth.activeAccessToken()
+                var token = auth.activeAccessToken()
                 if (token.isBlank()) {
                     withContext(Dispatchers.Main) {
                         callback(false, "Active session expired. Sign out and sign back in to change your email.")
@@ -227,23 +265,32 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                 }
 
                 val payload = JSONObject().put("email", cleanNew).toString()
-                val req = Request.Builder()
+
+                fun executeChangeRequest(bearer: String) = Request.Builder()
                     .url("${supabaseBaseUrl()}/auth/v1/user")
                     .addHeader("apikey", supabaseApiKey())
-                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Authorization", "Bearer $bearer")
                     .addHeader("Content-Type", "application/json")
                     .put(payload.toRequestBody(jsonMediaType()))
                     .build()
 
-                auth.httpClient.newCall(req).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) {
+                var resp = auth.httpClient.newCall(executeChangeRequest(token)).execute()
+                if (resp.code == 401 && auth.refreshSessionBlocking()) {
+                    resp.close()
+                    token = auth.activeAccessToken()
+                    resp = auth.httpClient.newCall(executeChangeRequest(token)).execute()
+                }
+
+                resp.use { finalResp ->
+                    val body = finalResp.body?.string().orEmpty()
+                    if (finalResp.isSuccessful) {
                         withContext(Dispatchers.Main) {
                             auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
                             callback(true, "Verification OTP sent to $cleanNew (expires in 5 minutes).")
                         }
                     } else {
-                        val msg = AuthManager.friendlySupabaseError(body, resp.code)
+                        val msg = AuthManager.friendlySupabaseError(body, finalResp.code)
                         withContext(Dispatchers.Main) {
                             callback(false, msg)
                         }
@@ -286,10 +333,16 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    auth.resetAuthFailures()
-                    auth.completeEmailChangeLocally(oldEmail, cleanNew, "")
-                    withContext(Dispatchers.Main) {
-                        callback(true, "Email address updated to $cleanNew.")
+                    if (auth.allowOfflineTestFallback()) {
+                        auth.resetAuthFailures()
+                        auth.completeEmailChangeLocally(oldEmail, cleanNew, "")
+                        withContext(Dispatchers.Main) {
+                            callback(true, "Email address updated to $cleanNew.")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }
@@ -315,10 +368,12 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         val userObj = obj?.optJSONObject("user")
                         val verifiedEmail = userObj?.optString("email")?.trim()?.lowercase().orEmpty()
                         val newToken = obj?.optString("access_token").orEmpty()
+                        val newRefreshToken = obj?.optString("refresh_token").orEmpty()
 
                         if (verifiedEmail.isNotBlank() && verifiedEmail != cleanNew) {
                             withContext(Dispatchers.Main) {
                                 auth.startOtpExpiryTimer()
+                                auth.startResendCooldown()
                                 callback(
                                     false,
                                     "First confirmation received! Now enter the OTP sent to $cleanNew (or disable 'Secure email change' in Supabase Auth settings for single-step verification)."
@@ -328,7 +383,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
 
                         auth.resetAuthFailures()
-                        auth.completeEmailChangeLocally(oldEmail, cleanNew, newToken)
+                        auth.completeEmailChangeLocally(oldEmail, cleanNew, newToken, newRefreshToken)
                         withContext(Dispatchers.Main) {
                             callback(true, "Email address updated to $cleanNew.")
                         }
@@ -349,7 +404,14 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         }
     }
 
-    fun requestDeleteAccountOtp(callback: (Boolean, String?) -> Unit) {
+    fun requestDeleteAccountOtp(
+        callback: (Boolean, String?) -> Unit
+    ) {
+        val cooldown = auth.getResendCooldownRemainingSeconds()
+        if (cooldown > 0) {
+            callback(false, "Please wait ${cooldown}s before requesting another OTP.")
+            return
+        }
         val activeEmail = auth.currentUserEmail.value?.trim()?.lowercase()
         if (activeEmail.isNullOrBlank()) {
             callback(false, "No signed-in email found. Please sign in with your email first.")
@@ -359,9 +421,16 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    withContext(Dispatchers.Main) {
-                        auth.startOtpExpiryTimer()
-                        callback(true, "Deletion OTP ready for $activeEmail (expires in 5 minutes).")
+                    if (auth.allowOfflineTestFallback()) {
+                        withContext(Dispatchers.Main) {
+                            auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
+                            callback(true, "Deletion OTP ready for $activeEmail (expires in 5 minutes).")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }
@@ -384,6 +453,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                     if (resp.isSuccessful) {
                         withContext(Dispatchers.Main) {
                             auth.startOtpExpiryTimer()
+                            auth.startResendCooldown()
                             callback(true, "Account deletion OTP sent to $activeEmail (expires in 5 minutes).")
                         }
                     } else {
@@ -424,10 +494,16 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
-                    auth.resetAuthFailures()
-                    auth.completeAccountDeletionLocally(activeEmail)
-                    withContext(Dispatchers.Main) {
-                        callback(true, "Account permanently deleted.")
+                    if (auth.allowOfflineTestFallback()) {
+                        auth.resetAuthFailures()
+                        auth.completeAccountDeletionLocally(activeEmail)
+                        withContext(Dispatchers.Main) {
+                            callback(true, "Account permanently deleted.")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, auth.unconfiguredAuthMessage())
+                        }
                     }
                     return@launch
                 }

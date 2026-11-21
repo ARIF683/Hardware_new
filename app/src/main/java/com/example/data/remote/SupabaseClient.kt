@@ -117,6 +117,40 @@ class SupabaseClient(
             apiKey.isNotBlank() &&
             !apiKey.contains("YOUR_SUPABASE_KEY")
 
+    @Volatile
+    private var accessTokenProvider: (() -> String)? = null
+
+    @Volatile
+    private var onRefreshSession: (() -> Boolean)? = null
+
+    fun configureAuth(
+        accessTokenProvider: () -> String,
+        onRefreshSession: (() -> Boolean)? = null
+    ) {
+        this.accessTokenProvider = accessTokenProvider
+        this.onRefreshSession = onRefreshSession
+    }
+
+    private fun activeBearerToken(): String {
+        val userToken = accessTokenProvider?.invoke()?.trim().orEmpty()
+        return userToken.ifBlank { apiKey }
+    }
+
+    private fun executeSupabaseCall(request: Request): Response {
+        val firstResp = okHttpClient.newCall(request).execute()
+        if (firstResp.code == 401 &&
+            !accessTokenProvider?.invoke()?.trim().isNullOrBlank() &&
+            onRefreshSession?.invoke() == true
+        ) {
+            firstResp.close()
+            val refreshedReq = request.newBuilder()
+                .header("Authorization", "Bearer ${activeBearerToken()}")
+                .build()
+            return okHttpClient.newCall(refreshedReq).execute()
+        }
+        return firstResp
+    }
+
     private fun newRequestBuilder(path: String): Request.Builder {
         if (!isConfigured() && !path.startsWith("http")) {
             throw IllegalStateException("Supabase credentials missing. Configure SUPABASE_URL and SUPABASE_KEY in Secrets.")
@@ -125,7 +159,7 @@ class SupabaseClient(
         return Request.Builder()
             .url(url)
             .addHeader("apikey", apiKey)
-            .addHeader("Authorization", "Bearer $apiKey")
+            .header("Authorization", "Bearer ${activeBearerToken()}")
             .addHeader("Content-Type", "application/json")
     }
 
@@ -136,7 +170,7 @@ class SupabaseClient(
             val req = newRequestBuilder("items?select=*&order=o.asc&limit=1000&offset=$offset")
                 .get()
                 .build()
-            val resp: Response = okHttpClient.newCall(req).execute()
+            val resp: Response = executeSupabaseCall(req)
             if (!resp.isSuccessful) {
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
                 throw Exception("Failed to load items: $err")
@@ -154,7 +188,7 @@ class SupabaseClient(
         val req = newRequestBuilder("transactions?select=*&order=created_at.desc&limit=$limit")
             .get()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to load transactions: $err")
@@ -188,7 +222,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
-            okHttpClient.newCall(req).execute().use { resp ->
+            executeSupabaseCall(req).use { resp ->
                 if (resp.isSuccessful) return@withContext
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
                 val missingCol = extractMissingPgrst204Column(err)
@@ -219,7 +253,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "return=minimal")
                 .patch(patchObj.toString().toRequestBody(jsonMediaType))
                 .build()
-            okHttpClient.newCall(req).execute().use { resp ->
+            executeSupabaseCall(req).use { resp ->
                 if (resp.isSuccessful) return@withContext
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
                 val missingCol = extractMissingPgrst204Column(err)
@@ -243,7 +277,7 @@ class SupabaseClient(
         val req = newRequestBuilder("items?id=in.($idsFormatted)")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to delete items: $err")
@@ -254,7 +288,7 @@ class SupabaseClient(
         val req = newRequestBuilder("items?id=not.is.null")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to delete all items: $err")
@@ -270,7 +304,7 @@ class SupabaseClient(
             .addHeader("Prefer", "return=minimal")
             .post(json.toRequestBody(jsonMediaType))
             .build()
-        var resp = okHttpClient.newCall(req).execute()
+        var resp = executeSupabaseCall(req)
         if (resp.isSuccessful) return@withContext
 
         val firstErr = resp.body?.string() ?: "HTTP ${resp.code}"
@@ -298,7 +332,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "return=minimal")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
-            resp = okHttpClient.newCall(req).execute()
+            resp = executeSupabaseCall(req)
             if (resp.isSuccessful) return@withContext
 
             // 3. Fallback: Strip client_id completely if Supabase table does not have client_id column
@@ -320,7 +354,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "return=minimal")
                 .post(jsonArrayNoClientId.toString().toRequestBody(jsonMediaType))
                 .build()
-            resp = okHttpClient.newCall(req).execute()
+            resp = executeSupabaseCall(req)
             if (resp.isSuccessful) return@withContext
 
             val finalErr = resp.body?.string() ?: "HTTP ${resp.code}"
@@ -334,7 +368,7 @@ class SupabaseClient(
         val req = newRequestBuilder("transactions?id=not.is.null")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to clear transactions: $err")
@@ -347,7 +381,7 @@ class SupabaseClient(
             .addHeader("Prefer", "return=minimal")
             .post(json.toRequestBody(jsonMediaType))
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to record purchase: $err")
@@ -358,7 +392,7 @@ class SupabaseClient(
         val req = newRequestBuilder("daily_cashflow?select=*&order=date.desc&limit=2000")
             .get()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             val err = resp.body?.string() ?: "HTTP ${resp.code}"
             throw Exception("Failed to fetch cashflow: $err")
@@ -414,7 +448,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(makeJsonArray(includeTitle, includePaymentMode).toString().toRequestBody(jsonMediaType))
                 .build()
-            var resp = okHttpClient.newCall(req).execute()
+            var resp = executeSupabaseCall(req)
             if (resp.isSuccessful) return@withContext
 
             val err1 = resp.body?.string() ?: "HTTP ${resp.code}"
@@ -430,7 +464,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(makeJsonArray(includeTitle, includePaymentMode).toString().toRequestBody(jsonMediaType))
                 .build()
-            resp = okHttpClient.newCall(req).execute()
+            resp = executeSupabaseCall(req)
             if (resp.isSuccessful) return@withContext
 
             val err2 = resp.body?.string() ?: "HTTP ${resp.code}"
@@ -452,7 +486,7 @@ class SupabaseClient(
                         .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                         .post(JSONArray().put(obj).toString().toRequestBody(jsonMediaType))
                         .build()
-                    var singleResp = okHttpClient.newCall(singleReq).execute()
+                    var singleResp = executeSupabaseCall(singleReq)
                     if (singleResp.isSuccessful) {
                         successCount++
                         continue
@@ -468,7 +502,7 @@ class SupabaseClient(
                             .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                             .post(JSONArray().put(obj).toString().toRequestBody(jsonMediaType))
                             .build()
-                        singleResp = okHttpClient.newCall(singleReq).execute()
+                        singleResp = executeSupabaseCall(singleReq)
                         if (singleResp.isSuccessful) {
                             successCount++
                             continue
@@ -480,7 +514,7 @@ class SupabaseClient(
                         .addHeader("Prefer", "return=minimal")
                         .patch(obj.toString().toRequestBody(jsonMediaType))
                         .build()
-                    val patchResp = okHttpClient.newCall(patchReq).execute()
+                    val patchResp = executeSupabaseCall(patchReq)
                     if (patchResp.isSuccessful) {
                         successCount++
                         continue
@@ -491,7 +525,7 @@ class SupabaseClient(
                         .addHeader("Prefer", "return=minimal")
                         .post(JSONArray().put(obj).toString().toRequestBody(jsonMediaType))
                         .build()
-                    val postResp = okHttpClient.newCall(postReq).execute()
+                    val postResp = executeSupabaseCall(postReq)
                     if (postResp.isSuccessful) {
                         successCount++
                     } else {
@@ -521,7 +555,7 @@ class SupabaseClient(
             var req = newRequestBuilder("daily_cashflow?id=in.($idsFormatted)")
                 .delete()
                 .build()
-            var resp = okHttpClient.newCall(req).execute()
+            var resp = executeSupabaseCall(req)
             if (resp.isSuccessful) return@withContext
 
             if (ids.size == 1) {
@@ -529,7 +563,7 @@ class SupabaseClient(
                 req = newRequestBuilder("daily_cashflow?id=eq.$singleId")
                     .delete()
                     .build()
-                resp = okHttpClient.newCall(req).execute()
+                resp = executeSupabaseCall(req)
                 if (resp.isSuccessful) return@withContext
             }
 
@@ -553,7 +587,7 @@ class SupabaseClient(
             val req = newRequestBuilder("quotations?select=*&order=created_at.desc&limit=1000")
                 .get()
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) return@withContext null
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
@@ -616,7 +650,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) {
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
                 Log.e(tag, "Failed bulk upsert quotations: $err, trying per-record fallback")
@@ -627,7 +661,7 @@ class SupabaseClient(
                         .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                         .post(JSONArray().put(singleObj).toString().toRequestBody(jsonMediaType))
                         .build()
-                    val singleResp = okHttpClient.newCall(singleReq).execute()
+                    val singleResp = executeSupabaseCall(singleReq)
                     if (!singleResp.isSuccessful) {
                         val sErr = singleResp.body?.string() ?: "HTTP ${singleResp.code}"
                         Log.e(tag, "Failed single quotation upsert: $sErr")
@@ -647,7 +681,7 @@ class SupabaseClient(
         val req = newRequestBuilder("quotations?id=in.($idsFormatted)")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             Log.e(tag, "Failed to delete quotations: ${resp.body?.string()}")
         }
@@ -659,7 +693,7 @@ class SupabaseClient(
             val req = newRequestBuilder("ledger_accounts?select=*&order=name.asc&limit=1000")
                 .get()
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) return@withContext emptyList()
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
@@ -698,7 +732,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) {
                 Log.e(tag, "Failed to upsert ledger accounts: ${resp.body?.string()}")
             }
@@ -713,7 +747,7 @@ class SupabaseClient(
         val req = newRequestBuilder("ledger_accounts?id=in.($idsFormatted)")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             Log.e(tag, "Failed to delete ledger accounts: ${resp.body?.string()}")
         }
@@ -725,7 +759,7 @@ class SupabaseClient(
             val req = newRequestBuilder("purchases?client_id=eq.${StoreProfileSyncCodec.PROFILE_CLIENT_ID}&limit=1")
                 .get()
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) return@withContext null
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
@@ -748,7 +782,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) {
                 Log.e(tag, "Failed to save store profile: ${resp.body?.string()}")
                 false
@@ -772,7 +806,7 @@ class SupabaseClient(
                 val b64 = trimmed.substring(commaIdx + 1)
                 return@withContext android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
             }
-            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            if (trimmed.startsWith("https://", ignoreCase = true)) {
                 val req = Request.Builder().url(trimmed).get().build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext null
@@ -792,7 +826,7 @@ class SupabaseClient(
             val req = newRequestBuilder("ledger_entries?select=*&order=created_at.desc&limit=5000")
                 .get()
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) return@withContext emptyList()
             val body = resp.body?.string() ?: "[]"
             val jsonArr = JSONArray(body)
@@ -830,7 +864,7 @@ class SupabaseClient(
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(jsonArray.toString().toRequestBody(jsonMediaType))
                 .build()
-            val resp = okHttpClient.newCall(req).execute()
+            val resp = executeSupabaseCall(req)
             if (!resp.isSuccessful) {
                 Log.e(tag, "Failed to upsert ledger entries: ${resp.body?.string()}")
             }
@@ -845,7 +879,7 @@ class SupabaseClient(
         val req = newRequestBuilder("ledger_entries?id=in.($idsFormatted)")
             .delete()
             .build()
-        val resp = okHttpClient.newCall(req).execute()
+        val resp = executeSupabaseCall(req)
         if (!resp.isSuccessful) {
             Log.e(tag, "Failed to delete ledger entries: ${resp.body?.string()}")
         }
@@ -988,9 +1022,14 @@ class SupabaseClient(
             return null
         }
         val connSeq = realtimeSeq.incrementAndGet()
+        val userToken = accessTokenProvider?.invoke()?.trim().orEmpty()
         val wsUrl = baseUrl.replace("https://", "wss://").replace("http://", "ws://") +
             "/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
-        val request = Request.Builder().url(wsUrl).build()
+        val reqBuilder = Request.Builder().url(wsUrl)
+        if (userToken.isNotBlank()) {
+            reqBuilder.header("Authorization", "Bearer $userToken")
+        }
+        val request = reqBuilder.build()
 
         var webSocket: WebSocket? = null
         var heartbeatJob: Job? = null
@@ -1002,25 +1041,30 @@ class SupabaseClient(
                     return
                 }
                 Log.d(tag, "Realtime WS connected to Supabase")
+                val currentToken = accessTokenProvider?.invoke()?.trim().orEmpty()
                 val tables = listOf("items", "purchases", "daily_cashflow", "quotations", "ledger_accounts", "ledger_entries")
                 tables.forEach { table ->
+                    val payloadObj = JSONObject().apply {
+                        if (currentToken.isNotBlank()) {
+                            put("access_token", currentToken)
+                        }
+                        put("config", JSONObject().apply {
+                            put("broadcast", JSONObject().apply { put("self", false) })
+                            put("presence", JSONObject().apply { put("key", "") })
+                            put("postgres_changes", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("event", "*")
+                                    put("schema", "public")
+                                    put("table", table)
+                                })
+                            })
+                        })
+                    }
                     val joinMsg = JSONObject().apply {
                         put("topic", "realtime:public:$table")
                         put("event", "phx_join")
                         put("ref", "join_${table}_${System.currentTimeMillis()}")
-                        put("payload", JSONObject().apply {
-                            put("config", JSONObject().apply {
-                                put("broadcast", JSONObject().apply { put("self", false) })
-                                put("presence", JSONObject().apply { put("key", "") })
-                                put("postgres_changes", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("event", "*")
-                                        put("schema", "public")
-                                        put("table", table)
-                                    })
-                                })
-                            })
-                        })
+                        put("payload", payloadObj)
                     }
                     webSocket.send(joinMsg.toString())
                 }
@@ -1179,15 +1223,12 @@ class SupabaseClient(
             "data:$mimeType;base64," + android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
         }
         try {
-            // 1. Request signature from Supabase Edge Function
-            val signReq = newRequestBuilder("sign-cloudinary-upload")
-                .url("$baseUrl/functions/v1/sign-cloudinary-upload")
-                .addHeader("apikey", apiKey)
-                .addHeader("Authorization", "Bearer $apiKey")
+            // 1. Request signature from Supabase Edge Function using authenticated user JWT
+            val signReq = newRequestBuilder("$baseUrl/functions/v1/sign-cloudinary-upload")
                 .post("""{"folder":"items"}""".toRequestBody(jsonMediaType))
                 .build()
 
-            val signResp = okHttpClient.newCall(signReq).execute()
+            val signResp = executeSupabaseCall(signReq)
             val signBodyStr = signResp.body?.string() ?: ""
             if (!signResp.isSuccessful) {
                 Log.w("SupabaseClient", "Edge function signing error ($signBodyStr), using base64 fallback")

@@ -83,6 +83,13 @@ class StockRepository(
     @Volatile
     private var lastKnownRemoteProfile: RemoteStoreProfile? = null
 
+    init {
+        supabaseClient.configureAuth(
+            accessTokenProvider = { authManager.activeAccessToken() },
+            onRefreshSession = { authManager.refreshSessionBlocking() }
+        )
+    }
+
     val allItems: Flow<List<Item>> = database.itemDao().getAllItems()
     val allTransactions: Flow<List<TransactionRecord>> = database.transactionDao().getAllTransactions()
     val recentTransactions: Flow<List<TransactionRecord>> = database.transactionDao().getRecentTransactions(5)

@@ -92,17 +92,29 @@ class AdminRoleManagementTest {
     }
 
     @Test
-    fun `isMetadataAdmin detects Supabase app_metadata or user_metadata roles`() {
+    fun `isMetadataAdmin trusts Supabase app_metadata only and ignores user_metadata`() {
         val appMetaAdmin = JSONObject().put("app_metadata", JSONObject().put("is_admin", true))
         val appMetaRoleAdmin = JSONObject().put("app_metadata", JSONObject().put("role", "Admin"))
-        val userMetaAdmin = JSONObject().put("user_metadata", JSONObject().put("role", "admin"))
+        val userMetaRoleAdmin = JSONObject().put("user_metadata", JSONObject().put("role", "admin"))
+        val userMetaFlagAdmin = JSONObject().put("user_metadata", JSONObject().put("is_admin", true))
         val staffUser = JSONObject().put("app_metadata", JSONObject().put("role", "staff"))
 
         assertTrue(AuthManager.isMetadataAdmin(appMetaAdmin))
         assertTrue(AuthManager.isMetadataAdmin(appMetaRoleAdmin))
-        assertTrue(AuthManager.isMetadataAdmin(userMetaAdmin))
+        assertFalse(AuthManager.isMetadataAdmin(userMetaRoleAdmin))
+        assertFalse(AuthManager.isMetadataAdmin(userMetaFlagAdmin))
         assertFalse(AuthManager.isMetadataAdmin(staffUser))
         assertFalse(AuthManager.isMetadataAdmin(null))
+    }
+
+    @Test
+    fun `non-admin session cannot upsert promote or remove users`() {
+        val auth = AuthManager(app)
+        assertFalse(auth.isAdmin.value)
+
+        auth.upsertUser("attacker@store.com", true)
+        auth.setUserAdminRole("attacker@store.com", true)
+        assertTrue(auth.registeredUsers.value.isEmpty())
     }
 
     @Test

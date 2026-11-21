@@ -2,10 +2,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="stock_manager_auth.xml" />
+        <exclude domain="sharedpref" path="gemini_prefs.xml" />
         <exclude domain="database" path="." />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="stock_manager_auth.xml" />
+        <exclude domain="sharedpref" path="gemini_prefs.xml" />
         <exclude domain="database" path="." />
     </device-transfer>
 </data-extraction-rules>

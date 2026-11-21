@@ -53,6 +53,7 @@ fun ChangeEmailDialog(
     val ext = LocalExtendedColors.current
     val currentEmail by viewModel.currentUserEmail.collectAsState()
     val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
+    val resendCooldown by viewModel.authManager.resendCooldownSeconds.collectAsState()
     val lockRemaining by viewModel.authManager.lockRemainingSeconds.collectAsState()
     val isLocked = lockRemaining > 0
 
@@ -118,7 +119,7 @@ fun ChangeEmailDialog(
 
                     TextButton(
                         onClick = {
-                            if (isBusy) return@TextButton
+                            if (isBusy || resendCooldown > 0) return@TextButton
                             isBusy = true
                             errorMsg = ""
                             statusMsg = ""
@@ -131,14 +132,16 @@ fun ChangeEmailDialog(
                                 }
                             }
                         },
-                        enabled = !isBusy,
+                        enabled = !isBusy && resendCooldown <= 0,
                         modifier = Modifier
                             .height(48.dp)
                             .testTag("change_email_resend_button")
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Resend OTP Code")
+                        Text(
+                            if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend OTP Code"
+                        )
                     }
                 }
 
@@ -154,7 +157,7 @@ fun ChangeEmailDialog(
             if (!otpSent) {
                 Button(
                     onClick = {
-                        if (isBusy) return@Button
+                        if (isBusy || resendCooldown > 0) return@Button
                         isBusy = true
                         errorMsg = ""
                         statusMsg = ""
@@ -168,7 +171,7 @@ fun ChangeEmailDialog(
                             }
                         }
                     },
-                    enabled = !isBusy,
+                    enabled = !isBusy && resendCooldown <= 0,
                     modifier = Modifier
                         .height(48.dp)
                         .testTag("change_email_send_otp_button")
@@ -181,7 +184,9 @@ fun ChangeEmailDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    Text("Send OTP")
+                    Text(
+                        if (resendCooldown > 0) "Send OTP (${resendCooldown}s)" else "Send OTP"
+                    )
                 }
             } else {
                 Button(
@@ -237,6 +242,7 @@ fun DeleteAccountOtpDialog(
     val ext = LocalExtendedColors.current
     val currentEmail by viewModel.currentUserEmail.collectAsState()
     val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
+    val resendCooldown by viewModel.authManager.resendCooldownSeconds.collectAsState()
     val lockRemaining by viewModel.authManager.lockRemainingSeconds.collectAsState()
     val isLocked = lockRemaining > 0
 
@@ -304,7 +310,7 @@ fun DeleteAccountOtpDialog(
 
                     TextButton(
                         onClick = {
-                            if (isBusy) return@TextButton
+                            if (isBusy || resendCooldown > 0) return@TextButton
                             isBusy = true
                             errorMsg = ""
                             statusMsg = ""
@@ -317,14 +323,16 @@ fun DeleteAccountOtpDialog(
                                 }
                             }
                         },
-                        enabled = !isBusy,
+                        enabled = !isBusy && resendCooldown <= 0,
                         modifier = Modifier
                             .height(48.dp)
                             .testTag("delete_account_resend_button")
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Resend OTP Code")
+                        Text(
+                            if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend OTP Code"
+                        )
                     }
                 }
 
@@ -340,7 +348,7 @@ fun DeleteAccountOtpDialog(
             if (!otpSent) {
                 Button(
                     onClick = {
-                        if (isBusy) return@Button
+                        if (isBusy || resendCooldown > 0) return@Button
                         isBusy = true
                         errorMsg = ""
                         statusMsg = ""
@@ -354,7 +362,7 @@ fun DeleteAccountOtpDialog(
                             }
                         }
                     },
-                    enabled = !isBusy,
+                    enabled = !isBusy && resendCooldown <= 0,
                     colors = ButtonDefaults.buttonColors(containerColor = ext.danger),
                     modifier = Modifier
                         .height(48.dp)
@@ -368,7 +376,9 @@ fun DeleteAccountOtpDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    Text("Send Deletion OTP")
+                    Text(
+                        if (resendCooldown > 0) "Send Deletion OTP (${resendCooldown}s)" else "Send Deletion OTP"
+                    )
                 }
             } else {
                 Button(

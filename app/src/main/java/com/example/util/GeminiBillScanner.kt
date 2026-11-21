@@ -59,16 +59,31 @@ object GeminiBillScanner {
         return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
     }
 
+    private fun customKeyStore(context: android.content.Context): com.example.data.auth.SecureTokenStore {
+        val prefs = context.applicationContext.getSharedPreferences(
+            "gemini_prefs",
+            android.content.Context.MODE_PRIVATE
+        )
+        return com.example.data.auth.SecureTokenStore(
+            prefs = prefs,
+            keyAlias = "stock_gemini_key_aes",
+            encTokenKey = "custom_gemini_api_key_enc",
+            legacyPlaintextKey = "custom_gemini_api_key"
+        )
+    }
+
     fun getSavedCustomApiKey(context: android.content.Context): String {
-        return context.getSharedPreferences("gemini_prefs", android.content.Context.MODE_PRIVATE)
-            .getString("custom_gemini_api_key", "") ?: ""
+        return customKeyStore(context).readToken()
     }
 
     fun setSavedCustomApiKey(context: android.content.Context, key: String) {
-        context.getSharedPreferences("gemini_prefs", android.content.Context.MODE_PRIVATE)
-            .edit()
-            .putString("custom_gemini_api_key", key.trim())
-            .apply()
+        val clean = key.trim()
+        val store = customKeyStore(context)
+        if (clean.isBlank()) {
+            store.clearToken()
+        } else {
+            store.saveToken(clean)
+        }
     }
 
     suspend fun parseBill(bitmap: Bitmap, inventoryItems: List<Item>, context: android.content.Context? = null): ParsedBillResult = withContext(Dispatchers.IO) {

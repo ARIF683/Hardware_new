@@ -81,6 +81,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
     val ext = LocalExtendedColors.current
     val lockRemaining by viewModel.lockRemainingSeconds.collectAsState()
     val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
+    val resendCooldown by viewModel.authManager.resendCooldownSeconds.collectAsState()
     val pendingVerificationEmail by viewModel.authManager.pendingVerificationEmail.collectAsState()
     val deepLinkMessage by viewModel.authManager.authDeepLinkMessage.collectAsState()
     val deepLinkError by viewModel.authManager.authDeepLinkError.collectAsState()
@@ -129,61 +130,44 @@ fun AuthGateScreen(viewModel: StockViewModel) {
         viewModel.authManager.clearDeepLinkStatus()
 
         val cleanEmail = email.trim()
-        val cleanPass = password.trim()
 
         if (authMode == AuthMode.SIGN_IN) {
-            // Sign in using Email & Password (with legacy master password fallback if no email)
-            if (cleanEmail.isNotEmpty() && cleanEmail.contains("@")) {
-                if (cleanPass.isEmpty()) {
-                    errorMessage = "Enter your password."
-                    return
-                }
-                isChecking = true
-                viewModel.authManager.signInEmailPassword(cleanEmail, cleanPass) { success, err ->
-                    isChecking = false
-                    if (success) {
-                        successMessage = "Signed in successfully!"
-                    } else {
-                        errorMessage = err ?: "Invalid email or password."
-                    }
-                }
-            } else if (cleanPass.isNotEmpty()) {
-                isChecking = true
-                val res = viewModel.authManager.unlockApp(cleanPass)
-                isChecking = false
-                when (res) {
-                    is AuthManager.AuthResult.Success -> {
-                        successMessage = "Unlocked successfully!"
-                    }
-                    is AuthManager.AuthResult.Locked -> {
-                        errorMessage = "Too many wrong attempts. Locked for ${res.secondsLeft}s."
-                        password = ""
-                    }
-                    is AuthManager.AuthResult.WrongPassword -> {
-                        val s = if (res.triesLeft == 1) "try" else "tries"
-                        errorMessage = "Enter a valid email or correct password. ${res.triesLeft} $s left."
-                        password = ""
-                    }
-                    is AuthManager.AuthResult.Error -> {
-                        errorMessage = res.message
-                    }
-                }
-            } else {
-                errorMessage = "Enter your email and password."
-            }
-        } else {
-            // Create Account: Email + Password + Email OTP Verification (only for new accounts)
-            if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
+            if (!AuthManager.isValidEmail(cleanEmail)) {
                 errorMessage = "Enter a valid email address."
                 return
             }
-            if (cleanPass.length < 6) {
-                errorMessage = "Password must be at least 6 characters."
+            if (password.isEmpty()) {
+                errorMessage = "Enter your password."
+                return
+            }
+            isChecking = true
+            viewModel.authManager.signInEmailPassword(
+                email = cleanEmail,
+                password = password
+            ) { success, err ->
+                isChecking = false
+                if (success) {
+                    successMessage = "Signed in successfully!"
+                } else {
+                    errorMessage = err ?: "Invalid email or password."
+                }
+            }
+        } else {
+            // Create Account: Email + Password + Email OTP Verification
+            if (!AuthManager.isValidEmail(cleanEmail)) {
+                errorMessage = "Enter a valid email address."
+                return
+            }
+            if (!AuthManager.isValidPassword(password)) {
+                errorMessage = "Password must be at least ${AuthManager.MIN_PASSWORD_LENGTH} characters."
                 return
             }
             isChecking = true
             otpCode = ""
-            viewModel.authManager.signUpEmailPassword(cleanEmail, cleanPass) { success, msg ->
+            viewModel.authManager.signUpEmailPassword(
+                email = cleanEmail,
+                password = password
+            ) { success, msg ->
                 isChecking = false
                 if (success) {
                     successMessage = msg ?: "OTP code sent to $cleanEmail."
@@ -314,11 +298,13 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                 if (showForgotPassword) {
                     fun sendResetOtp() {
-                        if (isChecking) return
+                        if (isChecking || resendCooldown > 0) return
                         errorMessage = ""
                         successMessage = ""
                         isChecking = true
-                        viewModel.authManager.requestPasswordResetOtp(email) { ok, msg ->
+                        viewModel.authManager.requestPasswordResetOtp(
+                            email = email
+                        ) { ok, msg ->
                             isChecking = false
                             if (ok) {
                                 resetOtpSent = true
@@ -381,7 +367,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                         Button(
                             onClick = { sendResetOtp() },
-                            enabled = !isChecking,
+                            enabled = !isChecking && resendCooldown <= 0,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -396,7 +382,10 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
-                            Text("Send Reset OTP", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (resendCooldown > 0) "Send Reset OTP (${resendCooldown}s)" else "Send Reset OTP",
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     } else {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -425,7 +414,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                         OutlinedTextField(
                             value = resetNewPassword,
                             onValueChange = { resetNewPassword = it; errorMessage = "" },
-                            label = { Text("New Password (min 6 chars)") },
+                            label = { Text("New Password (min 8 chars)") },
                             placeholder = { Text("••••••••") },
                             leadingIcon = {
                                 Icon(
@@ -485,7 +474,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                         OutlinedButton(
                             onClick = { sendResetOtp() },
-                            enabled = !isChecking,
+                            enabled = !isChecking && resendCooldown <= 0,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -494,7 +483,9 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Resend Reset OTP")
+                            Text(
+                                if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend Reset OTP"
+                            )
                         }
                     }
 
@@ -615,11 +606,13 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                     OutlinedButton(
                         onClick = {
-                            if (isChecking) return@OutlinedButton
+                            if (isChecking || resendCooldown > 0) return@OutlinedButton
                             isChecking = true
                             errorMessage = ""
                             successMessage = ""
-                            viewModel.authManager.resendConfirmationEmail(targetEmail) { ok, msg ->
+                            viewModel.authManager.resendConfirmationEmail(
+                                email = targetEmail
+                            ) { ok, msg ->
                                 isChecking = false
                                 if (ok) {
                                     successMessage = msg ?: "New OTP code sent."
@@ -628,7 +621,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 }
                             }
                         },
-                        enabled = !isChecking,
+                        enabled = !isChecking && resendCooldown <= 0,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -642,7 +635,9 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("Resend OTP Code")
+                        Text(
+                            if (resendCooldown > 0) "Resend OTP in ${resendCooldown}s" else "Resend OTP Code"
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -694,7 +689,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                         onValueChange = { password = it; errorMessage = "" },
                         label = {
                             Text(
-                                if (authMode == AuthMode.SIGN_IN) "Password" else "Create Password (min 6 chars)"
+                                if (authMode == AuthMode.SIGN_IN) "Password" else "Create Password (min 8 chars)"
                             )
                         },
                         placeholder = { Text("••••••••") },
