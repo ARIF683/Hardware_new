@@ -53,6 +53,8 @@ fun ChangeEmailDialog(
     val ext = LocalExtendedColors.current
     val currentEmail by viewModel.currentUserEmail.collectAsState()
     val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
+    val lockRemaining by viewModel.authManager.lockRemainingSeconds.collectAsState()
+    val isLocked = lockRemaining > 0
 
     var newEmail by remember { mutableStateOf("") }
     var otpCode by remember { mutableStateOf("") }
@@ -198,7 +200,7 @@ fun ChangeEmailDialog(
                             }
                         }
                     },
-                    enabled = !isBusy,
+                    enabled = !isBusy && !isLocked,
                     modifier = Modifier
                         .height(48.dp)
                         .testTag("change_email_confirm_button")
@@ -211,7 +213,7 @@ fun ChangeEmailDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    Text("Verify & Update")
+                    Text(if (isLocked) "Locked (${lockRemaining}s)" else "Verify & Update")
                 }
             }
         },
@@ -235,6 +237,8 @@ fun DeleteAccountOtpDialog(
     val ext = LocalExtendedColors.current
     val currentEmail by viewModel.currentUserEmail.collectAsState()
     val otpRemaining by viewModel.authManager.otpRemainingSeconds.collectAsState()
+    val lockRemaining by viewModel.authManager.lockRemainingSeconds.collectAsState()
+    val isLocked = lockRemaining > 0
 
     var otpCode by remember { mutableStateOf("") }
     var otpSent by remember { mutableStateOf(false) }
@@ -383,7 +387,7 @@ fun DeleteAccountOtpDialog(
                             }
                         }
                     },
-                    enabled = !isBusy,
+                    enabled = !isBusy && !isLocked,
                     colors = ButtonDefaults.buttonColors(containerColor = ext.danger),
                     modifier = Modifier
                         .height(48.dp)
@@ -397,7 +401,7 @@ fun DeleteAccountOtpDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    Text("Verify & Delete")
+                    Text(if (isLocked) "Locked (${lockRemaining}s)" else "Verify & Delete")
                 }
             }
         },

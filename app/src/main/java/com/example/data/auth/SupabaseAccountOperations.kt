@@ -22,8 +22,12 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         BuildConfig.SUPABASE_KEY.trim().trim('"')
 
     fun requestPasswordResetOtp(email: String, callback: (Boolean, String?) -> Unit) {
+        if (auth.isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
         val clean = email.trim().lowercase()
-        if (!clean.contains("@") || !clean.contains(".")) {
+        if (!AuthManager.isValidEmail(clean)) {
             callback(false, "Enter a valid email address.")
             return
         }
@@ -78,9 +82,13 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         newPassword: String,
         callback: (Boolean, String?) -> Unit
     ) {
+        if (auth.isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
         val clean = email.trim().lowercase()
         val cleanOtp = otp.trim()
-        if (!clean.contains("@") || !clean.contains(".")) {
+        if (!AuthManager.isValidEmail(clean)) {
             callback(false, "Enter a valid email address.")
             return
         }
@@ -100,6 +108,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
+                    auth.resetAuthFailures()
                     auth.completeSessionBlocking(clean)
                     withContext(Dispatchers.Main) {
                         callback(true, "Password updated! Welcome back to Stock.")
@@ -135,7 +144,9 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                             verifyError = "Could not verify recovery OTP token."
                         }
                     } else {
-                        verifyError = AuthManager.friendlySupabaseError(body, resp.code)
+                        val msg = AuthManager.friendlySupabaseError(body, resp.code)
+                        val lockHint = auth.recordFailedAuthAttempt()
+                        verifyError = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
                     }
                 }
 
@@ -157,6 +168,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                     val body = resp.body?.string().orEmpty()
                     if (resp.isSuccessful) {
                         val updatedUser = try { JSONObject(body) } catch (_: Exception) { userObj }
+                        auth.resetAuthFailures()
                         auth.completeSessionBlocking(
                             email = clean,
                             accessToken = recoveryToken,
@@ -181,8 +193,12 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
     }
 
     fun requestChangeEmailOtp(newEmail: String, callback: (Boolean, String?) -> Unit) {
+        if (auth.isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
         val cleanNew = newEmail.trim().lowercase()
-        if (!cleanNew.contains("@") || !cleanNew.contains(".")) {
+        if (!AuthManager.isValidEmail(cleanNew)) {
             callback(false, "Enter a valid new email address.")
             return
         }
@@ -246,9 +262,13 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         otp: String,
         callback: (Boolean, String?) -> Unit
     ) {
+        if (auth.isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
         val cleanNew = newEmail.trim().lowercase()
         val cleanOtp = otp.trim()
-        if (!cleanNew.contains("@") || !cleanNew.contains(".")) {
+        if (!AuthManager.isValidEmail(cleanNew)) {
             callback(false, "Enter a valid new email address.")
             return
         }
@@ -266,6 +286,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
+                    auth.resetAuthFailures()
                     auth.completeEmailChangeLocally(oldEmail, cleanNew, "")
                     withContext(Dispatchers.Main) {
                         callback(true, "Email address updated to $cleanNew.")
@@ -306,14 +327,17 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                             return@use
                         }
 
+                        auth.resetAuthFailures()
                         auth.completeEmailChangeLocally(oldEmail, cleanNew, newToken)
                         withContext(Dispatchers.Main) {
                             callback(true, "Email address updated to $cleanNew.")
                         }
                     } else {
                         val msg = AuthManager.friendlySupabaseError(body, resp.code)
+                        val lockHint = auth.recordFailedAuthAttempt()
+                        val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
                         withContext(Dispatchers.Main) {
-                            callback(false, msg)
+                            callback(false, fullMsg)
                         }
                     }
                 }
@@ -378,6 +402,10 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
     }
 
     fun confirmDeleteAccountWithOtp(otp: String, callback: (Boolean, String?) -> Unit) {
+        if (auth.isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${auth.getRemainingSeconds()}s.")
+            return
+        }
         val activeEmail = auth.currentUserEmail.value?.trim()?.lowercase()
         if (activeEmail.isNullOrBlank()) {
             callback(false, "No signed-in email found.")
@@ -396,6 +424,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!auth.isSupabaseConfigured()) {
+                    auth.resetAuthFailures()
                     auth.completeAccountDeletionLocally(activeEmail)
                     withContext(Dispatchers.Main) {
                         callback(true, "Account permanently deleted.")
@@ -428,9 +457,13 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         verifiedToken = obj?.optString("access_token").orEmpty()
                         if (verifiedToken.isBlank()) {
                             verifyError = "OTP verification did not return a valid session."
+                        } else {
+                            auth.resetAuthFailures()
                         }
                     } else {
-                        verifyError = AuthManager.friendlySupabaseError(body, resp.code)
+                        val msg = AuthManager.friendlySupabaseError(body, resp.code)
+                        val lockHint = auth.recordFailedAuthAttempt()
+                        verifyError = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
                     }
                 }
 

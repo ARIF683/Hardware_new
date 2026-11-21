@@ -105,8 +105,14 @@ class SupabaseClient(
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
+    private fun isHttpsOrLocalTestUrl(url: String): Boolean {
+        if (url.startsWith("https://", ignoreCase = true)) return true
+        return url.startsWith("http://localhost", ignoreCase = true) ||
+            url.startsWith("http://127.0.0.1", ignoreCase = true)
+    }
+
     fun isConfigured(): Boolean =
-        (baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) &&
+        isHttpsOrLocalTestUrl(baseUrl) &&
             !baseUrl.contains("YOUR_SUPABASE_URL") &&
             apiKey.isNotBlank() &&
             !apiKey.contains("YOUR_SUPABASE_KEY")

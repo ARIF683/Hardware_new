@@ -460,7 +460,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                         Button(
                             onClick = { submitResetPassword() },
-                            enabled = !isChecking,
+                            enabled = !isChecking && !isLocked,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -475,7 +475,10 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
-                            Text("Verify OTP & Reset Password", fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (isLocked) "Locked (${lockRemaining}s)" else "Verify OTP & Reset Password",
+                                fontWeight = FontWeight.Bold
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -587,7 +590,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                     Button(
                         onClick = { submitOtp() },
-                        enabled = !isChecking,
+                        enabled = !isChecking && !isLocked,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -602,7 +605,10 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("Verify OTP & Enter", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (isLocked) "Locked (${lockRemaining}s)" else "Verify OTP & Enter",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

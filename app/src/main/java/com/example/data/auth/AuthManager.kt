@@ -30,6 +30,7 @@ class AuthManager(context: Context) {
     companion object {
         const val APP_HASH = "2f03a273df7e7fc706f021d3722238fcceda044783a8c9082087b8b941de8c3e"
         const val MAX_TRIES = 3
+        const val MAX_AUTH_TRIES = 5
         const val LOCK_MS = 60_000L
         const val OTP_EXPIRY_SECONDS = 300
         const val OTP_EXPIRY_MS = 300_000L
@@ -44,12 +45,21 @@ class AuthManager(context: Context) {
         private const val KEY_CURRENT_USER_EMAIL = "current_user_email"
         private const val KEY_FAILS = "login_fails"
         private const val KEY_LOCK_UNTIL = "lock_until"
+        private const val KEY_LOCK_STRIKES = "lock_strikes"
         private const val KEY_OTP_EXPIRES_AT = "otp_expires_at"
         private const val KEY_REGISTERED_USERS = "registered_users"
         private const val KEY_ROLES_UPDATED_AT = "registered_users_updated_at"
         private const val KEY_PENDING_SIGNUP_EMAIL = "pending_signup_email"
         private const val KEY_LAST_EMAIL = "last_signed_in_email"
-        private const val KEY_SUPABASE_ACCESS_TOKEN = "supabase_access_token"
+
+        private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+
+        fun isValidEmail(email: String): Boolean {
+            val clean = email.trim()
+            return clean.length in 5..254 &&
+                !clean.any { it.isWhitespace() || it.isISOControl() } &&
+                EMAIL_REGEX.matches(clean)
+        }
 
         fun formatOtpCountdown(seconds: Int): String {
             val safe = seconds.coerceAtLeast(0)
@@ -126,6 +136,7 @@ class AuthManager(context: Context) {
 
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val tokenStore = SecureTokenStore(prefs)
 
     private val _isAuthed = MutableStateFlow(prefs.getBoolean(KEY_AUTHED, false))
     val isAuthed: StateFlow<Boolean> = _isAuthed.asStateFlow()
@@ -251,6 +262,49 @@ class AuthManager(context: Context) {
         }
     }
 
+    internal suspend fun recordFailedAuthAttempt(): String? {
+        return withContext(Dispatchers.Main) {
+            loginFails += 1
+            if (loginFails >= MAX_AUTH_TRIES) {
+                val strikes = (prefs.getInt(KEY_LOCK_STRIKES, 0) + 1).coerceAtMost(5)
+                val lockDurationMs = when (strikes) {
+                    1 -> 60_000L
+                    2 -> 180_000L
+                    else -> 300_000L
+                }
+                lockUntil = System.currentTimeMillis() + lockDurationMs
+                loginFails = 0
+                prefs.edit()
+                    .putInt(KEY_FAILS, 0)
+                    .putInt(KEY_LOCK_STRIKES, strikes)
+                    .putLong(KEY_LOCK_UNTIL, lockUntil)
+                    .apply()
+                startLockCountdown()
+                val secs = (lockDurationMs / 1000L).toInt()
+                "Too many failed attempts. Locked for ${secs}s."
+            } else {
+                prefs.edit().putInt(KEY_FAILS, loginFails).apply()
+                val left = MAX_AUTH_TRIES - loginFails
+                val word = if (left == 1) "attempt" else "attempts"
+                "$left $word left before temporary lockout."
+            }
+        }
+    }
+
+    internal suspend fun resetAuthFailures() {
+        withContext(Dispatchers.Main) {
+            tickerJob?.cancel()
+            loginFails = 0
+            lockUntil = 0L
+            _lockRemainingSeconds.value = 0
+            prefs.edit()
+                .remove(KEY_FAILS)
+                .remove(KEY_LOCK_UNTIL)
+                .remove(KEY_LOCK_STRIKES)
+                .apply()
+        }
+    }
+
     private fun hash(input: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
@@ -301,11 +355,11 @@ class AuthManager(context: Context) {
 
     fun logout() {
         clearOtpTimer()
+        tokenStore.clearToken()
         prefs.edit()
             .putBoolean(KEY_AUTHED, false)
             .putBoolean(KEY_ADMIN, false)
             .remove(KEY_CURRENT_USER_EMAIL)
-            .remove(KEY_SUPABASE_ACCESS_TOKEN)
             .apply()
         _currentUserEmail.value = null
         _isAdmin.value = false
@@ -445,14 +499,16 @@ class AuthManager(context: Context) {
     internal fun isSupabaseConfigured(): Boolean {
         val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
         val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-        return baseUrl.isNotBlank() &&
+        val isHttpsOrLocal = baseUrl.startsWith("https://", ignoreCase = true) ||
+            baseUrl.startsWith("http://localhost", ignoreCase = true) ||
+            baseUrl.startsWith("http://127.0.0.1", ignoreCase = true)
+        return isHttpsOrLocal &&
             apiKey.isNotBlank() &&
             !baseUrl.contains("YOUR_SUPABASE") &&
             !apiKey.contains("YOUR_SUPABASE")
     }
 
-    internal fun activeAccessToken(): String =
-        prefs.getString(KEY_SUPABASE_ACCESS_TOKEN, null).orEmpty()
+    internal fun activeAccessToken(): String = tokenStore.readToken()
 
     internal fun saveLastSignedInEmail(email: String) {
         prefs.edit().putString(KEY_LAST_EMAIL, email.trim().lowercase()).apply()
@@ -477,14 +533,12 @@ class AuthManager(context: Context) {
             val now = System.currentTimeMillis()
             saveUsersLocally(updatedList, now)
             onRolesChangedListener?.invoke(serializeUsers(updatedList), now)
+            if (newAccessToken.isNotBlank()) {
+                tokenStore.saveToken(newAccessToken)
+            }
             prefs.edit()
                 .putString(KEY_CURRENT_USER_EMAIL, cleanNew)
                 .putString(KEY_LAST_EMAIL, cleanNew)
-                .apply {
-                    if (newAccessToken.isNotBlank()) {
-                        putString(KEY_SUPABASE_ACCESS_TOKEN, newAccessToken)
-                    }
-                }
                 .apply()
             _currentUserEmail.value = cleanNew
             _isAdmin.value = existingRole
@@ -523,7 +577,7 @@ class AuthManager(context: Context) {
     }
 
     private fun activeAuthHeader(): String {
-        val token = prefs.getString(KEY_SUPABASE_ACCESS_TOKEN, null).orEmpty()
+        val token = activeAccessToken()
         val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
         return if (token.isNotBlank()) "Bearer $token" else "Bearer $apiKey"
     }
@@ -624,7 +678,7 @@ class AuthManager(context: Context) {
         }
         CoroutineScope(Dispatchers.IO).launch {
             var metadataAdmin = false
-            val token = prefs.getString(KEY_SUPABASE_ACCESS_TOKEN, null).orEmpty()
+            val token = activeAccessToken()
             if (isSupabaseConfigured() && token.isNotBlank()) {
                 try {
                     val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
@@ -706,14 +760,14 @@ class AuthManager(context: Context) {
             saveUsersLocally(updatedUsers, now)
             onRolesChangedListener?.invoke(serializeUsers(updatedUsers), now)
 
+            if (accessToken.isNotBlank()) {
+                tokenStore.saveToken(accessToken)
+            }
             prefs.edit()
                 .putBoolean(KEY_AUTHED, true)
                 .putBoolean(KEY_ADMIN, resolvedAdmin)
                 .putString(KEY_CURRENT_USER_EMAIL, clean)
                 .putString(KEY_LAST_EMAIL, clean)
-                .apply {
-                    if (accessToken.isNotBlank()) putString(KEY_SUPABASE_ACCESS_TOKEN, accessToken)
-                }
                 .remove(KEY_PENDING_SIGNUP_EMAIL)
                 .apply()
 
@@ -738,8 +792,12 @@ class AuthManager(context: Context) {
         password: String,
         callback: (Boolean, String?) -> Unit
     ) {
+        if (isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
+            return
+        }
         val clean = email.trim().lowercase()
-        if (!clean.contains("@") || !clean.contains(".")) {
+        if (!isValidEmail(clean)) {
             callback(false, "Enter a valid email address.")
             return
         }
@@ -845,9 +903,13 @@ class AuthManager(context: Context) {
         otp: String,
         callback: (Boolean, String?) -> Unit
     ) {
+        if (isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
+            return
+        }
         val clean = email.trim().lowercase()
         val cleanOtp = otp.trim()
-        if (!clean.contains("@")) {
+        if (!isValidEmail(clean)) {
             callback(false, "Enter a valid email address.")
             return
         }
@@ -901,6 +963,7 @@ class AuthManager(context: Context) {
                             }
                             return@use
                         }
+                        resetAuthFailures()
                         resolveAndCompleteSessionBlocking(
                             email = clean,
                             accessToken = accessToken,
@@ -911,8 +974,10 @@ class AuthManager(context: Context) {
                         }
                     } else {
                         val msg = friendlySupabaseError(body, resp.code)
+                        val lockHint = recordFailedAuthAttempt()
+                        val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
                         withContext(Dispatchers.Main) {
-                            callback(false, msg)
+                            callback(false, fullMsg)
                         }
                     }
                 }
@@ -1114,9 +1179,13 @@ class AuthManager(context: Context) {
     }
 
     fun signInEmailPassword(email: String, password: String, callback: (Boolean, String?) -> Unit) {
+        if (isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
+            return
+        }
         val clean = email.trim().lowercase()
-        if (clean.isBlank() || password.isBlank()) {
-            callback(false, "Enter email and password.")
+        if (!isValidEmail(clean) || password.isBlank()) {
+            callback(false, "Enter a valid email and password.")
             return
         }
         clearDeepLinkStatus()
@@ -1124,6 +1193,7 @@ class AuthManager(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (!isSupabaseConfigured()) {
+                    resetAuthFailures()
                     resolveAndCompleteSessionBlocking(clean)
                     withContext(Dispatchers.Main) {
                         callback(true, null)
@@ -1155,7 +1225,7 @@ class AuthManager(context: Context) {
                         if (hasConfirmationMetadata && !isEmailConfirmed(userObj)) {
                             withContext(Dispatchers.Main) {
                                 setPendingVerificationEmail(clean)
-                                callback(false, "Your email is not verified yet. Open your inbox and tap the confirmation link first.")
+                                callback(false, "Your email is not verified yet. Open your inbox and confirm your email first.")
                             }
                             return@use
                         }
@@ -1165,6 +1235,7 @@ class AuthManager(context: Context) {
                             }
                             return@use
                         }
+                        resetAuthFailures()
                         resolveAndCompleteSessionBlocking(
                             email = clean,
                             accessToken = accessToken,
@@ -1175,8 +1246,10 @@ class AuthManager(context: Context) {
                         }
                     } else {
                         val msg = friendlySupabaseError(respBody, resp.code)
+                        val lockHint = recordFailedAuthAttempt()
+                        val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
                         withContext(Dispatchers.Main) {
-                            callback(false, msg)
+                            callback(false, fullMsg)
                         }
                     }
                 }
