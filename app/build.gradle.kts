@@ -21,6 +21,7 @@ android {
     targetSdk = 36
     versionCode = dynamicVersionCode
     versionName = dynamicVersionName
+    resConfigs("en")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
