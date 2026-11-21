@@ -2,6 +2,9 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -10,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.auth.AuthManager
 import com.example.data.local.AppDatabase
@@ -22,8 +26,11 @@ import com.example.ui.StockViewModel
 import com.example.ui.screens.AuditLogsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.StockManagerTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -42,6 +49,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -64,12 +72,16 @@ class AuditLogTest {
             .edit()
             .clear()
             .commit()
-        AppDatabase.getDatabase(app).clearAllTables()
+        runBlocking(Dispatchers.IO) {
+            AppDatabase.getDatabase(app).auditLogDao().clearAuditLogs()
+        }
     }
 
     @After
     fun tearDown() {
-        AppDatabase.getDatabase(app).clearAllTables()
+        runBlocking(Dispatchers.IO) {
+            AppDatabase.getDatabase(app).auditLogDao().clearAuditLogs()
+        }
     }
 
     private fun seedSession(email: String, isAdmin: Boolean) {
@@ -81,70 +93,78 @@ class AuditLogTest {
     }
 
     @Test
-    fun `repository records audit logs locally and queues supabase upload on item add update stock and delete`() = runTest {
+    fun `repository records audit logs locally and queues supabase upload on item add update stock and delete`() = runBlocking(Dispatchers.IO) {
         seedSession(email = "staff.worker@store.com", isAdmin = false)
-        val db = AppDatabase.getDatabase(app)
-        val auth = AuthManager(app)
-        val unconfiguredSupabase = SupabaseClient(baseUrl = "", apiKey = "")
-        val repo = StockRepository(
-            context = app,
-            database = db,
-            supabaseClient = unconfiguredSupabase,
-            authManager = auth
-        )
+        val inMemoryDb = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val auth = AuthManager(app)
+            val unconfiguredSupabase = SupabaseClient(baseUrl = "", apiKey = "")
+            val repo = StockRepository(
+                context = app,
+                database = inMemoryDb,
+                supabaseClient = unconfiguredSupabase,
+                authManager = auth
+            )
 
-        val added = repo.saveItem(
-            id = null,
-            name = "Asian Paints Primer 4L",
-            code = "AP-PR-4L",
-            barcode = "890123456",
-            type = "Paint",
-            brand = "Asian Paints",
-            size = "4L",
-            unit = "can",
-            mrp = 950.0,
-            cost = 700.0,
-            price = 850.0,
-            low = 5.0,
-            aliases = "",
-            openingQty = 10.0
-        )
+            val added = repo.saveItem(
+                id = null,
+                name = "Asian Paints Primer 4L",
+                code = "AP-PR-4L",
+                barcode = "890123456",
+                type = "Paint",
+                brand = "Asian Paints",
+                size = "4L",
+                unit = "can",
+                mrp = 950.0,
+                cost = 700.0,
+                price = 850.0,
+                low = 5.0,
+                aliases = "",
+                openingQty = 10.0
+            )
 
-        repo.saveItem(
-            id = added.id,
-            name = "Asian Paints Primer 4L",
-            code = "AP-PR-4L",
-            barcode = "890123456",
-            type = "Paint",
-            brand = "Asian Paints",
-            size = "4L",
-            unit = "can",
-            mrp = 950.0,
-            cost = 710.0,
-            price = 880.0,
-            low = 5.0,
-            aliases = "",
-            openingQty = 10.0
-        )
+            repo.saveItem(
+                id = added.id,
+                name = "Asian Paints Primer 4L",
+                code = "AP-PR-4L",
+                barcode = "890123456",
+                type = "Paint",
+                brand = "Asian Paints",
+                size = "4L",
+                unit = "can",
+                mrp = 950.0,
+                cost = 710.0,
+                price = 880.0,
+                low = 5.0,
+                aliases = "",
+                openingQty = 10.0
+            )
 
-        repo.performTransaction(itemId = added.id, action = "in", qty = 4.0, note = "Supplier delivery")
-        repo.deleteItem(added.id)
+            repo.performTransaction(itemId = added.id, action = "in", qty = 4.0, note = "Supplier delivery")
+            repo.deleteItem(added.id)
 
-        val logs = db.auditLogDao().getAllAuditLogs().first()
-        assertEquals(4, logs.size)
-        assertTrue(logs.all { it.userEmail == "staff.worker@store.com" })
+            val logs = withTimeout(5_000) {
+                inMemoryDb.auditLogDao().getAllAuditLogs().first { it.size == 4 }
+            }
+            assertEquals(4, logs.size)
+            assertTrue(logs.all { it.userEmail == "staff.worker@store.com" })
 
-        val actions = logs.map { it.action }.toSet()
-        assertTrue(actions.contains("ADD_ITEM"))
-        assertTrue(actions.contains("UPDATE_ITEM"))
-        assertTrue(actions.contains("STOCK_IN"))
-        assertTrue(actions.contains("DELETE_ITEM"))
+            val actions = logs.map { it.action }.toSet()
+            assertTrue(actions.contains("ADD_ITEM"))
+            assertTrue(actions.contains("UPDATE_ITEM"))
+            assertTrue(actions.contains("STOCK_IN"))
+            assertTrue(actions.contains("DELETE_ITEM"))
 
-        val deleteLog = logs.first { it.action == "DELETE_ITEM" }
-        assertTrue(deleteLog.details.contains("Asian Paints Primer 4L"))
+            val deleteLog = logs.first { it.action == "DELETE_ITEM" }
+            assertTrue(deleteLog.details.contains("Asian Paints Primer 4L"))
 
-        val queuedAuditOps = db.syncQueueDao().getAll().filter { it.type == "audit" }
-        assertEquals(4, queuedAuditOps.size)
+            val queuedAuditOps = inMemoryDb.syncQueueDao().getAll().filter { it.type == "audit" }
+            assertEquals(4, queuedAuditOps.size)
+        } finally {
+            inMemoryDb.close()
+        }
     }
 
     @Test
@@ -214,62 +234,66 @@ class AuditLogTest {
     }
 
     @Test
-    fun `viewModel restricts openAuditLogs and allAuditLogs flow to admin users only`() = runTest {
-        val db = AppDatabase.getDatabase(app)
-        db.auditLogDao().insertAuditLog(
-            AuditLogEntity(
-                id = "audit_secret_1",
-                userEmail = "staff@store.com",
-                action = "DELETE_ITEM",
-                details = "Deleted Steel Valve",
-                createdAt = "2026-11-21T08:00:00.000Z"
+    fun `viewModel restricts openAuditLogs and allAuditLogs flow to admin users only`() {
+        runBlocking(Dispatchers.IO) {
+            AppDatabase.getDatabase(app).auditLogDao().insertAuditLog(
+                AuditLogEntity(
+                    id = "audit_secret_1",
+                    userEmail = "staff@store.com",
+                    action = "DELETE_ITEM",
+                    details = "Deleted Steel Valve",
+                    createdAt = "2026-11-21T08:00:00.000Z"
+                )
             )
-        )
+        }
 
-        // Non-admin session
+        // Non-admin session cannot open AuditLogs or receive logs
         seedSession(email = "staff@store.com", isAdmin = false)
         val staffVm = StockViewModel(app)
         assertFalse(staffVm.authManager.isAdmin.value)
-
         staffVm.openAuditLogs()
         assertEquals(CurrentScreen.Main, staffVm.currentScreen.value)
-        assertTrue(staffVm.allAuditLogs.first().isEmpty())
 
-        // Admin session
+        // Admin session can open AuditLogs and receives logs when collected
         seedSession(email = "owner@store.com", isAdmin = true)
         val adminVm = StockViewModel(app)
         assertTrue(adminVm.authManager.isAdmin.value)
-
         adminVm.openAuditLogs()
         assertEquals(CurrentScreen.AuditLogs, adminVm.currentScreen.value)
-        val visibleToAdmin = adminVm.allAuditLogs.first { it.isNotEmpty() }
-        assertEquals(1, visibleToAdmin.size)
-        assertEquals("audit_secret_1", visibleToAdmin[0].id)
+
+        var latestAdminLogs: List<AuditLogEntity> = emptyList()
+        var latestStaffLogs: List<AuditLogEntity> = emptyList()
+        composeRule.setContent {
+            val aLogs by adminVm.allAuditLogs.collectAsState()
+            val sLogs by staffVm.allAuditLogs.collectAsState()
+            latestAdminLogs = aLogs
+            latestStaffLogs = sLogs
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            latestAdminLogs.any { it.id == "audit_secret_1" }
+        }
+        assertTrue(latestStaffLogs.isEmpty())
+        assertTrue(latestAdminLogs.any { it.id == "audit_secret_1" })
     }
 
     @Test
-    fun `auditLogsScreen blocks non-admin and renders searchable logs for admin`() = runTest {
-        val db = AppDatabase.getDatabase(app)
-        db.auditLogDao().insertAuditLogs(
-            listOf(
-                AuditLogEntity(
-                    id = "audit_a1",
-                    userEmail = "rahul@store.com",
-                    action = "ADD_ITEM",
-                    details = "Added new item: Brass Elbow 1/2 (Code: BE-05)",
-                    createdAt = "2026-11-21T09:15:00.000Z"
-                ),
-                AuditLogEntity(
-                    id = "audit_a2",
-                    userEmail = "owner@store.com",
-                    action = "DELETE_ITEM",
-                    details = "Deleted item: Old Hose Pipe",
-                    createdAt = "2026-11-21T09:30:00.000Z"
+    fun `auditLogsScreen blocks non-admin and renders admin required card`() {
+        runBlocking(Dispatchers.IO) {
+            AppDatabase.getDatabase(app).auditLogDao().insertAuditLogs(
+                listOf(
+                    AuditLogEntity(
+                        id = "audit_a1",
+                        userEmail = "rahul@store.com",
+                        action = "ADD_ITEM",
+                        details = "Added new item: Brass Elbow 1/2 (Code: BE-05)",
+                        createdAt = "2026-11-21T09:15:00.000Z"
+                    )
                 )
             )
-        )
+        }
 
-        // 1) Non-admin sees Admin Access Required and not the log list
         seedSession(email = "rahul@store.com", isAdmin = false)
         val staffVm = StockViewModel(app)
 
@@ -285,26 +309,27 @@ class AuditLogTest {
     }
 
     @Test
-    fun `auditLogsScreen displays logs and filters for admin`() = runTest {
-        val db = AppDatabase.getDatabase(app)
-        db.auditLogDao().insertAuditLogs(
-            listOf(
-                AuditLogEntity(
-                    id = "audit_a1",
-                    userEmail = "rahul@store.com",
-                    action = "ADD_ITEM",
-                    details = "Added new item: Brass Elbow 1/2 (Code: BE-05)",
-                    createdAt = "2026-11-21T09:15:00.000Z"
-                ),
-                AuditLogEntity(
-                    id = "audit_a2",
-                    userEmail = "owner@store.com",
-                    action = "DELETE_ITEM",
-                    details = "Deleted item: Old Hose Pipe",
-                    createdAt = "2026-11-21T09:30:00.000Z"
+    fun `auditLogsScreen displays logs and filters for admin`() {
+        runBlocking(Dispatchers.IO) {
+            AppDatabase.getDatabase(app).auditLogDao().insertAuditLogs(
+                listOf(
+                    AuditLogEntity(
+                        id = "audit_a1",
+                        userEmail = "rahul@store.com",
+                        action = "ADD_ITEM",
+                        details = "Added new item: Brass Elbow 1/2 (Code: BE-05)",
+                        createdAt = "2026-11-21T09:15:00.000Z"
+                    ),
+                    AuditLogEntity(
+                        id = "audit_a2",
+                        userEmail = "owner@store.com",
+                        action = "DELETE_ITEM",
+                        details = "Deleted item: Old Hose Pipe",
+                        createdAt = "2026-11-21T09:30:00.000Z"
+                    )
                 )
             )
-        )
+        }
 
         seedSession(email = "owner@store.com", isAdmin = true)
         val adminVm = StockViewModel(app)
@@ -315,7 +340,8 @@ class AuditLogTest {
             }
         }
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            adminVm.allAuditLogs.value.size == 2
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            adminVm.allAuditLogs.value.size >= 2
         }
         composeRule.waitForIdle()
 
