@@ -524,8 +524,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
     }
 
     // Thermal Print Dialog
-    if (thermalPrintTarget != null) {
-        val q = thermalPrintTarget!!
+    thermalPrintTarget?.let { q ->
         val lineItems = InvoicePrintManager.parseLineItems(q.itemsJson)
         ThermalPrintDialog(
             title = "ESTIMATE / QUOTE",
@@ -545,16 +544,16 @@ fun QuotationScreen(viewModel: StockViewModel) {
     }
 
     // Delete Confirmation
-    if (quotationToDelete != null) {
+    quotationToDelete?.let { q ->
         AlertDialog(
             onDismissRequest = { quotationToDelete = null },
             title = { Text("Delete Estimate") },
-            text = { Text("Are you sure you want to delete Estimate #${quotationToDelete!!.quotationNo} for ${quotationToDelete!!.customerName}?") },
+            text = { Text("Are you sure you want to delete Estimate #${q.quotationNo} for ${q.customerName}?") },
             confirmButton = {
                 Button(
                     onClick = {
                         haptics.reject()
-                        viewModel.deleteQuotation(quotationToDelete!!.id)
+                        viewModel.deleteQuotation(q.id)
                         quotationToDelete = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -569,8 +568,7 @@ fun QuotationScreen(viewModel: StockViewModel) {
     }
 
     // Convert Quotation Dialog (Sale or GST Bill)
-    if (quotationToConvert != null) {
-        val q = quotationToConvert!!
+    quotationToConvert?.let { q ->
         AlertDialog(
             onDismissRequest = { quotationToConvert = null },
             title = {
@@ -1457,8 +1455,8 @@ fun QuotationFormDialog(
                                                         }
                                                         try {
                                                             speechLauncher.launch(intent)
-                                                        } catch (_: Exception) {
-                                                            // voice not supported
+                                                        } catch (e: Exception) {
+                                                            android.util.Log.w("QuotationScreen", "Voice input unavailable", e)
                                                         }
                                                     },
                                                     modifier = Modifier.size(32.dp)

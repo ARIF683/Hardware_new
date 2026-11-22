@@ -45,6 +45,9 @@ object GeminiBillScanner {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    internal fun buildGenerateContentUrl(modelName: String): String =
+        "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
+
     fun bitmapToBase64(bitmap: Bitmap): String {
         val baos = ByteArrayOutputStream()
         // If image is very large, downscale slightly so network transfer is fast and within limits
@@ -225,7 +228,7 @@ Return ONLY valid JSON in this exact structure:
         keyLoop@ for (key in candidateKeys) {
             for (modelName in candidateModels) {
                 try {
-                    val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key"
+                    val url = buildGenerateContentUrl(modelName)
                     val body = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
                     val request = Request.Builder()
                         .url(url)
@@ -233,22 +236,24 @@ Return ONLY valid JSON in this exact structure:
                         .post(body)
                         .build()
 
-                    val response = client.newCall(request).execute()
-                    val bodyStr = response.body?.string()
-                    if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
-                        responseStr = bodyStr
-                        break@keyLoop
-                    } else {
-                        val friendlyError = try {
-                            val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
-                            errObj?.optString("message") ?: bodyStr
-                        } catch (_: Exception) {
-                            bodyStr
-                        }
-                        lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
-                        // If this key is invalid or unauthorized, skip to the next key
-                        if (response.code in listOf(400, 401, 403) && (bodyStr?.contains("API key not valid", ignoreCase = true) == true || bodyStr?.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) == true)) {
-                            continue@keyLoop
+                    client.newCall(request).execute().use { response ->
+                        val bodyStr = response.body?.string()
+                        if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
+                            responseStr = bodyStr
+                            break@keyLoop
+                        } else {
+                            val friendlyError = try {
+                                val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
+                                errObj?.optString("message") ?: bodyStr
+                            } catch (e: Exception) {
+                                android.util.Log.d("GeminiBillScanner", "Failed to parse Gemini error JSON: ${e.message}")
+                                bodyStr
+                            }
+                            lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
+                            // If this key is invalid or unauthorized, skip to the next key
+                            if (response.code in listOf(400, 401, 403) && (bodyStr?.contains("API key not valid", ignoreCase = true) == true || bodyStr?.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) == true)) {
+                                continue@keyLoop
+                            }
                         }
                     }
                 } catch (e: Exception) {

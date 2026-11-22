@@ -1032,8 +1032,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     )
                                     haptics.confirm()
                                     viewModel.saveGstBill(gstRecord)
-                                    if (quotationId != null && prefilledQuotation != null) {
-                                        viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
+                                    if (quotationId != null) {
+                                        prefilledQuotation?.let { quotation ->
+                                            viewModel.updateQuotationStatus(quotation, "Converted")
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     haptics.reject()
@@ -1108,8 +1110,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             )
                             haptics.confirm()
                             viewModel.saveGstBill(gstRecord)
-                            if (quotationId != null && prefilledQuotation != null) {
-                                viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
+                            if (quotationId != null) {
+                                prefilledQuotation?.let { quotation ->
+                                    viewModel.updateQuotationStatus(quotation, "Converted")
+                                }
                             }
                             savedBillForCompletion = gstRecord
                         },

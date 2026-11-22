@@ -400,8 +400,8 @@ fun QuickBillingPosScreen(
 
         haptics.confirm()
         viewModel.saveGstBill(billRecord)
-        if (prefilledQuotation != null) {
-            viewModel.updateQuotationStatus(prefilledQuotation!!, "Converted")
+        prefilledQuotation?.let { quotation ->
+            viewModel.updateQuotationStatus(quotation, "Converted")
         }
 
         lastSavedBill = billRecord
@@ -636,7 +636,11 @@ fun QuickBillingPosScreen(
                                                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
                                                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak product name...")
                                             }
-                                            try { voiceLauncher.launch(intent) } catch (_: Exception) {}
+                                            try {
+                                                voiceLauncher.launch(intent)
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("QuickBillingPosScreen", "Voice input unavailable", e)
+                                            }
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {
@@ -1485,8 +1489,8 @@ fun QuickBillingPosScreen(
     }
 
     // Receipt Success Dialog after Payment with Saved QR Code
-    if (showReceiptSuccessDialog && lastSavedBill != null) {
-        val bill = lastSavedBill!!
+    if (showReceiptSuccessDialog) {
+        lastSavedBill?.let { bill ->
         AlertDialog(
             onDismissRequest = {
                 showReceiptSuccessDialog = false
@@ -1550,11 +1554,12 @@ fun QuickBillingPosScreen(
                 }
             }
         )
+        }
     }
 
     // Thermal Print Dialog Integration
-    if (showThermalDialog && lastSavedBill != null) {
-        val bill = lastSavedBill!!
+    if (showThermalDialog) {
+        lastSavedBill?.let { bill ->
         val parsedLines = InvoicePrintManager.parseGstLineItems(bill.itemsJson).map {
             QuotationLineItem(
                 name = it.name,
@@ -1584,6 +1589,7 @@ fun QuickBillingPosScreen(
                 viewModel.showToast("Receipt printed successfully!")
             }
         )
+        }
     }
 
     // Quick Barcode / SKU dialog
@@ -1637,8 +1643,7 @@ fun QuickBillingPosScreen(
     }
 
     // Custom Quantity & Selling Price dialog
-    if (showCustomQtyDialogFor != null) {
-        val target = showCustomQtyDialogFor!!
+    showCustomQtyDialogFor?.let { target ->
         var customQtyText by remember(target.item.id) {
             mutableStateOf(if (target.qty % 1.0 == 0.0) target.qty.toLong().toString() else target.qty.toString())
         }

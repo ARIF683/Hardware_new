@@ -47,7 +47,8 @@ object BillAliasManager {
                     val key = keys.next()
                     result[key.lowercase().trim()] = json.getString(key)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.w("BillAliasManager", "Failed parsing saved bill aliases", e)
             }
         }
         return result

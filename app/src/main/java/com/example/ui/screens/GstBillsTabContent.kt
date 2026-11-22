@@ -877,8 +877,7 @@ fun GstBillsTabContent(
     }
 
     // Bill Details Dialog
-    if (billForDetails != null) {
-        val b = billForDetails!!
+    billForDetails?.let { b ->
         val parsedItems = remember(b.itemsJson) {
             InvoicePrintManager.parseGstLineItems(b.itemsJson)
         }
@@ -1091,8 +1090,7 @@ fun GstBillsTabContent(
     }
 
     // Delete Confirmation Dialog
-    if (billToDelete != null) {
-        val b = billToDelete!!
+    billToDelete?.let { b ->
         AlertDialog(
             onDismissRequest = { billToDelete = null },
             title = { Text("Delete GST Bill?") },
@@ -1115,8 +1113,7 @@ fun GstBillsTabContent(
         )
     }
 
-    if (billForReturn != null) {
-        val b = billForReturn!!
+    billForReturn?.let { b ->
         SalesReturnDialog(
             bill = b,
             viewModel = viewModel,

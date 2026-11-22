@@ -2,7 +2,8 @@ name: Build & Release Android APK
 
 on:
   push:
-    branches: [ '**' ]
+    branches: [ 'main' ]
+    tags: [ 'v*' ]
     paths-ignore:
       - 'ui_config.json'
       - 'README.md'
@@ -46,9 +47,16 @@ jobs:
           if [ -n "${{ secrets.SUPABASE_KEY }}" ]; then
             echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
           fi
-          if [ -f my-upload-key.jks.base64 ]; then
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding release keystore from GitHub secret..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+          elif [ -f my-upload-key.jks.base64 ]; then
             echo "Decoding permanent release keystore..."
             base64 -d my-upload-key.jks.base64 > my-upload-key.jks
+          fi
+          if [ -z "${{ secrets.STORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+            echo "::error::Missing STORE_PASSWORD or KEY_PASSWORD GitHub Actions secret."
+            exit 1
           fi
           if [ -f debug.keystore.base64 ]; then
             echo "Decoding persistent debug keystore..."
@@ -64,10 +72,11 @@ jobs:
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: "1.0.${{ github.run_number }}"
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: "ARIFALAM786683"
-          KEY_PASSWORD: "ARIFALAM786683"
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Prepare APK
+        id: prepare_apk
         run: |
           mkdir -p release-artifacts
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
@@ -75,6 +84,8 @@ jobs:
           else
             cp app/build/outputs/apk/release/*.apk release-artifacts/StockManager.apk
           fi
+          APK_SHA256=$(sha256sum release-artifacts/StockManager.apk | awk '{print $1}')
+          echo "apk_sha256=$APK_SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -85,6 +96,7 @@ jobs:
             Automatic build from commit ${{ github.sha }}.
             version_code: ${{ github.run_number }}
             version_name: 1.0.${{ github.run_number }}
+            apk_sha256: ${{ steps.prepare_apk.outputs.apk_sha256 }}
             Download **StockManager.apk** below to install.
           files: release-artifacts/StockManager.apk
         env:

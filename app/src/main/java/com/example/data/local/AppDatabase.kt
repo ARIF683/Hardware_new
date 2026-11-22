@@ -137,11 +137,18 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                try { db.execSQL("ALTER TABLE items ADD COLUMN nfc_tag_id TEXT") } catch (_: Exception) {}
-                try { db.execSQL("ALTER TABLE items ADD COLUMN shelf_location TEXT") } catch (_: Exception) {}
-                try { db.execSQL("ALTER TABLE items ADD COLUMN secondary_unit TEXT") } catch (_: Exception) {}
-                try { db.execSQL("ALTER TABLE items ADD COLUMN conversion_factor REAL NOT NULL DEFAULT 1.0") } catch (_: Exception) {}
-                try { db.execSQL("ALTER TABLE items ADD COLUMN secondary_price REAL NOT NULL DEFAULT 0.0") } catch (_: Exception) {}
+                fun addColumnIfMissing(sql: String) {
+                    try {
+                        db.execSQL(sql)
+                    } catch (e: Exception) {
+                        android.util.Log.d("AppDatabase", "Migration 6->7 skipped '$sql': ${e.message}")
+                    }
+                }
+                addColumnIfMissing("ALTER TABLE items ADD COLUMN nfc_tag_id TEXT")
+                addColumnIfMissing("ALTER TABLE items ADD COLUMN shelf_location TEXT")
+                addColumnIfMissing("ALTER TABLE items ADD COLUMN secondary_unit TEXT")
+                addColumnIfMissing("ALTER TABLE items ADD COLUMN conversion_factor REAL NOT NULL DEFAULT 1.0")
+                addColumnIfMissing("ALTER TABLE items ADD COLUMN secondary_price REAL NOT NULL DEFAULT 0.0")
             }
         }
 

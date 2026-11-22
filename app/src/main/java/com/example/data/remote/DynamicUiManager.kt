@@ -59,12 +59,50 @@ class DynamicUiManager(private val context: Context) {
         val cached = prefs.getString(PREF_KEY_CONFIG, null)
         if (!cached.isNullOrEmpty()) {
             try {
-                adapter.fromJson(cached)?.let { return it }
+                adapter.fromJson(cached)?.let { return sanitizeConfig(it) }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing cached UI config", e)
             }
         }
         return DynamicUiConfig()
+    }
+
+    internal fun sanitizeConfig(raw: DynamicUiConfig): DynamicUiConfig {
+        val hexRegex = Regex("""^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$""")
+        fun safeColor(value: String, fallback: String): String {
+            val trimmed = value.trim()
+            return if (hexRegex.matches(trimmed)) trimmed else fallback
+        }
+        fun safeHttpsUrl(url: String): String {
+            val trimmed = url.trim()
+            if (trimmed.isBlank() || trimmed.length > 512) return ""
+            return if (trimmed.startsWith("https://", ignoreCase = true)) trimmed else ""
+        }
+        val allowedSeverities = setOf("info", "warning", "success", "alert")
+        val cleanTheme = raw.theme.copy(
+            primaryColor = safeColor(raw.theme.primaryColor, "#2563EB"),
+            accentColor = safeColor(raw.theme.accentColor, "#1D4ED8"),
+            storeTitle = raw.theme.storeTitle.trim().take(60),
+            tagline = raw.theme.tagline.trim().take(120)
+        )
+        val cleanAnnouncement = raw.announcement.copy(
+            message = raw.announcement.message.trim().take(300),
+            severity = raw.announcement.severity.trim().lowercase().let { if (it in allowedSeverities) it else "info" }
+        )
+        fun cleanFestival(f: com.example.data.model.FestivalConfig) = f.copy(
+            festivalName = f.festivalName.trim().take(60),
+            greetingMessage = f.greetingMessage.trim().take(240),
+            badgeText = f.badgeText.trim().take(40),
+            accentColorHex = if (f.accentColorHex.isBlank()) "" else safeColor(f.accentColorHex, ""),
+            bannerImageUrl = safeHttpsUrl(f.bannerImageUrl),
+            stylePreset = f.stylePreset.trim().take(32)
+        )
+        return raw.copy(
+            theme = cleanTheme,
+            announcement = cleanAnnouncement,
+            festival = cleanFestival(raw.festival),
+            festivals = raw.festivals.take(20).map(::cleanFestival)
+        )
     }
 
     suspend fun refreshConfigWithStatus(): UiSyncResult = withContext(Dispatchers.IO) {
@@ -120,17 +158,18 @@ class DynamicUiManager(private val context: Context) {
                     return@withContext UiSyncResult.InvalidJson(msg)
                 }
 
+                val sanitized = sanitizeConfig(parsed)
                 val now = System.currentTimeMillis()
                 prefs.edit()
-                    .putString(PREF_KEY_CONFIG, body)
+                    .putString(PREF_KEY_CONFIG, adapter.toJson(sanitized))
                     .putLong("last_synced_time", now)
                     .apply()
                 _lastSyncedTime.value = now
                 _lastSyncError.value = null
-                _uiConfig.value = parsed
+                _uiConfig.value = sanitized
                 Log.d(
                     TAG,
-                    "Successfully refreshed dynamic UI config: ${parsed.theme.storeTitle}, activeFestivals=${parsed.activeFestivals().size}"
+                    "Successfully refreshed dynamic UI config: ${sanitized.theme.storeTitle}, activeFestivals=${sanitized.activeFestivals().size}"
                 )
                 UiSyncResult.Success
             }

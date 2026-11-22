@@ -245,7 +245,8 @@ fun BillScreen(viewModel: StockViewModel) {
 
     fun launchCameraHighRes() {
         try {
-            val cacheFile = File.createTempFile("bill_scan_${System.currentTimeMillis()}", ".jpg", context.cacheDir)
+            val scansDir = File(context.cacheDir, "scans").apply { mkdirs() }
+            val cacheFile = File.createTempFile("bill_scan_${System.currentTimeMillis()}", ".jpg", scansDir)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", cacheFile)
             cameraTargetUri.value = uri
             cameraLauncher.launch(uri)
@@ -386,9 +387,10 @@ fun BillScreen(viewModel: StockViewModel) {
                     modifier = Modifier.padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (photoBitmap != null) {
+                    val currentFullBitmap = photoBitmap
+                    if (currentFullBitmap != null) {
                         Image(
-                            bitmap = photoBitmap!!.asImageBitmap(),
+                            bitmap = currentFullBitmap.asImageBitmap(),
                             contentDescription = "Full bill",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -660,11 +662,12 @@ fun BillScreen(viewModel: StockViewModel) {
                             }
 
                             // Image preview if chosen
-                            if (photoBitmap != null || imageUri != null) {
+                            val currentPreviewBitmap = photoBitmap
+                            if (currentPreviewBitmap != null || imageUri != null) {
                                 Spacer(modifier = Modifier.height(14.dp))
-                                if (photoBitmap != null) {
+                                if (currentPreviewBitmap != null) {
                                     Image(
-                                        bitmap = photoBitmap!!.asImageBitmap(),
+                                        bitmap = currentPreviewBitmap.asImageBitmap(),
                                         contentDescription = "Bill photo",
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -841,9 +844,10 @@ fun BillScreen(viewModel: StockViewModel) {
                                 .padding(vertical = 6.dp)
                                 .clickable { showFullImage = true }
                         ) {
-                            if (photoBitmap != null) {
+                            val reviewThumbBitmap = photoBitmap
+                            if (reviewThumbBitmap != null) {
                                 Image(
-                                    bitmap = photoBitmap!!.asImageBitmap(),
+                                    bitmap = reviewThumbBitmap.asImageBitmap(),
                                     contentDescription = "Bill thumbnail",
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1296,7 +1300,7 @@ fun SequentialScanBillDialog(
             try {
                 cameraScanLauncher.launch(null)
             } catch (e: Exception) {
-                // Ignore
+                android.util.Log.w("BillScreen", "Camera scanner launch failed after permission", e)
             }
         }
     }
@@ -1418,7 +1422,7 @@ fun SequentialScanBillDialog(
                                 try {
                                     cameraScanLauncher.launch(null)
                                 } catch (e: Exception) {
-                                    // Ignore
+                                    android.util.Log.w("BillScreen", "Camera scanner launch failed", e)
                                 }
                             } else {
                                 seqCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -1442,7 +1446,7 @@ fun SequentialScanBillDialog(
                             try {
                                 barcodeSpeechLauncher.launch(intent)
                             } catch (e: Exception) {
-                                // speech not supported
+                                android.util.Log.w("BillScreen", "Speech recognition unavailable", e)
                             }
                         },
                         modifier = Modifier.weight(1f)

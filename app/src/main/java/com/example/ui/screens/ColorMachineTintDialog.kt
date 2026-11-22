@@ -310,9 +310,9 @@ fun ColorMachineTintDialog(
 
                 if (selectedTab == 0) {
                     // TAB 0: IMPORT & DEDUCT
-                    if (importResult != null) {
+                    val res = importResult
+                    if (res != null) {
                         // SUCCESS RESULT VIEW
-                        val res = importResult!!
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -760,8 +760,7 @@ fun ColorMachineTintDialog(
     }
 
     // Modal to manually select an inventory item for a row
-    if (selectingRowForMapping != null) {
-        val row = selectingRowForMapping!!
+    selectingRowForMapping?.let { row ->
         var searchQuery by remember { mutableStateOf(row.productName.take(10)) }
 
         val filteredItems = remember(searchQuery, allItems) {

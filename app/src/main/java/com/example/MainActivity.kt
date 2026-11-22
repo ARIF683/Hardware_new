@@ -437,16 +437,18 @@ fun MainAppRoot(viewModel: StockViewModel) {
     }
 
     // Quick Transaction Dialog
-    if (showTransactionDialog && itemForTransaction != null) {
-        StockTransactionDialog(
-            item = itemForTransaction!!,
-            viewModel = viewModel,
-            initialAction = transactionInitialAction,
-            onDismiss = {
-                showTransactionDialog = false
-                itemForTransaction = null
-            }
-        )
+    if (showTransactionDialog) {
+        itemForTransaction?.let { txItem ->
+            StockTransactionDialog(
+                item = txItem,
+                viewModel = viewModel,
+                initialAction = transactionInitialAction,
+                onDismiss = {
+                    showTransactionDialog = false
+                    itemForTransaction = null
+                }
+            )
+        }
     }
 
     // Color Machine Tint Report Review (opened from external app or intent)

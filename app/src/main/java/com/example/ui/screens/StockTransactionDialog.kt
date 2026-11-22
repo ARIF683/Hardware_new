@@ -140,11 +140,11 @@ fun StockTransactionDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                val hasSecondary = !item.secondaryUnit.isNullOrBlank() && item.conversionFactor > 1.0
+                val secUnit = item.secondaryUnit?.trim().orEmpty()
+                val hasSecondary = secUnit.isNotEmpty() && item.conversionFactor > 1.0
                 var selectedUnitMode by remember { mutableStateOf("primary") } // "primary" or "secondary"
 
                 if (hasSecondary) {
-                    val secUnit = item.secondaryUnit!!
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -192,7 +192,7 @@ fun StockTransactionDialog(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 
-                val activeUnitLabel = if (hasSecondary && selectedUnitMode == "secondary") item.secondaryUnit!! else item.unit
+                val activeUnitLabel = if (hasSecondary && selectedUnitMode == "secondary") secUnit else item.unit
 
                 OutlinedTextField(
                     value = qtyText,

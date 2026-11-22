@@ -1120,7 +1120,9 @@ object InvoicePrintManager {
                     textAlign = Paint.Align.CENTER
                 }
                 canvas.drawText("SCAN TO PAY", qrX + (qrSize / 2f), qrY + qrSize + 9f, qrLabelPaint)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("InvoicePrintManager", "Failed drawing payment QR on GST invoice", e)
+            }
         }
 
         y += 92f
@@ -1166,7 +1168,9 @@ object InvoicePrintManager {
                 val sigY = y + 16f + (sigTargetH - h) / 2f
                 val destSig = RectF(sigX, sigY, sigX + w, sigY + h)
                 canvas.drawBitmap(signatureBitmap, null, destSig, Paint().apply { isFilterBitmap = true })
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("InvoicePrintManager", "Failed drawing signature on GST invoice", e)
+            }
         }
 
         val sigLinePaint = Paint().apply {
@@ -1324,7 +1328,11 @@ object InvoicePrintManager {
             socket.close()
             Result.success(Unit)
         } catch (e: Exception) {
-            try { socket?.close() } catch (_: Exception) {}
+            try {
+                socket?.close()
+            } catch (closeEx: Exception) {
+                android.util.Log.d("InvoicePrintManager", "Failed closing Bluetooth socket cleanly: ${closeEx.message}")
+            }
             Result.failure(e)
         }
     }

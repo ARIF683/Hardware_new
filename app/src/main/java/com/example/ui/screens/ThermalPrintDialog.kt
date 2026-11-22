@@ -232,10 +232,10 @@ fun ThermalPrintDialog(
                     }
                 }
 
-                if (statusMessage != null) {
+                statusMessage?.let { msg ->
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = statusMessage!!,
+                        text = msg,
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium

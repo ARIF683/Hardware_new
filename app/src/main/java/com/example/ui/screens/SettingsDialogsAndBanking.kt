@@ -642,7 +642,8 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                             }
                         }
 
-                        if (bankingInfo.qrCodePath != null && File(bankingInfo.qrCodePath!!).exists()) {
+                        val qrFile = bankingInfo.qrCodePath?.let { File(it) }?.takeIf { it.exists() }
+                        if (qrFile != null) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 6.dp)) {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -650,7 +651,7 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                                     modifier = Modifier.size(48.dp)
                                 ) {
                                     AsyncImage(
-                                        model = File(bankingInfo.qrCodePath!!),
+                                        model = qrFile,
                                         contentDescription = "QR Preview",
                                         contentScale = ContentScale.Fit,
                                         modifier = Modifier.fillMaxSize().padding(2.dp)
@@ -663,9 +664,10 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                         Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f)) {
                             Text("For Store", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                             Spacer(modifier = Modifier.height(4.dp))
-                            if (bankingInfo.signaturePath != null && File(bankingInfo.signaturePath!!).exists()) {
+                            val sigFile = bankingInfo.signaturePath?.let { File(it) }?.takeIf { it.exists() }
+                            if (sigFile != null) {
                                 AsyncImage(
-                                    model = File(bankingInfo.signaturePath!!),
+                                    model = sigFile,
                                     contentDescription = "Signature Preview",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier.height(28.dp).width(70.dp)

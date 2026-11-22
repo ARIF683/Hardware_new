@@ -318,7 +318,9 @@ object ColorMachineParser {
                         parsedDate = d
                         break
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    android.util.Log.d("ColorMachineParser", "Date+time pattern '$dp $tp' did not match '$dateStr': ${e.message}")
+                }
             }
             if (parsedDate != null) break
         }
@@ -333,7 +335,9 @@ object ColorMachineParser {
                         parsedDate = d
                         break
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    android.util.Log.d("ColorMachineParser", "Date pattern '$dp' did not match '$dateStr': ${e.message}")
+                }
             }
         }
 

@@ -636,7 +636,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
         val totalQtyAll = list.sumOf { maxOf(it.qty, 0.0) }
         map.keys.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it }).map { k ->
-            val p = map[k]!!
+            val p = map[k] ?: Pair(0, 0.0)
             val pct = if (totalQtyAll > 0) ((maxOf(p.second, 0.0) / totalQtyAll) * 100).toInt() else 0
             GroupStat(
                 groupKey = k,
@@ -919,6 +919,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearTransactionHistory() {
+        if (!isAdmin.value) {
+            showToast("Admin access required to clear transaction history")
+            return
+        }
         viewModelScope.launch {
             repository.clearTransactionHistory()
             showToast("Transaction history cleared")
@@ -926,6 +930,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteAllItems() {
+        if (!isAdmin.value) {
+            showToast("Admin access required to delete all data")
+            return
+        }
         viewModelScope.launch {
             repository.deleteAllData()
             showToast("All data (items, cashflow, khata, quotes) deleted")
@@ -1181,13 +1189,19 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun getAvailableItemsForMatching(): List<Item> {
         val inMemory = allItems.value
         if (inMemory.isNotEmpty()) return inMemory
-        val fromDb = try { repository.getAllItemsList() } catch (_: Exception) { emptyList() }
+        val fromDb = try {
+            repository.getAllItemsList()
+        } catch (e: Exception) {
+            Log.w("StockViewModel", "Failed reading items from local DB for matching", e)
+            emptyList()
+        }
         if (fromDb.isNotEmpty()) return fromDb
         return try {
             withTimeoutOrNull(2000L) {
                 repository.allItems.first { it.isNotEmpty() }
             } ?: emptyList()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("StockViewModel", "Timed out waiting for items flow for matching", e)
             emptyList()
         }
     }

@@ -109,13 +109,13 @@ fun AuthGateScreen(viewModel: StockViewModel) {
     var isChecking by remember { mutableStateOf(false) }
 
     LaunchedEffect(deepLinkMessage, deepLinkError) {
-        if (!deepLinkMessage.isNullOrBlank()) {
-            successMessage = deepLinkMessage!!
+        deepLinkMessage?.takeIf { it.isNotBlank() }?.let { msg ->
+            successMessage = msg
             errorMessage = ""
             authMode = AuthMode.SIGN_IN
         }
-        if (!deepLinkError.isNullOrBlank()) {
-            errorMessage = deepLinkError!!
+        deepLinkError?.takeIf { it.isNotBlank() }?.let { err ->
+            errorMessage = err
             successMessage = ""
         }
     }

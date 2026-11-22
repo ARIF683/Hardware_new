@@ -572,8 +572,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
     }
 
     // Quick Entry Dialog (Give / Got)
-    if (quickEntryAccount != null) {
-        val target = quickEntryAccount!!
+    quickEntryAccount?.let { target ->
         AddLedgerEntryDialog(
             account = target,
             initialType = quickEntryType,
@@ -587,8 +586,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
     }
 
     // Delete Account Confirmation
-    if (accountToDelete != null) {
-        val target = accountToDelete!!
+    accountToDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { accountToDelete = null },
             title = { Text("Delete Khata Account?") },
@@ -841,8 +839,7 @@ fun LedgerAccountDetailScreen(
         )
     }
 
-    if (entryToDelete != null) {
-        val target = entryToDelete!!
+    entryToDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { entryToDelete = null },
             title = { Text("Delete Transaction Entry?") },
@@ -867,9 +864,9 @@ fun LedgerAccountDetailScreen(
         )
     }
 
-    if (entryToEdit != null) {
+    entryToEdit?.let { targetEntry ->
         EditLedgerEntryDialog(
-            entry = entryToEdit!!,
+            entry = targetEntry,
             account = account,
             onDismiss = { entryToEdit = null },
             onSave = { updated ->
@@ -964,7 +961,12 @@ fun LedgerAccountDetailScreen(
                                         data = Uri.parse("https://api.whatsapp.com/send?phone=${account.phone.replace("+", "").replace(" ", "")}&text=${Uri.encode(msg)}")
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
-                                    try { context.startActivity(intent) } catch (_: Exception) {}
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("LedgerScreen", "Could not open WhatsApp", e)
+                                        viewModel.showToast("Could not open WhatsApp")
+                                    }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                                 shape = RoundedCornerShape(10.dp),

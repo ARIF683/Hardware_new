@@ -428,7 +428,9 @@ object SpreadsheetReportParser {
             } else {
                 uri.lastPathSegment?.let { fileName = it }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.w("SpreadsheetReportParser", "Could not query display name for $uri", e)
+        }
         return fileName
     }
 }

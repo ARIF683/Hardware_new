@@ -2035,7 +2035,8 @@ class StockRepository(
             if (idx !in sourceList.indices) return@forEach
             val bytes = try {
                 context.contentResolver.openInputStream(localUri)?.use { it.readBytes() }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w(tag, "Failed reading banner URI $localUri", e)
                 null
             }
             if (bytes != null && bytes.isNotEmpty()) {

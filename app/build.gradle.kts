@@ -36,9 +36,9 @@ android {
         rootProject.file("my-upload-key.jks")
       }
       storeFile = keyFile
-      storePassword = System.getenv("STORE_PASSWORD") ?: "ARIFALAM786683"
+      storePassword = System.getenv("STORE_PASSWORD") ?: "HwStock2026SecureKey!"
       keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD") ?: "ARIFALAM786683"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: "HwStock2026SecureKey!"
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")

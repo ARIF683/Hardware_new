@@ -1220,8 +1220,9 @@ fun TransactionsScreen(
             },
             onSave = { type, amount, title, category, paymentMode, date, note ->
                 haptics.confirm()
-                if (recordToEdit != null) {
-                    val updated = recordToEdit!!.copy(
+                val editing = recordToEdit
+                if (editing != null) {
+                    val updated = editing.copy(
                         type = type,
                         amount = amount,
                         title = title,

@@ -16,7 +16,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.URI
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class ReleaseInfo(
@@ -26,7 +29,8 @@ data class ReleaseInfo(
     val apkDownloadUrl: String,
     val apkSizeBytes: Long,
     val publishedAt: String,
-    val isNewerThanCurrent: Boolean
+    val isNewerThanCurrent: Boolean,
+    val expectedSha256: String? = null
 )
 
 sealed class UpdateStatus {
@@ -53,6 +57,39 @@ class AppUpdateManager(private val context: Context) {
         private const val GITHUB_RELEASE_API = "https://api.github.com/repos/ARIF683/Hardware_new/releases/latest"
         val CURRENT_VERSION_TAG = "v${BuildConfig.VERSION_NAME}"
         val CURRENT_VERSION_DISPLAY = "v${BuildConfig.VERSION_NAME} (b${BuildConfig.VERSION_CODE})"
+
+        internal fun isAllowedDownloadUrl(url: String): Boolean {
+            return try {
+                val uri = URI(url.trim())
+                if (!uri.scheme.equals("https", ignoreCase = true)) return false
+                val host = uri.host?.lowercase() ?: return false
+                host == "github.com" ||
+                    host.endsWith(".github.com") ||
+                    host == "githubusercontent.com" ||
+                    host.endsWith(".githubusercontent.com")
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        internal fun extractExpectedSha256(assetDigest: String, releaseNotes: String): String? {
+            val digestMatch = Regex("""(?:sha256:)?([a-fA-F0-9]{64})""").find(assetDigest.trim())
+            if (digestMatch != null) return digestMatch.groupValues[1].lowercase()
+            val notesMatch = Regex("""(?:apk_sha256|sha256)[:\s=]+([a-fA-F0-9]{64})""", RegexOption.IGNORE_CASE).find(releaseNotes)
+            return notesMatch?.groupValues?.getOrNull(1)?.lowercase()
+        }
+
+        internal fun computeSha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { fis ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (fis.read(buffer).also { read = it } != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
     }
 
     private fun parseRemoteVersionCode(tag: String, name: String, notes: String): Int? {
@@ -93,6 +130,7 @@ class AppUpdateManager(private val context: Context) {
                 // Find APK asset
                 var downloadUrl = ""
                 var apkSize = 0L
+                var assetDigest = ""
                 val assets = json.optJSONArray("assets")
                 if (assets != null) {
                     for (i in 0 until assets.length()) {
@@ -101,14 +139,20 @@ class AppUpdateManager(private val context: Context) {
                         if (assetName.endsWith(".apk", ignoreCase = true)) {
                             downloadUrl = asset.optString("browser_download_url", "")
                             apkSize = asset.optLong("size", 0L)
+                            assetDigest = asset.optString("digest", "")
                             break
                         }
                     }
                 }
 
                 if (downloadUrl.isNotEmpty()) {
+                    if (!isAllowedDownloadUrl(downloadUrl)) {
+                        _status.value = UpdateStatus.Error("Blocked untrusted update download host")
+                        return@withContext null
+                    }
                     val currentCode = BuildConfig.VERSION_CODE
                     val remoteCode = parseRemoteVersionCode(tagName, name, notes)
+                    val expectedSha256 = extractExpectedSha256(assetDigest, notes)
 
                     val isNewer = if (remoteCode != null) {
                         remoteCode > currentCode
@@ -124,7 +168,8 @@ class AppUpdateManager(private val context: Context) {
                         apkDownloadUrl = downloadUrl,
                         apkSizeBytes = apkSize,
                         publishedAt = publishedAt,
-                        isNewerThanCurrent = isNewer
+                        isNewerThanCurrent = isNewer,
+                        expectedSha256 = expectedSha256
                     )
 
                     if (isNewer) {
@@ -144,12 +189,21 @@ class AppUpdateManager(private val context: Context) {
         null
     }
 
-    suspend fun downloadAndInstall(downloadUrl: String) = withContext(Dispatchers.IO) {
+    suspend fun downloadAndInstall(downloadUrl: String, expectedSha256: String? = null) = withContext(Dispatchers.IO) {
         try {
-            val apkFile = File(context.cacheDir, "StockManager_update.apk")
+            if (!isAllowedDownloadUrl(downloadUrl)) {
+                _status.value = UpdateStatus.Error("Untrusted update download URL blocked")
+                return@withContext
+            }
+
+            val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val apkFile = File(updatesDir, "StockManager_update.apk")
             if (apkFile.exists()) {
                 apkFile.delete()
             }
+
+            val resolvedExpectedHash = expectedSha256?.takeIf { it.isNotBlank() }
+                ?: (status.value as? UpdateStatus.Available)?.info?.expectedSha256
 
             val request = Request.Builder()
                 .url(downloadUrl)
@@ -161,28 +215,39 @@ class AppUpdateManager(private val context: Context) {
                     _status.value = UpdateStatus.Error("Failed to download APK: HTTP ${response.code}")
                     return@withContext
                 }
+                val finalUrl = response.request.url.toString()
+                if (!isAllowedDownloadUrl(finalUrl)) {
+                    _status.value = UpdateStatus.Error("Redirect to untrusted host blocked")
+                    return@withContext
+                }
 
                 val body = response.body ?: throw Exception("Empty download response")
                 val totalBytes = body.contentLength()
                 var downloadedBytes = 0L
 
-                val input = body.byteStream()
-                val output = FileOutputStream(apkFile)
+                body.byteStream().use { input ->
+                    FileOutputStream(apkFile).use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
 
-                val buffer = ByteArray(8192)
-                var bytesRead: Int
-
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    downloadedBytes += bytesRead
-
-                    val progress = if (totalBytes > 0) downloadedBytes.toFloat() / totalBytes else 0.5f
-                    _status.value = UpdateStatus.Downloading(progress, downloadedBytes, totalBytes)
+                            val progress = if (totalBytes > 0) downloadedBytes.toFloat() / totalBytes else 0.5f
+                            _status.value = UpdateStatus.Downloading(progress, downloadedBytes, totalBytes)
+                        }
+                        output.flush()
+                    }
                 }
 
-                output.flush()
-                output.close()
-                input.close()
+                if (!resolvedExpectedHash.isNullOrBlank()) {
+                    val actualHash = computeSha256(apkFile)
+                    if (!actualHash.equals(resolvedExpectedHash, ignoreCase = true)) {
+                        apkFile.delete()
+                        _status.value = UpdateStatus.Error("APK integrity check failed (SHA-256 mismatch)")
+                        return@withContext
+                    }
+                }
 
                 _status.value = UpdateStatus.ReadyToInstall(apkFile)
                 installApk(apkFile)
