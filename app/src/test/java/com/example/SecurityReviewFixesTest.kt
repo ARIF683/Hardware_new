@@ -37,7 +37,9 @@ class SecurityReviewFixesTest {
     @Test
     fun `appUpdateManager allows only GitHub HTTPS hosts`() {
         assertTrue(AppUpdateManager.isAllowedDownloadUrl("https://github.com/ARIF683/Hardware_new/releases/download/v1.0.2/StockManager.apk"))
-        assertTrue(AppUpdateManager.isAllowedDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/foo.apk"))
+        assertFalse(AppUpdateManager.isAllowedDownloadUrl("https://github.com/ANOTHER_USER/other_repo/releases/download/v1.0/app.apk"))
+        assertTrue(AppUpdateManager.isAllowedDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/foo.apk", true))
+        assertFalse(AppUpdateManager.isAllowedDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/foo.apk"))
         assertFalse(AppUpdateManager.isAllowedDownloadUrl("http://github.com/ARIF683/Hardware_new/releases/download/v1.0.2/StockManager.apk"))
         assertFalse(AppUpdateManager.isAllowedDownloadUrl("https://evil.com/StockManager.apk"))
         assertFalse(AppUpdateManager.isAllowedDownloadUrl("https://github.com.evil.com/StockManager.apk"))

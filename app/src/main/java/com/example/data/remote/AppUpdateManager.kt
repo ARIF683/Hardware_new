@@ -58,15 +58,25 @@ class AppUpdateManager(private val context: Context) {
         val CURRENT_VERSION_TAG = "v${BuildConfig.VERSION_NAME}"
         val CURRENT_VERSION_DISPLAY = "v${BuildConfig.VERSION_NAME} (b${BuildConfig.VERSION_CODE})"
 
-        internal fun isAllowedDownloadUrl(url: String): Boolean {
+        internal fun isAllowedDownloadUrl(url: String, allowRedirectHost: Boolean = false): Boolean {
             return try {
-                val uri = URI(url.trim())
+                val trimmed = url.trim()
+                val uri = URI(trimmed)
                 if (!uri.scheme.equals("https", ignoreCase = true)) return false
                 val host = uri.host?.lowercase() ?: return false
-                host == "github.com" ||
-                    host.endsWith(".github.com") ||
-                    host == "githubusercontent.com" ||
-                    host.endsWith(".githubusercontent.com")
+
+                val exactPrefix = "https://github.com/ARIF683/Hardware_new/releases/download/"
+                val matchesPrefix = trimmed.startsWith(exactPrefix, ignoreCase = false)
+
+                if (allowRedirectHost) {
+                    matchesPrefix ||
+                        host == "objects.githubusercontent.com" ||
+                        host.endsWith(".objects.githubusercontent.com") ||
+                        host == "release-assets.githubusercontent.com" ||
+                        host.endsWith(".release-assets.githubusercontent.com")
+                } else {
+                    matchesPrefix
+                }
             } catch (_: Exception) {
                 false
             }
@@ -216,7 +226,7 @@ class AppUpdateManager(private val context: Context) {
                     return@withContext
                 }
                 val finalUrl = response.request.url.toString()
-                if (!isAllowedDownloadUrl(finalUrl)) {
+                if (!isAllowedDownloadUrl(finalUrl, allowRedirectHost = true)) {
                     _status.value = UpdateStatus.Error("Redirect to untrusted host blocked")
                     return@withContext
                 }
