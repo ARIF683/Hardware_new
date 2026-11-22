@@ -102,6 +102,27 @@ class AppUpdateManager(private val context: Context) {
         }
     }
 
+    private fun parseRemoteVersionName(tag: String, name: String, notes: String): String {
+        val nameRegex = Regex("""(?:version_name|versionName)[:\s=]+([0-9]+\.[0-9]+\.[0-9]+)""", RegexOption.IGNORE_CASE)
+        nameRegex.find(notes)?.groupValues?.get(1)?.let { return it }
+        nameRegex.find(name)?.groupValues?.get(1)?.let { return it }
+
+        val tagClean = tag.trim().removePrefix("v").removePrefix("V")
+        return tagClean.ifBlank { "0.0.0" }
+    }
+
+    private fun compareVersions(v1: String, v2: String): Int {
+        val parts1 = v1.split(".").map { it.toIntOrNull() ?: 0 }
+        val parts2 = v2.split(".").map { it.toIntOrNull() ?: 0 }
+        val maxLen = maxOf(parts1.size, parts2.size)
+        for (i in 0 until maxLen) {
+            val p1 = parts1.getOrNull(i) ?: 0
+            val p2 = parts2.getOrNull(i) ?: 0
+            if (p1 != p2) return p1.compareTo(p2)
+        }
+        return 0
+    }
+
     private fun parseRemoteVersionCode(tag: String, name: String, notes: String): Int? {
         val codeRegex = Regex("""(?:version_code|versionCode)[:\s=]+(\d+)""", RegexOption.IGNORE_CASE)
         codeRegex.find(notes)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
@@ -162,9 +183,14 @@ class AppUpdateManager(private val context: Context) {
                     }
                     val currentCode = BuildConfig.VERSION_CODE
                     val remoteCode = parseRemoteVersionCode(tagName, name, notes)
+                    val currentVersionName = BuildConfig.VERSION_NAME
+                    val remoteVersionName = parseRemoteVersionName(tagName, name, notes)
                     val expectedSha256 = extractExpectedSha256(assetDigest, notes)
 
-                    val isNewer = if (remoteCode != null) {
+                    val versionComparison = compareVersions(remoteVersionName, currentVersionName)
+                    val isNewer = if (versionComparison != 0) {
+                        versionComparison > 0
+                    } else if (remoteCode != null) {
                         remoteCode > currentCode
                     } else {
                         val installedTag = "v${BuildConfig.VERSION_NAME}"
