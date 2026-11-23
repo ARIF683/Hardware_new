@@ -43,12 +43,10 @@ sealed class UpdateStatus {
     data class Error(val message: String) : UpdateStatus()
 }
 
-class AppUpdateManager(private val context: Context) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
-
+class AppUpdateManager(
+    private val context: Context,
+    private val client: OkHttpClient = defaultHttpClient()
+) {
     private val _status = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
     val status: StateFlow<UpdateStatus> = _status.asStateFlow()
 
@@ -57,6 +55,11 @@ class AppUpdateManager(private val context: Context) {
         private const val GITHUB_RELEASE_API = "https://api.github.com/repos/ARIF683/Hardware_new/releases/latest"
         val CURRENT_VERSION_TAG = "v${BuildConfig.VERSION_NAME}"
         val CURRENT_VERSION_DISPLAY = "v${BuildConfig.VERSION_NAME} (b${BuildConfig.VERSION_CODE})"
+
+        private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
 
         internal fun isAllowedDownloadUrl(url: String, allowRedirectHost: Boolean = false): Boolean {
             return try {
@@ -111,9 +114,10 @@ class AppUpdateManager(private val context: Context) {
         return tagClean.ifBlank { "0.0.0" }
     }
 
-    private fun compareVersions(v1: String, v2: String): Int {
-        val parts1 = v1.split(".").map { it.toIntOrNull() ?: 0 }
-        val parts2 = v2.split(".").map { it.toIntOrNull() ?: 0 }
+    internal fun compareVersions(v1: String, v2: String): Int {
+        val digitPrefix = Regex("""^\d+""")
+        val parts1 = v1.split(".").map { digitPrefix.find(it.trim())?.value?.toIntOrNull() ?: 0 }
+        val parts2 = v2.split(".").map { digitPrefix.find(it.trim())?.value?.toIntOrNull() ?: 0 }
         val maxLen = maxOf(parts1.size, parts2.size)
         for (i in 0 until maxLen) {
             val p1 = parts1.getOrNull(i) ?: 0
@@ -146,7 +150,12 @@ class AppUpdateManager(private val context: Context) {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val code = response.code
-                    _status.value = UpdateStatus.Error("GitHub API returned code $code")
+                    val msg = if (code == 404) {
+                        "GitHub repository is private or no release is published (HTTP 404). Make releases public to receive OTA updates."
+                    } else {
+                        "GitHub API returned code $code"
+                    }
+                    _status.value = UpdateStatus.Error(msg)
                     return@withContext null
                 }
 

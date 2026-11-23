@@ -170,9 +170,9 @@ fun MainAppRoot(viewModel: StockViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = rememberAppHaptics()
     val updateStatus by viewModel.updateStatus.collectAsState()
-    var showUpdateDialog by remember(updateStatus) {
-        mutableStateOf(updateStatus is UpdateStatus.Available)
-    }
+    val dismissedUpdateTag by viewModel.dismissedUpdateTag.collectAsState()
+    val availableUpdate = (updateStatus as? UpdateStatus.Available)
+        ?.takeIf { it.info.tagName != dismissedUpdateTag }
 
     // Dialog states
     var itemForForm by remember { mutableStateOf<Item?>(null) }
@@ -181,10 +181,9 @@ fun MainAppRoot(viewModel: StockViewModel) {
     var transactionInitialAction by remember { mutableStateOf("in") }
     var showTransactionDialog by remember { mutableStateOf(false) }
 
-    if (showUpdateDialog && updateStatus is UpdateStatus.Available) {
-        val status = updateStatus as UpdateStatus.Available
+    if (availableUpdate != null) {
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showUpdateDialog = false },
+            onDismissRequest = { viewModel.dismissUpdateDialog(availableUpdate.info.tagName) },
             icon = {
                 Icon(
                     imageVector = Icons.Default.SystemUpdate,
@@ -193,18 +192,18 @@ fun MainAppRoot(viewModel: StockViewModel) {
                 )
             },
             title = {
-                Text(text = "New Update Available (${status.info.tagName})")
+                Text(text = "New Update Available (${availableUpdate.info.tagName})")
             },
             text = {
                 androidx.compose.foundation.layout.Column {
                     Text(
-                        text = status.info.title,
+                        text = availableUpdate.info.title,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = status.info.releaseNotes.take(300),
+                        text = availableUpdate.info.releaseNotes.take(300),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -213,8 +212,8 @@ fun MainAppRoot(viewModel: StockViewModel) {
             confirmButton = {
                 androidx.compose.material3.Button(
                     onClick = {
-                        showUpdateDialog = false
-                        viewModel.startDownloadAndInstall(status.info.apkDownloadUrl)
+                        viewModel.dismissUpdateDialog(availableUpdate.info.tagName)
+                        viewModel.startDownloadAndInstall(availableUpdate.info.apkDownloadUrl)
                     },
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
@@ -225,7 +224,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(
-                    onClick = { showUpdateDialog = false },
+                    onClick = { viewModel.dismissUpdateDialog(availableUpdate.info.tagName) },
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text("Later")
@@ -250,10 +249,13 @@ fun MainAppRoot(viewModel: StockViewModel) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, isAuthed) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && isAuthed) {
-                viewModel.ensureRealtimeConnected()
-                viewModel.reloadFromDatabase()
-                viewModel.refreshCurrentUserRole()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.checkForUpdatesOnResume()
+                if (isAuthed) {
+                    viewModel.ensureRealtimeConnected()
+                    viewModel.reloadFromDatabase()
+                    viewModel.refreshCurrentUserRole()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

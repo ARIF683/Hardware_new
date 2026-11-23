@@ -1250,17 +1250,19 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             val subtitleText = when (val s = updateStatus) {
+                                is UpdateStatus.Checking -> "Checking for updates…"
                                 is UpdateStatus.Available -> "Update ${s.info.tagName} ready to install!"
                                 is UpdateStatus.Downloading -> "Downloading update ${(s.progress * 100).toInt()}%…"
+                                is UpdateStatus.Error -> "Update check failed • Tap for details"
                                 else -> "$syncStatus • Check OTA & DB sync"
                             }
                             Text(
                                 text = subtitleText,
                                 fontSize = 12.sp,
-                                color = if (updateStatus is UpdateStatus.Available) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                color = when (updateStatus) {
+                                    is UpdateStatus.Available -> MaterialTheme.colorScheme.primary
+                                    is UpdateStatus.Error -> ext.danger
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

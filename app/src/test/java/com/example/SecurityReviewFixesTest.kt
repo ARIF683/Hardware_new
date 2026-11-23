@@ -82,6 +82,62 @@ class SecurityReviewFixesTest {
     }
 
     @Test
+    fun `appUpdateManager detects newer semantic version release`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val releaseJson = """
+            {
+              "tag_name": "v1.0.999",
+              "name": "Stock Manager v1.0.999",
+              "body": "version_code: 999\nversion_name: 1.0.999\napk_sha256: ${"c".repeat(64)}",
+              "published_at": "2026-11-23T00:00:00Z",
+              "assets": [
+                {
+                  "name": "StockManager.apk",
+                  "size": 3620000,
+                  "browser_download_url": "https://github.com/ARIF683/Hardware_new/releases/download/v1.0.999/StockManager.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+        val okHttp = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(releaseJson.toResponseBody("application/json".toMediaType()))
+                .build()
+        }).build()
+
+        val manager = AppUpdateManager(context, okHttp)
+        val info = manager.checkForUpdates()
+        assertTrue(info != null && info.isNewerThanCurrent)
+        assertTrue(manager.status.value is UpdateStatus.Available)
+        assertEquals("v1.0.999", (manager.status.value as UpdateStatus.Available).info.tagName)
+    }
+
+    @Test
+    fun `appUpdateManager reports HTTP 404 private repo clearly`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val okHttp = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(404)
+                .message("Not Found")
+                .body("""{"message":"Not Found","status":"404"}""".toResponseBody("application/json".toMediaType()))
+                .build()
+        }).build()
+
+        val manager = AppUpdateManager(context, okHttp)
+        val info = manager.checkForUpdates()
+        assertNull(info)
+        assertTrue(manager.status.value is UpdateStatus.Error)
+        val msg = (manager.status.value as UpdateStatus.Error).message
+        assertTrue(msg.contains("404") && msg.contains("private", ignoreCase = true))
+    }
+
+    @Test
     fun `geminiBillScanner builds URL without key query parameter`() {
         val url = GeminiBillScanner.buildGenerateContentUrl("gemini-3.8-flash")
         assertFalse(url.contains("?key="))

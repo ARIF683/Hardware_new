@@ -235,6 +235,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     val isAnnouncementDismissed = MutableStateFlow(false)
     val isUpdateBannerDismissed = MutableStateFlow(false)
+    val dismissedUpdateTag = MutableStateFlow<String?>(null)
+    private var lastUpdateCheckMs: Long = 0L
 
     val isAuthed: StateFlow<Boolean> = authManager.isAuthed
     val isAdmin: StateFlow<Boolean> = authManager.isAdmin
@@ -444,13 +446,38 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun dismissUpdateDialog(tagName: String) {
+        dismissedUpdateTag.value = tagName
+    }
+
+    fun checkForUpdatesOnResume() {
+        val current = appUpdateManager.status.value
+        if (current is UpdateStatus.Downloading || current is UpdateStatus.Checking) return
+        val now = System.currentTimeMillis()
+        if (current !is UpdateStatus.Error && now - lastUpdateCheckMs < 5 * 60 * 1000L) return
+        lastUpdateCheckMs = now
+        viewModelScope.launch {
+            appUpdateManager.checkForUpdates()
+        }
+    }
+
     fun checkForUpdates() {
+        dismissedUpdateTag.value = null
+        isUpdateBannerDismissed.value = false
+        lastUpdateCheckMs = System.currentTimeMillis()
         viewModelScope.launch {
             val result = appUpdateManager.checkForUpdates()
-            if (result != null && result.isNewerThanCurrent) {
-                showToast("New update found: ${result.tagName}")
-            } else {
-                showToast("You are on the latest version!")
+            val statusAfter = appUpdateManager.status.value
+            when {
+                result != null && result.isNewerThanCurrent -> {
+                    showToast("New update found: ${result.tagName}")
+                }
+                statusAfter is UpdateStatus.Error -> {
+                    showToast("Update check failed: ${statusAfter.message}")
+                }
+                else -> {
+                    showToast("You are on the latest version!")
+                }
             }
         }
     }

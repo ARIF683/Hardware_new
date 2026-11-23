@@ -1120,6 +1120,14 @@ fun SettingsSyncAndUpdatesDialog(
                 }
 
                 when (val s = updateStatus) {
+                    is UpdateStatus.Checking -> {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Checking GitHub releases…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     is UpdateStatus.Available -> {
                         Spacer(modifier = Modifier.height(10.dp))
                         Button(
@@ -1143,6 +1151,22 @@ fun SettingsSyncAndUpdatesDialog(
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ext.positive, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("App is up to date", color = ext.positive, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    is UpdateStatus.Error -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ext.danger.copy(alpha = 0.1f),
+                            border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = s.message,
+                                color = ext.danger,
+                                fontSize = 11.5.sp,
+                                modifier = Modifier.padding(10.dp)
+                            )
                         }
                     }
                     else -> {}
