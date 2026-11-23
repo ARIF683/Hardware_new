@@ -19,10 +19,14 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +35,8 @@ import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Settings
@@ -64,6 +70,7 @@ import com.example.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.remote.UpdateStatus
 import com.example.data.model.Item
 import com.example.ui.CurrentScreen
 import com.example.ui.NavigationTab
@@ -162,6 +169,10 @@ fun MainAppRoot(viewModel: StockViewModel) {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val haptics = rememberAppHaptics()
+    val updateStatus by viewModel.updateStatus.collectAsState()
+    var showUpdateDialog by remember(updateStatus) {
+        mutableStateOf(updateStatus is UpdateStatus.Available)
+    }
 
     // Dialog states
     var itemForForm by remember { mutableStateOf<Item?>(null) }
@@ -169,6 +180,59 @@ fun MainAppRoot(viewModel: StockViewModel) {
     var itemForTransaction by remember { mutableStateOf<Item?>(null) }
     var transactionInitialAction by remember { mutableStateOf("in") }
     var showTransactionDialog by remember { mutableStateOf(false) }
+
+    if (showUpdateDialog && updateStatus is UpdateStatus.Available) {
+        val status = updateStatus as UpdateStatus.Available
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = {
+                Text(text = "New Update Available (${status.info.tagName})")
+            },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text(
+                        text = status.info.title,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = status.info.releaseNotes.take(300),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        showUpdateDialog = false
+                        viewModel.startDownloadAndInstall(status.info.apkDownloadUrl)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Install Now (1 Tap)")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showUpdateDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Later")
+                }
+            }
+        )
+    }
 
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collect { message ->
