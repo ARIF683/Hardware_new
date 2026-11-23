@@ -247,7 +247,11 @@ class StockRepository(
         }
         if (realtimeWs != null && !force) return
         if (force) {
-            try { realtimeWs?.close(1000, "reconnect") } catch (e: Exception) {}
+            try {
+                realtimeWs?.close(1000, "reconnect")
+            } catch (e: Exception) {
+                Log.d(tag, "Failed closing previous realtime WebSocket on reconnect", e)
+            }
             realtimeWs = null
         }
         reconnectJob?.cancel()

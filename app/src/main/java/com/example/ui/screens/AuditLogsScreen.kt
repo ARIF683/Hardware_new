@@ -421,7 +421,8 @@ private fun formatAuditTimestamp(raw: String): String {
                 val out = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
                 return out.format(date)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.d("AuditLogsScreen", "Timestamp pattern '$pattern' did not match: ${e.message}")
         }
     }
     return raw.take(19).replace('T', ' ')

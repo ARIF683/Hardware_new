@@ -1364,7 +1364,8 @@ private fun formatTxTimeLabel(createdAt: String): String {
                 if (parsed != null) {
                     return SimpleDateFormat("hh:mm a", Locale.US).format(parsed)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.d("StockMovement", "Timestamp pattern '$pattern' did not match: ${e.message}")
             }
         }
         ""

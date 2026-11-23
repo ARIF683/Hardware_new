@@ -558,7 +558,8 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         .delete()
                         .build()
                     auth.httpClient.newCall(deleteRowReq).execute().close()
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.w("SupabaseAccountOps", "Failed removing app_users row prior to RPC deletion", e)
                 }
 
                 // 3. Delete authenticated user via Supabase RPC delete_user_account()

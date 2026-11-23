@@ -384,7 +384,8 @@ class AuthManager(context: Context) {
                         .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
                         .build()
                     httpClient.newCall(req).execute().close()
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.w("AuthManager", "Server logout revocation failed", e)
                 }
             }
         }

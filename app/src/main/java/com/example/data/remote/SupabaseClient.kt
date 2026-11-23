@@ -1087,7 +1087,11 @@ class SupabaseClient(
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (realtimeSeq.get() != connSeq) {
-                    try { webSocket.close(1000, "superseded") } catch (_: Exception) {}
+                    try {
+                        webSocket.close(1000, "superseded")
+                    } catch (e: Exception) {
+                        Log.d(tag, "Failed closing superseded realtime WS", e)
+                    }
                     return
                 }
                 Log.d(tag, "Realtime WS connected to Supabase")

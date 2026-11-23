@@ -86,7 +86,8 @@ object StoreProfileSyncCodec {
                         } else if (trimmed.startsWith("{")) {
                             first = JSONObject(trimmed)
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        android.util.Log.w("StoreProfileSync", "Failed parsing store profile JSON string", e)
                     }
                 }
             }
