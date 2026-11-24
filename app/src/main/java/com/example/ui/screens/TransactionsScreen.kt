@@ -268,27 +268,37 @@ fun TransactionsScreen(
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                 }
-                Column {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = "Ledger & Transactions",
-                            fontSize = 19.sp,
+                            fontSize = 17.5.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
-                            shape = RoundedCornerShape(6.dp)
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.testTag("transactions_live_pl_badge")
                         ) {
                             Text(
                                 text = "LIVE P&L",
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -679,7 +689,12 @@ fun TransactionsScreen(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    letterSpacing = 0.5.sp
+                                    letterSpacing = 0.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
                                 )
 
                                 Surface(
@@ -702,7 +717,9 @@ fun TransactionsScreen(
                                             text = if (isProfit) "NET PROFIT" else "NET LOSS",
                                             color = plAccent,
                                             fontSize = 9.5.sp,
-                                            fontWeight = FontWeight.Black
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
@@ -715,7 +732,11 @@ fun TransactionsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.Bottom
                             ) {
-                                Column {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                ) {
                                     Text(
                                         text = if (isProfit) {
                                             "+₹${String.format(Locale.US, "%,.2f", monthlyNetProfit)}"
@@ -724,12 +745,16 @@ fun TransactionsScreen(
                                         },
                                         fontWeight = FontWeight.Black,
                                         fontSize = 26.sp,
-                                        color = plAccent
+                                        color = plAccent,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = if (isProfit) "Net Store Earnings this month" else "Expenses exceeded sales this month",
                                         fontSize = 11.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
 
@@ -744,6 +769,8 @@ fun TransactionsScreen(
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Black,
                                             color = plAccent,
+                                            maxLines = 1,
+                                            softWrap = false,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                         )
                                     }
@@ -851,26 +878,34 @@ fun TransactionsScreen(
                                             text = "TODAY",
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Black,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                     Text(
                                         text = "+₹${todaySales.toInt()}",
                                         fontSize = 11.5.sp,
                                         color = ext.positive,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Text(
                                         text = "-₹${todayExpenses.toInt()}",
                                         fontSize = 11.5.sp,
                                         color = ext.danger,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Text(
                                         text = "NET: ${if (todayNet >= 0) "+" else "-"}₹${kotlin.math.abs(todayNet.toInt())}",
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Black,
-                                        color = if (todayNet >= 0) ext.positive else ext.danger
+                                        color = if (todayNet >= 0) ext.positive else ext.danger,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -1148,7 +1183,12 @@ fun TransactionsScreen(
                                         text = dateDisplay,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
                                     )
 
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1157,7 +1197,9 @@ fun TransactionsScreen(
                                                 text = "+₹${daySales.toInt()}",
                                                 fontSize = 11.sp,
                                                 color = ext.positive,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                         if (dayExpenses > 0) {
@@ -1165,14 +1207,18 @@ fun TransactionsScreen(
                                                 text = "-₹${dayExpenses.toInt()}",
                                                 fontSize = 11.sp,
                                                 color = ext.danger,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                         Text(
                                             text = "Net: ${if (dayNet >= 0) "+" else "-"}₹${String.format(Locale.US, "%.0f", kotlin.math.abs(dayNet))}",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (dayNet >= 0) ext.positive else ext.danger
+                                            color = if (dayNet >= 0) ext.positive else ext.danger,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
@@ -1452,12 +1498,12 @@ private fun SegmentedLedgerTab(
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)) else null,
         tonalElevation = if (selected) 2.dp else 0.dp,
         modifier = modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(9.dp))
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -1465,29 +1511,33 @@ private fun SegmentedLedgerTab(
                 imageVector = icon,
                 contentDescription = null,
                 tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(15.dp)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = 11.5.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             if (!badgeText.isNullOrBlank()) {
-                Spacer(modifier = Modifier.width(5.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Surface(
                     shape = CircleShape,
                     color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                    border = if (selected) null else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+                    border = if (selected) null else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.testTag("segmented_tab_badge_${badgeText}")
                 ) {
                     Text(
                         text = badgeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                     )
                 }
@@ -1579,6 +1629,7 @@ fun CashflowRowCard(
                                     fontWeight = FontWeight.Black,
                                     color = accentColor,
                                     maxLines = 1,
+                                    softWrap = false,
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                 )
                             }
@@ -1588,7 +1639,8 @@ fun CashflowRowCard(
                                     text = record.paymentMode,
                                     fontSize = 10.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
 
@@ -1598,7 +1650,8 @@ fun CashflowRowCard(
                                     fontSize = 10.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                             }
                         }

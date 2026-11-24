@@ -191,21 +191,27 @@ fun StockMovementContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Text(
                         text = "Stock Movement",
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Audit log & real-time warehouse flow",
                         fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Export CSV
@@ -252,7 +258,9 @@ fun StockMovementContent(
                                 text = "Export",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -285,7 +293,8 @@ fun StockMovementContent(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowDown,
@@ -1454,7 +1463,10 @@ fun SalesBarChartCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.BarChart,
@@ -1462,17 +1474,21 @@ fun SalesBarChartCard(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Sales Performance Trend",
                             fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (chartMode == "DAILY") "Daily breakdown for $monthDisplayName" else "Trailing 6-month revenue performance",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -1489,12 +1505,13 @@ fun SalesBarChartCard(
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (isSel) MaterialTheme.colorScheme.primary else Color.Transparent,
                                 modifier = Modifier
-                                    .heightIn(min = 32.dp)
+                                    .heightIn(min = 34.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable {
                                         chartMode = mode
                                         selectedBarIndex = null
                                     }
+                                    .testTag("sales_chart_mode_${mode.lowercase()}")
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -1504,7 +1521,9 @@ fun SalesBarChartCard(
                                         text = label,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -1533,13 +1552,21 @@ fun SalesBarChartCard(
                         text = if (tappedItem != null) "Period: ${tappedItem.first}" else "Tap any bar to inspect sales amount",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
                     )
                     Text(
                         text = if (tappedItem != null) "₹${String.format(Locale.US, "%,.2f", tappedItem.second)}" else "Max: ₹${String.format(Locale.US, "%,.0f", maxVal)}",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Black,
-                        color = ext.positive
+                        color = ext.positive,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.testTag("sales_chart_max_label")
                     )
                 }
             }
