@@ -9,6 +9,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -412,8 +417,10 @@ object DailyReminderScheduler {
             .setAllowGeneratedReplies(false)
             .build()
 
+        val largeLogo = buildAppLogoLargeIcon(context)
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_reminder)
+            .setColor(0xFFEA580C.toInt())
             .setContentTitle(title)
             .setContentText(shortText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
@@ -425,6 +432,9 @@ object DailyReminderScheduler {
             .setContentIntent(contentPendingIntent)
             .addAction(saleAction)
             .addAction(expenseAction)
+        if (largeLogo != null) {
+            builder.setLargeIcon(largeLogo)
+        }
 
         if (!silentUpdate) {
             builder.setDefaults(NotificationCompat.DEFAULT_ALL)
@@ -438,6 +448,46 @@ object DailyReminderScheduler {
         } catch (e: SecurityException) {
             Log.w(TAG, "Notification permission denied when posting reminder", e)
             false
+        }
+    }
+
+    private fun buildAppLogoLargeIcon(context: Context): Bitmap? {
+        return try {
+            val size = 192
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val radius = size / 2f
+
+            val clipPath = Path().apply {
+                addCircle(radius, radius, radius, Path.Direction.CW)
+            }
+            canvas.save()
+            canvas.clipPath(clipPath)
+
+            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.FILL
+            }
+            canvas.drawCircle(radius, radius, radius, bgPaint)
+
+            val logoDrawable = ContextCompat.getDrawable(context, R.drawable.ic_app_logo_foreground)
+                ?: ContextCompat.getDrawable(context, R.mipmap.ic_launcher_round)
+                ?: return null
+            val inset = (size * 0.14f).toInt()
+            logoDrawable.setBounds(inset, inset, size - inset, size - inset)
+            logoDrawable.draw(canvas)
+
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFFE2E8F0.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            canvas.drawCircle(radius, radius, radius - 1.5f, borderPaint)
+            canvas.restore()
+            bitmap
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to render app logo large icon for notification", e)
+            null
         }
     }
 }

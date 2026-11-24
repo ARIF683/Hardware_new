@@ -103,6 +103,8 @@ class DailyReminderSchedulerTest {
         val posted = shadowNotificationManager.allNotifications
         assertEquals(1, posted.size)
         val notification = posted[0]
+        assertNotNull(notification.smallIcon)
+        assertNotNull(notification.getLargeIcon())
         val title = notification.extras.getString(android.app.Notification.EXTRA_TITLE).orEmpty()
         assertTrue(title.contains("Sales", ignoreCase = true))
 
