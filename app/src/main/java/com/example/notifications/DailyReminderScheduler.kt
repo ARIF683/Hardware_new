@@ -14,6 +14,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -30,6 +32,8 @@ import com.example.data.remote.SupabaseClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -37,6 +41,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 object DailyReminderScheduler {
     private const val TAG = "DailyReminderScheduler"
@@ -44,6 +49,7 @@ object DailyReminderScheduler {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_LAST_FIRED_DATE = "last_fired_date"
     private const val KEY_PERMISSION_PROMPTED = "permission_prompted"
+    private const val KEY_SCHEDULED_AT = "scheduled_at_millis"
 
     const val CHANNEL_ID = "daily_sales_expense_reminder"
     const val NOTIFICATION_ID = 7001
@@ -62,9 +68,19 @@ object DailyReminderScheduler {
     const val EXTRA_OPEN_ROUTE = "open_route"
     const val ROUTE_DAILY_CASHFLOW = "daily_sales_expenses"
 
-    // Target 7:05 PM local time so system Doze batching lands reliably inside 7:00 - 7:30 PM.
+    // 7:00 PM start with a 30-minute OS-batched window (7:00 - 7:30 PM) so Android groups
+    // the single daily wakeup with existing system maintenance without breaking Doze.
     const val TARGET_HOUR = 19
-    const val TARGET_MINUTE = 5
+    const val TARGET_MINUTE = 0
+    const val WINDOW_LENGTH_MILLIS = 30L * 60L * 1000L
+
+    private val quickSyncOkHttp: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
+            .writeTimeout(4, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val moshi: Moshi by lazy {
         Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
@@ -145,15 +161,23 @@ object DailyReminderScheduler {
         return cal.timeInMillis
     }
 
-    private fun buildAlarmPendingIntent(context: Context): PendingIntent {
+    private fun buildAlarmPendingIntent(
+        context: Context,
+        createIfMissing: Boolean = true
+    ): PendingIntent? {
         val intent = Intent(context.applicationContext, DailyReminderReceiver::class.java).apply {
             action = ACTION_DAILY_REMINDER
+        }
+        val flags = if (createIfMissing) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         }
         return PendingIntent.getBroadcast(
             context.applicationContext,
             REQUEST_CODE_ALARM,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            flags
         )
     }
 
@@ -178,11 +202,16 @@ object DailyReminderScheduler {
         )
     }
 
-    fun ensureScheduled(context: Context) {
+    fun ensureScheduled(context: Context, nowMillis: Long = System.currentTimeMillis()) {
         ensureNotificationChannel(context)
-        if (isEnabled(context)) {
-            scheduleNext(context)
+        if (!isEnabled(context)) return
+
+        val existingPendingIntent = buildAlarmPendingIntent(context, createIfMissing = false)
+        val scheduledAt = prefs(context).getLong(KEY_SCHEDULED_AT, 0L)
+        if (existingPendingIntent != null && scheduledAt > nowMillis) {
+            return
         }
+        scheduleNext(context, nowMillis)
     }
 
     fun scheduleNext(context: Context, nowMillis: Long = System.currentTimeMillis()): Long? {
@@ -194,15 +223,18 @@ object DailyReminderScheduler {
 
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return null
         val triggerAt = computeNextTriggerMillis(nowMillis)
-        val pendingIntent = buildAlarmPendingIntent(context)
+        val pendingIntent = buildAlarmPendingIntent(context, createIfMissing = true) ?: return null
 
         try {
-            alarmManager.setAndAllowWhileIdle(
+            // Inexact OS-batched window (7:00 - 7:30 PM): avoids Doze-breaking wakeups and background drain.
+            alarmManager.setWindow(
                 AlarmManager.RTC_WAKEUP,
                 triggerAt,
+                WINDOW_LENGTH_MILLIS,
                 pendingIntent
             )
-            Log.d(TAG, "Scheduled daily sales & expenses reminder for ${Date(triggerAt)}")
+            prefs(context).edit().putLong(KEY_SCHEDULED_AT, triggerAt).apply()
+            Log.d(TAG, "Scheduled daily sales & expenses window starting ${Date(triggerAt)}")
         } catch (e: Exception) {
             Log.w(TAG, "Failed scheduling daily reminder alarm", e)
         }
@@ -210,8 +242,13 @@ object DailyReminderScheduler {
     }
 
     fun cancel(context: Context) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        alarmManager.cancel(buildAlarmPendingIntent(context))
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val existing = buildAlarmPendingIntent(context, createIfMissing = false)
+        if (existing != null) {
+            alarmManager?.cancel(existing)
+            existing.cancel()
+        }
+        prefs(context).edit().remove(KEY_SCHEDULED_AT).apply()
     }
 
     internal fun todayKey(nowMillis: Long = System.currentTimeMillis()): String =
@@ -310,21 +347,28 @@ object DailyReminderScheduler {
         )
 
         var syncedCloud = false
-        try {
-            val authManager = AuthManager(appContext)
-            val client = SupabaseClient().apply {
-                configureAuth(
-                    accessTokenProvider = { authManager.activeAccessToken() },
-                    onRefreshSession = { authManager.refreshSessionBlocking() }
-                )
+        if (isNetworkAvailable(appContext)) {
+            try {
+                val authManager = AuthManager(appContext)
+                val client = SupabaseClient(okHttpClient = quickSyncOkHttp).apply {
+                    configureAuth(
+                        accessTokenProvider = { authManager.activeAccessToken() },
+                        onRefreshSession = { authManager.refreshSessionBlocking() }
+                    )
+                }
+                if (client.isConfigured()) {
+                    val synced = withTimeoutOrNull(4_000L) {
+                        client.upsertCashflow(listOf(parsed))
+                        true
+                    } ?: false
+                    if (synced) {
+                        db.syncQueueDao().deleteById(queueId)
+                        syncedCloud = true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Background cloud sync deferred for quick cashflow entry", e)
             }
-            if (client.isConfigured()) {
-                client.upsertCashflow(listOf(parsed))
-                db.syncQueueDao().deleteById(queueId)
-                syncedCloud = true
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Background cloud sync deferred for quick cashflow entry", e)
         }
 
         val kindLabel = if (parsed.type == "SALE") "Sale" else "Expense"
@@ -489,5 +533,12 @@ object DailyReminderScheduler {
             Log.w(TAG, "Failed to render app logo large icon for notification", e)
             null
         }
+    }
+
+    private fun isNetworkAvailable(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 }

@@ -42,7 +42,7 @@ class DailyReminderSchedulerTest {
     }
 
     @Test
-    fun `computeNextTriggerMillis schedules today 19_05 when before evening window`() {
+    fun `computeNextTriggerMillis schedules today 19_00 when before evening window`() {
         val tz = TimeZone.getTimeZone("Asia/Kolkata")
         val now = Calendar.getInstance(tz).apply {
             set(2026, Calendar.NOVEMBER, 23, 15, 30, 0)
@@ -54,12 +54,13 @@ class DailyReminderSchedulerTest {
 
         assertEquals(23, triggerCal.get(Calendar.DAY_OF_MONTH))
         assertEquals(19, triggerCal.get(Calendar.HOUR_OF_DAY))
-        assertEquals(5, triggerCal.get(Calendar.MINUTE))
+        assertEquals(0, triggerCal.get(Calendar.MINUTE))
         assertEquals(0, triggerCal.get(Calendar.SECOND))
+        assertEquals(30L * 60L * 1000L, DailyReminderScheduler.WINDOW_LENGTH_MILLIS)
     }
 
     @Test
-    fun `computeNextTriggerMillis schedules tomorrow 19_05 when already past 19_05`() {
+    fun `computeNextTriggerMillis schedules tomorrow 19_00 when already inside or past evening window`() {
         val tz = TimeZone.getTimeZone("Asia/Kolkata")
         val now = Calendar.getInstance(tz).apply {
             set(2026, Calendar.NOVEMBER, 23, 19, 10, 0)
@@ -71,21 +72,26 @@ class DailyReminderSchedulerTest {
 
         assertEquals(24, triggerCal.get(Calendar.DAY_OF_MONTH))
         assertEquals(19, triggerCal.get(Calendar.HOUR_OF_DAY))
-        assertEquals(5, triggerCal.get(Calendar.MINUTE))
+        assertEquals(0, triggerCal.get(Calendar.MINUTE))
     }
 
     @Test
-    fun `scheduleNext registers alarm and cancel clears it when disabled`() {
+    fun `scheduleNext registers alarm, ensureScheduled avoids redundant reschedule, and cancel clears it`() {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val shadowAlarm = shadowOf(alarmManager)
 
-        val scheduledAt = DailyReminderScheduler.scheduleNext(context)
-        assertNotNull(scheduledAt)
-        assertNotNull(shadowAlarm.nextScheduledAlarm)
+        DailyReminderScheduler.ensureScheduled(context)
+        val firstAlarm = shadowAlarm.peekNextScheduledAlarm()
+        assertNotNull(firstAlarm)
+        assertEquals(1, shadowAlarm.scheduledAlarms.size)
+
+        // Calling ensureScheduled again while alarm is active must not re-schedule redundantly
+        DailyReminderScheduler.ensureScheduled(context)
+        assertEquals(1, shadowAlarm.scheduledAlarms.size)
 
         DailyReminderScheduler.setEnabled(context, false)
         assertFalse(DailyReminderScheduler.isEnabled(context))
-        assertNull(shadowAlarm.nextScheduledAlarm)
+        assertNull(shadowAlarm.peekNextScheduledAlarm())
     }
 
     @Test
@@ -117,7 +123,7 @@ class DailyReminderSchedulerTest {
         assertNotNull(expenseAction?.remoteInputs?.firstOrNull())
         assertEquals(DailyReminderScheduler.KEY_SALE_INPUT, saleAction?.remoteInputs?.firstOrNull()?.resultKey)
         assertEquals(DailyReminderScheduler.KEY_EXPENSE_INPUT, expenseAction?.remoteInputs?.firstOrNull()?.resultKey)
-        assertNotNull(shadowAlarm.nextScheduledAlarm)
+        assertNotNull(shadowAlarm.peekNextScheduledAlarm())
 
         // Second broadcast on the same day should not post a duplicate popup
         receiver.onReceive(context, Intent(DailyReminderScheduler.ACTION_DAILY_REMINDER))
@@ -180,9 +186,9 @@ class DailyReminderSchedulerTest {
     fun `receiver reschedules alarm on device boot when enabled`() {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val shadowAlarm = shadowOf(alarmManager)
-        assertNull(shadowAlarm.nextScheduledAlarm)
+        assertNull(shadowAlarm.peekNextScheduledAlarm())
 
         DailyReminderReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
-        assertNotNull(shadowAlarm.nextScheduledAlarm)
+        assertNotNull(shadowAlarm.peekNextScheduledAlarm())
     }
 }

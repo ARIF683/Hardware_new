@@ -165,6 +165,8 @@ class StockRepository(
     private var realtimeWs: WebSocket? = null
     private var isFlushing = false
     private var autoSyncJob: Job? = null
+    @Volatile
+    private var isPausedForBackground = false
 
     class SafeStringAdapter {
         @com.squareup.moshi.FromJson
@@ -233,6 +235,7 @@ class StockRepository(
 
     @Synchronized
     fun initRealtime(force: Boolean = false) {
+        if (isPausedForBackground && !force) return
         if (!supabaseClient.isConfigured()) {
             _isRealtimeLive.value = false
             _syncStatus.value = "Local only · Set Supabase Secrets"
@@ -400,12 +403,14 @@ class StockRepository(
             onClosedOrFailed = {
                 realtimeWs = null
                 _isRealtimeLive.value = false
-                // Auto-reconnect after 5 seconds matching index.html
+                // Auto-reconnect after 5 seconds matching index.html (only while app is active)
                 reconnectJob?.cancel()
-                reconnectJob = repositoryScope.launch {
-                    delay(5000)
-                    if (isOnline()) {
-                        initRealtime()
+                if (!isPausedForBackground) {
+                    reconnectJob = repositoryScope.launch {
+                        delay(5000)
+                        if (!isPausedForBackground && isOnline()) {
+                            initRealtime()
+                        }
                     }
                 }
             }
@@ -413,15 +418,38 @@ class StockRepository(
     }
 
     private fun startPeriodicSync() {
-        autoSyncJob?.cancel()
+        if (autoSyncJob?.isActive == true) return
         autoSyncJob = repositoryScope.launch {
-            while (isActive) {
+            while (isActive && !isPausedForBackground) {
                 if (isOnline() && supabaseClient.isConfigured()) {
                     flushQueue()
                 }
                 delay(15_000)
             }
         }
+    }
+
+    @Synchronized
+    fun pauseBackgroundWork() {
+        isPausedForBackground = true
+        autoSyncJob?.cancel()
+        autoSyncJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        try {
+            realtimeWs?.close(1000, "background")
+        } catch (e: Exception) {
+            Log.d(tag, "Failed closing realtime WebSocket when moving to background", e)
+        }
+        realtimeWs = null
+        _isRealtimeLive.value = false
+    }
+
+    @Synchronized
+    fun resumeBackgroundWork() {
+        isPausedForBackground = false
+        startPeriodicSync()
+        initRealtime(force = false)
     }
 
     private fun parsePendingIds(payloadJson: String): List<String> {

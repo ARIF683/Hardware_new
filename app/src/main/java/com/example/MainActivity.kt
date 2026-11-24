@@ -279,13 +279,19 @@ fun MainAppRoot(viewModel: StockViewModel) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, isAuthed) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                viewModel.checkForUpdatesOnResume()
-                if (isAuthed) {
-                    viewModel.ensureRealtimeConnected()
-                    viewModel.reloadFromDatabase()
-                    viewModel.refreshCurrentUserRole()
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    viewModel.checkForUpdatesOnResume()
+                    if (isAuthed) {
+                        viewModel.ensureRealtimeConnected()
+                        viewModel.reloadFromDatabase()
+                        viewModel.refreshCurrentUserRole()
+                    }
                 }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    viewModel.pauseBackgroundWork()
+                }
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

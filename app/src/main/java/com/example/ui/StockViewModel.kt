@@ -932,8 +932,17 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun ensureRealtimeConnected() {
         viewModelScope.launch {
-            repository.initRealtime(force = false)
+            repository.resumeBackgroundWork()
         }
+    }
+
+    fun pauseBackgroundWork() {
+        repository.pauseBackgroundWork()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        repository.pauseBackgroundWork()
     }
 
     fun reconnectRealtime() {
