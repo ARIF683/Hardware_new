@@ -7,13 +7,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.shape.RoundedCornerShape
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.ui.platform.LocalContext
+import com.example.notifications.DailyReminderScheduler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -125,6 +131,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingReportIntent(intent: Intent?) {
         if (intent == null) return
+        if (intent.getStringExtra(DailyReminderScheduler.EXTRA_OPEN_ROUTE) == DailyReminderScheduler.ROUTE_DAILY_CASHFLOW) {
+            viewModel.navigateToCashflow(0)
+            return
+        }
         val action = intent.action
         val uri: Uri? = when (action) {
             Intent.ACTION_SEND -> {
@@ -239,10 +249,30 @@ fun MainAppRoot(viewModel: StockViewModel) {
         }
     }
 
-    LaunchedEffect(isAuthed) {
+    val context = LocalContext.current
+    val isDailyReminderEnabled by viewModel.isDailyReminderEnabled.collectAsState()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            DailyReminderScheduler.ensureScheduled(context)
+        }
+    }
+
+    LaunchedEffect(isAuthed, isDailyReminderEnabled) {
         if (isAuthed) {
             viewModel.ensureRealtimeConnected()
             viewModel.refreshCurrentUserRole()
+            if (isDailyReminderEnabled) {
+                DailyReminderScheduler.ensureScheduled(context)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !DailyReminderScheduler.hasNotificationPermission(context) &&
+                    !DailyReminderScheduler.wasPermissionPrompted(context)
+                ) {
+                    DailyReminderScheduler.markPermissionPrompted(context)
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
         }
     }
 

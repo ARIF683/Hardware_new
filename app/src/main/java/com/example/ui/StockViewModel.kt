@@ -100,6 +100,34 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     private val _themeMode = MutableStateFlow(themePrefs.getString("theme_mode", "system") ?: "system")
     val themeMode: StateFlow<String> = _themeMode.asStateFlow()
 
+    private val _isDailyReminderEnabled = MutableStateFlow(
+        com.example.notifications.DailyReminderScheduler.isEnabled(application)
+    )
+    val isDailyReminderEnabled: StateFlow<Boolean> = _isDailyReminderEnabled.asStateFlow()
+
+    fun setDailyReminderEnabled(enabled: Boolean) {
+        val app = getApplication<Application>()
+        com.example.notifications.DailyReminderScheduler.setEnabled(app, enabled)
+        _isDailyReminderEnabled.value = enabled
+        showToast(
+            if (enabled) "Daily 7:00 – 7:30 PM sales & expenses reminder active"
+            else "Evening reminder paused"
+        )
+    }
+
+    fun sendTestDailyReminder() {
+        val app = getApplication<Application>()
+        val sent = com.example.notifications.DailyReminderScheduler.showReminderNotification(
+            app,
+            forceTest = true
+        )
+        if (!sent) {
+            showToast("Enable notification permission to preview the evening reminder")
+        } else {
+            showToast("Evening sales & expenses reminder notification sent")
+        }
+    }
+
     fun setThemeMode(mode: String) {
         _themeMode.value = mode
         themePrefs.edit().putString("theme_mode", mode).apply()
@@ -410,6 +438,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             appUpdateManager.checkForUpdates()
         }
+        // Ensure permanent daily 7:00-7:30 PM sales & expenses reminder is scheduled
+        com.example.notifications.DailyReminderScheduler.ensureScheduled(application)
     }
 
     fun saveAndSyncFestivalStudio(

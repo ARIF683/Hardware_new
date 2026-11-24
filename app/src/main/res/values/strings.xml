@@ -3,4 +3,14 @@
     <string name="splash_logo_description">Cube app icon</string>
     <string name="splash_brand_title">STOCK</string>
     <string name="splash_brand_tagline">Hardware • Tools • Invoicing • Khata</string>
+    <string name="daily_reminder_channel_name">Daily Sales &amp; Expenses</string>
+    <string name="daily_reminder_channel_desc">Evening reminder between 7:00 and 7:30 PM to record daily sales and expenses</string>
+    <string name="daily_reminder_title">Daily Sales &amp; Expenses Reminder</string>
+    <string name="daily_reminder_body">Tap Add Sale or Add Expense right here — no need to open app.</string>
+    <string name="daily_reminder_expanded">Evening check-in! Log today\'s sales and expenses directly from this notification using Add Sale or Add Expense below.</string>
+    <string name="daily_reminder_action">Add Sale / Expense</string>
+    <string name="daily_reminder_action_sale">+ Add Sale</string>
+    <string name="daily_reminder_action_expense">+ Add Expense</string>
+    <string name="daily_reminder_hint_sale">Sale ₹ &amp; note (e.g. 2500 or 2500 Paint)</string>
+    <string name="daily_reminder_hint_expense">Expense ₹ &amp; note (e.g. 450 Tea or 450 UPI)</string>
 </resources>

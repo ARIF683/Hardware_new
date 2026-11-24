@@ -1,12 +1,15 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.notifications.DailyReminderScheduler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -1197,6 +1200,60 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             text = "Active",
                             containerColor = ext.positive.copy(alpha = 0.14f),
                             contentColor = ext.positive
+                        )
+                    }
+                )
+                SettingsRowDivider()
+
+                // Row 4: Daily 7:00 - 7:30 PM Sales & Expenses Reminder
+                val dailyReminderEnabled by viewModel.isDailyReminderEnabled.collectAsState()
+                val hasNotifPerm = DailyReminderScheduler.hasNotificationPermission(context)
+                val notifPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) {
+                        viewModel.setDailyReminderEnabled(true)
+                        viewModel.sendTestDailyReminder()
+                    } else {
+                        viewModel.showToast("Notification permission is required for evening popups")
+                    }
+                }
+                SettingsItemRow(
+                    icon = Icons.Outlined.Notifications,
+                    iconTint = if (dailyReminderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    title = "Evening Sales Reminder",
+                    subtitle = when {
+                        !dailyReminderEnabled -> "Paused • Toggle on for 7:00–7:30 PM popup"
+                        !hasNotifPerm -> "Permission required • Tap to allow popups"
+                        else -> "Every day 7:00–7:30 PM • Tap row to test"
+                    },
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            !DailyReminderScheduler.hasNotificationPermission(context)
+                        ) {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.sendTestDailyReminder()
+                        }
+                    },
+                    testTag = "settings_daily_reminder_row",
+                    trailingContent = {
+                        Switch(
+                            checked = dailyReminderEnabled,
+                            onCheckedChange = { checked ->
+                                if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    !DailyReminderScheduler.hasNotificationPermission(context)
+                                ) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    viewModel.setDailyReminderEnabled(checked)
+                                }
+                            },
+                            modifier = Modifier.testTag("settings_daily_reminder_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
+                            )
                         )
                     }
                 )
