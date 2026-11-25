@@ -265,4 +265,84 @@ class SecurityHardeningTest {
             assertFalse(auth.isAuthed.value)
         }
     }
+
+    @Test
+    fun `lockout ignores wall clock tampering and uses monotonic elapsed time`() {
+        var fakeWall = 1_700_000_000_000L
+        var fakeElapsed = 10_000L
+        val auth = AuthManager(app).apply {
+            wallClockNowMs = { fakeWall }
+            elapsedClockNowMs = { fakeElapsed }
+            bootCountProvider = { 5 }
+        }
+
+        runBlocking {
+            repeat(AuthManager.MAX_AUTH_TRIES) {
+                auth.recordFailedAuthAttempt()
+            }
+        }
+        assertTrue(auth.isLocked())
+        assertEquals(60, auth.getRemainingSeconds())
+
+        // Attacker jumps phone system date/time forward by 2 hours while only 5s elapsed
+        fakeWall += 2 * 60 * 60 * 1000L
+        fakeElapsed += 5_000L
+        assertTrue(auth.isLocked())
+        assertEquals(55, auth.getRemainingSeconds())
+
+        // After full 60s of real monotonic elapsed time, lockout expires
+        fakeElapsed += 56_000L
+        assertFalse(auth.isLocked())
+        assertEquals(0, auth.getRemainingSeconds())
+    }
+
+    @Test
+    fun `security state is encrypted and tampering triggers protective lockout`() {
+        val prefs = app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
+        val auth = AuthManager(app)
+
+        runBlocking {
+            repeat(AuthManager.MAX_AUTH_TRIES) {
+                auth.recordFailedAuthAttempt()
+            }
+        }
+
+        // Plaintext lockout keys must not be stored
+        assertFalse(prefs.contains("login_fails"))
+        assertFalse(prefs.contains("lock_until"))
+        assertFalse(prefs.contains("lock_strikes"))
+        assertTrue(prefs.contains("auth_security_state_enc"))
+
+        // Corrupting encrypted security state must trigger protective lockout on reload
+        prefs.edit().putString("auth_security_state_enc", "v1:tampered:ciphertext").commit()
+        val reloaded = AuthManager(app)
+        assertTrue(reloaded.isLocked())
+        assertTrue(reloaded.getRemainingSeconds() in 1..60)
+    }
+
+    @Test
+    fun `http 429 with Retry-After engages immediate lockout and reboot adjusts safely`() {
+        var fakeWall = 1_700_000_000_000L
+        var fakeElapsed = 50_000L
+        var fakeBoot = 7
+        val auth = AuthManager(app).apply {
+            wallClockNowMs = { fakeWall }
+            elapsedClockNowMs = { fakeElapsed }
+            bootCountProvider = { fakeBoot }
+        }
+
+        runBlocking {
+            val msg = auth.recordFailedAuthAttempt(httpStatusCode = 429, retryAfterSeconds = 120)
+            assertTrue(msg?.contains("Locked for 120s") == true)
+        }
+        assertTrue(auth.isLocked())
+        assertEquals(120, auth.getRemainingSeconds())
+
+        // Simulate device reboot after 20s with elapsedRealtime reset to 2s
+        fakeBoot = 8
+        fakeWall += 20_000L
+        fakeElapsed = 2_000L
+        assertTrue(auth.isLocked())
+        assertEquals(100, auth.getRemainingSeconds())
+    }
 }

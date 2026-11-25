@@ -3,6 +3,8 @@ package com.example.data.auth
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.SystemClock
+import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,6 +37,7 @@ class AuthManager(context: Context) {
         const val OTP_EXPIRY_MS = 300_000L
         const val RESEND_COOLDOWN_SECONDS = 60
         const val RESEND_COOLDOWN_MS = 60_000L
+        private const val TAMPER_LOCKOUT_MS = 60_000L
 
         const val AUTH_REDIRECT_SCHEME = "hardwarestock"
         const val AUTH_REDIRECT_HOST = "auth-callback"
@@ -47,10 +52,16 @@ class AuthManager(context: Context) {
         private const val KEY_LOCK_STRIKES = "lock_strikes"
         private const val KEY_OTP_EXPIRES_AT = "otp_expires_at"
         private const val KEY_RESEND_AVAILABLE_AT = "otp_resend_available_at"
+        private const val KEY_SECURITY_STATE_ENC = "auth_security_state_enc"
         private const val KEY_REGISTERED_USERS = "registered_users"
         private const val KEY_ROLES_UPDATED_AT = "registered_users_updated_at"
         private const val KEY_PENDING_SIGNUP_EMAIL = "pending_signup_email"
         private const val KEY_LAST_EMAIL = "last_signed_in_email"
+
+        internal fun parseRetryAfterSeconds(headerValue: String?): Int? {
+            val raw = headerValue?.trim() ?: return null
+            return raw.toLongOrNull()?.coerceIn(1L, 3600L)?.toInt()
+        }
 
         private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
 
@@ -133,8 +144,9 @@ class AuthManager(context: Context) {
         }
     }
 
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val tokenStore = SecureTokenStore(prefs)
 
     private val _isAuthed = MutableStateFlow(prefs.getBoolean(KEY_AUTHED, false))
@@ -176,76 +188,363 @@ class AuthManager(context: Context) {
     @Volatile
     internal var requireConfiguredInTests: Boolean = false
 
-    private var loginFails = prefs.getInt(KEY_FAILS, 0)
-    private var lockUntil = prefs.getLong(KEY_LOCK_UNTIL, 0L)
-    private var otpExpiresAt = prefs.getLong(KEY_OTP_EXPIRES_AT, 0L)
-    private var resendAvailableAt = prefs.getLong(KEY_RESEND_AVAILABLE_AT, 0L)
+    @Volatile
+    internal var wallClockNowMs: () -> Long = { System.currentTimeMillis() }
+
+    @Volatile
+    internal var elapsedClockNowMs: () -> Long = { SystemClock.elapsedRealtime() }
+
+    @Volatile
+    internal var bootCountProvider: () -> Int = { readSystemBootCount() }
+
+    private val securityStateLock = Any()
+    internal val authNetworkMutex = Mutex()
+
+    private var loginFails: Int = 0
+    private var lockStrikes: Int = 0
+    private var lockElapsedUntil: Long = 0L
+    private var lockStartedElapsedMs: Long = 0L
+    private var lockStartedWallMs: Long = 0L
+    private var lockDurationMs: Long = 0L
+    private var lockBootCount: Int = -1
+
+    private var otpTimerActive: Boolean = false
+    private var otpExpiresElapsedAt: Long = 0L
+    private var otpStartedElapsedMs: Long = 0L
+    private var otpStartedWallMs: Long = 0L
+    private var otpDurationMs: Long = 0L
+    private var otpBootCount: Int = -1
+
+    private var resendCooldownActive: Boolean = false
+    private var resendAvailableElapsedAt: Long = 0L
+    private var resendStartedElapsedMs: Long = 0L
+    private var resendStartedWallMs: Long = 0L
+    private var resendDurationMs: Long = 0L
+    private var resendBootCount: Int = -1
+
     private var tickerJob: Job? = null
     private var otpTickerJob: Job? = null
     private var resendTickerJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private val refreshLock = Any()
 
-    internal val httpClient = OkHttpClient.Builder()
+    internal var httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     init {
-        val now = System.currentTimeMillis()
-        if (lockUntil > now) {
+        loadSecurityState()
+        if (isLocked()) {
             startLockCountdown()
-        } else {
-            lockUntil = 0
-            loginFails = 0
-            prefs.edit().remove(KEY_LOCK_UNTIL).remove(KEY_FAILS).apply()
         }
-        if (otpExpiresAt > now) {
+        if (getOtpRemainingSecondsNow() > 0) {
             launchOtpCountdown()
-        } else {
-            otpExpiresAt = 0L
-            prefs.edit().remove(KEY_OTP_EXPIRES_AT).apply()
         }
-        if (resendAvailableAt > now) {
+        if (getResendCooldownRemainingSeconds() > 0) {
             launchResendCooldownCountdown()
-        } else {
-            resendAvailableAt = 0L
-            prefs.edit().remove(KEY_RESEND_AVAILABLE_AT).apply()
         }
     }
 
-    fun isLocked(): Boolean = System.currentTimeMillis() < lockUntil
+    private fun readSystemBootCount(): Int {
+        return try {
+            Settings.Global.getInt(appContext.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        } catch (_: Throwable) {
+            -1
+        }
+    }
+
+    private fun strikeDurationMs(strikes: Int): Long = when (strikes) {
+        1 -> 60_000L
+        2 -> 180_000L
+        else -> 300_000L
+    }
+
+    private fun isRebooted(startedElapsedMs: Long, savedBootCount: Int, elapsedNow: Long, currentBoot: Int): Boolean {
+        return (currentBoot >= 0 && savedBootCount >= 0 && currentBoot != savedBootCount) ||
+            elapsedNow < startedElapsedMs
+    }
+
+    private fun loadSecurityState() {
+        synchronized(securityStateLock) {
+            val elapsedNow = elapsedClockNowMs()
+            val wallNow = wallClockNowMs()
+            val currentBoot = bootCountProvider()
+
+            val hasEncrypted = tokenStore.hasEncryptedValue(KEY_SECURITY_STATE_ENC)
+            if (hasEncrypted) {
+                val decoded = tokenStore.readEncryptedString(KEY_SECURITY_STATE_ENC)
+                if (decoded == null) {
+                    // Encrypted security blob exists on disk but decryption failed (tampered XML)
+                    engageLockoutLocked(TAMPER_LOCKOUT_MS, strikes = 1)
+                    scrubLegacySecurityPrefs()
+                    return
+                }
+                val parsed = try { JSONObject(decoded) } catch (_: Exception) { null }
+                if (parsed == null) {
+                    engageLockoutLocked(TAMPER_LOCKOUT_MS, strikes = 1)
+                    scrubLegacySecurityPrefs()
+                    return
+                }
+                loginFails = parsed.optInt("fails", 0).coerceAtLeast(0)
+                lockStrikes = parsed.optInt("strikes", 0).coerceIn(0, 5)
+                lockElapsedUntil = parsed.optLong("lock_elapsed_until", 0L)
+                lockStartedElapsedMs = parsed.optLong("lock_started_elapsed", 0L)
+                lockStartedWallMs = parsed.optLong("lock_started_wall", 0L)
+                lockDurationMs = parsed.optLong("lock_duration_ms", 0L)
+                lockBootCount = parsed.optInt("lock_boot_count", -1)
+
+                otpTimerActive = parsed.optBoolean("otp_active", false)
+                otpExpiresElapsedAt = parsed.optLong("otp_expires_elapsed", 0L)
+                otpStartedElapsedMs = parsed.optLong("otp_started_elapsed", 0L)
+                otpStartedWallMs = parsed.optLong("otp_started_wall", 0L)
+                otpDurationMs = parsed.optLong("otp_duration_ms", 0L)
+                otpBootCount = parsed.optInt("otp_boot_count", -1)
+
+                resendCooldownActive = parsed.optBoolean("resend_active", false)
+                resendAvailableElapsedAt = parsed.optLong("resend_available_elapsed", 0L)
+                resendStartedElapsedMs = parsed.optLong("resend_started_elapsed", 0L)
+                resendStartedWallMs = parsed.optLong("resend_started_wall", 0L)
+                resendDurationMs = parsed.optLong("resend_duration_ms", 0L)
+                resendBootCount = parsed.optInt("resend_boot_count", -1)
+                scrubLegacySecurityPrefs()
+            } else {
+                val hasLegacy = prefs.contains(KEY_LOCK_UNTIL) ||
+                    prefs.contains(KEY_FAILS) ||
+                    prefs.contains(KEY_LOCK_STRIKES) ||
+                    prefs.contains(KEY_OTP_EXPIRES_AT) ||
+                    prefs.contains(KEY_RESEND_AVAILABLE_AT)
+                if (hasLegacy) {
+                    loginFails = prefs.getInt(KEY_FAILS, 0).coerceAtLeast(0)
+                    lockStrikes = prefs.getInt(KEY_LOCK_STRIKES, 0).coerceIn(0, 5)
+                    val legacyLockUntil = prefs.getLong(KEY_LOCK_UNTIL, 0L)
+                    if (legacyLockUntil > wallNow) {
+                        val rem = legacyLockUntil - wallNow
+                        lockStartedElapsedMs = elapsedNow
+                        lockStartedWallMs = wallNow
+                        lockDurationMs = rem
+                        lockElapsedUntil = elapsedNow + rem
+                        lockBootCount = currentBoot
+                    }
+                    val legacyOtpExpires = prefs.getLong(KEY_OTP_EXPIRES_AT, 0L)
+                    if (legacyOtpExpires > 0L) {
+                        val delta = legacyOtpExpires - wallNow
+                        otpTimerActive = true
+                        otpStartedElapsedMs = elapsedNow
+                        otpStartedWallMs = wallNow
+                        otpDurationMs = delta
+                        otpExpiresElapsedAt = elapsedNow + delta
+                        otpBootCount = currentBoot
+                    }
+                    val legacyResendAt = prefs.getLong(KEY_RESEND_AVAILABLE_AT, 0L)
+                    if (legacyResendAt > wallNow) {
+                        val rem = legacyResendAt - wallNow
+                        resendCooldownActive = true
+                        resendStartedElapsedMs = elapsedNow
+                        resendStartedWallMs = wallNow
+                        resendDurationMs = rem
+                        resendAvailableElapsedAt = elapsedNow + rem
+                        resendBootCount = currentBoot
+                    }
+                    persistSecurityStateLocked()
+                }
+            }
+
+            // Re-evaluate lock expiration safely across reboots without mutating strikes
+            if (lockDurationMs > 0L && getRemainingLockMsLocked() <= 0L) {
+                clearActiveLockLocked()
+            }
+        }
+    }
+
+    private fun scrubLegacySecurityPrefs() {
+        if (prefs.contains(KEY_FAILS) ||
+            prefs.contains(KEY_LOCK_UNTIL) ||
+            prefs.contains(KEY_LOCK_STRIKES) ||
+            prefs.contains(KEY_OTP_EXPIRES_AT) ||
+            prefs.contains(KEY_RESEND_AVAILABLE_AT)
+        ) {
+            prefs.edit()
+                .remove(KEY_FAILS)
+                .remove(KEY_LOCK_UNTIL)
+                .remove(KEY_LOCK_STRIKES)
+                .remove(KEY_OTP_EXPIRES_AT)
+                .remove(KEY_RESEND_AVAILABLE_AT)
+                .apply()
+        }
+    }
+
+    private fun persistSecurityStateLocked() {
+        val json = JSONObject().apply {
+            put("fails", loginFails)
+            put("strikes", lockStrikes)
+            put("lock_elapsed_until", lockElapsedUntil)
+            put("lock_started_elapsed", lockStartedElapsedMs)
+            put("lock_started_wall", lockStartedWallMs)
+            put("lock_duration_ms", lockDurationMs)
+            put("lock_boot_count", lockBootCount)
+            put("otp_active", otpTimerActive)
+            put("otp_expires_elapsed", otpExpiresElapsedAt)
+            put("otp_started_elapsed", otpStartedElapsedMs)
+            put("otp_started_wall", otpStartedWallMs)
+            put("otp_duration_ms", otpDurationMs)
+            put("otp_boot_count", otpBootCount)
+            put("resend_active", resendCooldownActive)
+            put("resend_available_elapsed", resendAvailableElapsedAt)
+            put("resend_started_elapsed", resendStartedElapsedMs)
+            put("resend_started_wall", resendStartedWallMs)
+            put("resend_duration_ms", resendDurationMs)
+            put("resend_boot_count", resendBootCount)
+        }
+        tokenStore.saveEncryptedString(KEY_SECURITY_STATE_ENC, json.toString())
+        scrubLegacySecurityPrefs()
+    }
+
+    private fun engageLockoutLocked(durationMs: Long, strikes: Int) {
+        val elapsedNow = elapsedClockNowMs()
+        val wallNow = wallClockNowMs()
+        val currentBoot = bootCountProvider()
+        val currentRemaining = if (lockDurationMs > 0L) getRemainingLockMsLocked() else 0L
+        val effectiveDuration = maxOf(durationMs, currentRemaining)
+
+        loginFails = 0
+        lockStrikes = strikes.coerceIn(1, 5)
+        lockStartedElapsedMs = elapsedNow
+        lockStartedWallMs = wallNow
+        lockDurationMs = effectiveDuration
+        lockElapsedUntil = elapsedNow + effectiveDuration
+        lockBootCount = currentBoot
+        persistSecurityStateLocked()
+    }
+
+    private fun clearActiveLockLocked() {
+        lockElapsedUntil = 0L
+        lockStartedElapsedMs = 0L
+        lockStartedWallMs = 0L
+        lockDurationMs = 0L
+        lockBootCount = -1
+        loginFails = 0
+        persistSecurityStateLocked()
+    }
+
+    private fun getRemainingLockMsLocked(): Long {
+        if (lockDurationMs <= 0L) return 0L
+        val elapsedNow = elapsedClockNowMs()
+        val currentBoot = bootCountProvider()
+        if (isRebooted(lockStartedElapsedMs, lockBootCount, elapsedNow, currentBoot)) {
+            val wallNow = wallClockNowMs()
+            val wallElapsed = wallNow - lockStartedWallMs
+            val effectiveElapsed = if (wallElapsed >= 0L) maxOf(wallElapsed, elapsedNow) else elapsedNow
+            val remaining = lockDurationMs - effectiveElapsed
+            return if (remaining > 0L) {
+                lockStartedElapsedMs = elapsedNow
+                lockStartedWallMs = wallNow
+                lockDurationMs = remaining
+                lockElapsedUntil = elapsedNow + remaining
+                lockBootCount = currentBoot
+                persistSecurityStateLocked()
+                remaining
+            } else {
+                0L
+            }
+        }
+        val remaining = lockElapsedUntil - elapsedNow
+        return if (remaining > 0L) remaining else 0L
+    }
+
+    private fun getRemainingLockMs(): Long {
+        synchronized(securityStateLock) {
+            return getRemainingLockMsLocked()
+        }
+    }
+
+    fun isLocked(): Boolean = getRemainingLockMs() > 0L
 
     fun getRemainingSeconds(): Int {
-        val diff = lockUntil - System.currentTimeMillis()
-        return if (diff > 0) ((diff + 999) / 1000).toInt() else 0
+        val diff = getRemainingLockMs()
+        return if (diff > 0L) ((diff + 999L) / 1000L).toInt() else 0
+    }
+
+    private fun getOtpRemainingMsLocked(): Long {
+        if (!otpTimerActive) return 0L
+        val elapsedNow = elapsedClockNowMs()
+        val currentBoot = bootCountProvider()
+        if (isRebooted(otpStartedElapsedMs, otpBootCount, elapsedNow, currentBoot)) {
+            if (otpDurationMs <= 0L) return 0L
+            val wallNow = wallClockNowMs()
+            val wallElapsed = wallNow - otpStartedWallMs
+            val effectiveElapsed = if (wallElapsed >= 0L) maxOf(wallElapsed, elapsedNow) else otpDurationMs
+            val remaining = otpDurationMs - effectiveElapsed
+            return if (remaining > 0L) {
+                otpStartedElapsedMs = elapsedNow
+                otpStartedWallMs = wallNow
+                otpDurationMs = remaining
+                otpExpiresElapsedAt = elapsedNow + remaining
+                otpBootCount = currentBoot
+                persistSecurityStateLocked()
+                remaining
+            } else {
+                0L
+            }
+        }
+        val diff = otpExpiresElapsedAt - elapsedNow
+        return if (diff > 0L) diff else 0L
     }
 
     private fun getOtpRemainingSecondsNow(): Int {
-        val diff = otpExpiresAt - System.currentTimeMillis()
-        return if (diff > 0) ((diff + 999) / 1000).toInt() else 0
+        val diff = synchronized(securityStateLock) { getOtpRemainingMsLocked() }
+        return if (diff > 0L) ((diff + 999L) / 1000L).toInt() else 0
     }
 
     internal fun isCurrentOtpExpired(): Boolean {
-        return otpExpiresAt > 0L && System.currentTimeMillis() > otpExpiresAt
+        synchronized(securityStateLock) {
+            if (!otpTimerActive) return false
+            return getOtpRemainingMsLocked() <= 0L
+        }
     }
 
     internal fun startOtpExpiryTimer(durationMs: Long = OTP_EXPIRY_MS) {
-        otpExpiresAt = System.currentTimeMillis() + durationMs
-        prefs.edit().putLong(KEY_OTP_EXPIRES_AT, otpExpiresAt).apply()
+        synchronized(securityStateLock) {
+            val elapsedNow = elapsedClockNowMs()
+            val wallNow = wallClockNowMs()
+            otpTimerActive = true
+            otpStartedElapsedMs = elapsedNow
+            otpStartedWallMs = wallNow
+            otpDurationMs = durationMs
+            otpExpiresElapsedAt = elapsedNow + durationMs
+            otpBootCount = bootCountProvider()
+            persistSecurityStateLocked()
+        }
         launchOtpCountdown()
     }
 
     internal fun clearOtpTimer() {
         otpTickerJob?.cancel()
-        otpExpiresAt = 0L
+        synchronized(securityStateLock) {
+            otpTimerActive = false
+            otpExpiresElapsedAt = 0L
+            otpStartedElapsedMs = 0L
+            otpStartedWallMs = 0L
+            otpDurationMs = 0L
+            otpBootCount = -1
+            persistSecurityStateLocked()
+        }
         _otpRemainingSeconds.value = 0
-        prefs.edit().remove(KEY_OTP_EXPIRES_AT).apply()
     }
 
     internal fun setOtpExpiresAtForTest(expiresAtMs: Long) {
-        otpExpiresAt = expiresAtMs
-        prefs.edit().putLong(KEY_OTP_EXPIRES_AT, expiresAtMs).apply()
+        synchronized(securityStateLock) {
+            val wallNow = wallClockNowMs()
+            val elapsedNow = elapsedClockNowMs()
+            val delta = expiresAtMs - wallNow
+            otpTimerActive = true
+            otpStartedElapsedMs = elapsedNow
+            otpStartedWallMs = wallNow
+            otpDurationMs = delta
+            otpExpiresElapsedAt = elapsedNow + delta
+            otpBootCount = bootCountProvider()
+            persistSecurityStateLocked()
+        }
         _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
     }
 
@@ -253,7 +552,7 @@ class AuthManager(context: Context) {
         otpTickerJob?.cancel()
         _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
         otpTickerJob = scope.launch {
-            while (isActive && System.currentTimeMillis() < otpExpiresAt) {
+            while (isActive && getOtpRemainingSecondsNow() > 0) {
                 _otpRemainingSeconds.value = getOtpRemainingSecondsNow()
                 delay(500)
             }
@@ -261,27 +560,78 @@ class AuthManager(context: Context) {
         }
     }
 
+    private fun getResendRemainingMsLocked(): Long {
+        if (!resendCooldownActive) return 0L
+        val elapsedNow = elapsedClockNowMs()
+        val currentBoot = bootCountProvider()
+        if (isRebooted(resendStartedElapsedMs, resendBootCount, elapsedNow, currentBoot)) {
+            val wallNow = wallClockNowMs()
+            val wallElapsed = wallNow - resendStartedWallMs
+            val effectiveElapsed = if (wallElapsed >= 0L) maxOf(wallElapsed, elapsedNow) else elapsedNow
+            val remaining = resendDurationMs - effectiveElapsed
+            return if (remaining > 0L) {
+                resendStartedElapsedMs = elapsedNow
+                resendStartedWallMs = wallNow
+                resendDurationMs = remaining
+                resendAvailableElapsedAt = elapsedNow + remaining
+                resendBootCount = currentBoot
+                persistSecurityStateLocked()
+                remaining
+            } else {
+                0L
+            }
+        }
+        val diff = resendAvailableElapsedAt - elapsedNow
+        return if (diff > 0L) diff else 0L
+    }
+
     fun getResendCooldownRemainingSeconds(): Int {
-        val diff = resendAvailableAt - System.currentTimeMillis()
-        return if (diff > 0) ((diff + 999) / 1000).toInt() else 0
+        val diff = synchronized(securityStateLock) { getResendRemainingMsLocked() }
+        return if (diff > 0L) ((diff + 999L) / 1000L).toInt() else 0
     }
 
     internal fun startResendCooldown(durationMs: Long = RESEND_COOLDOWN_MS) {
-        resendAvailableAt = System.currentTimeMillis() + durationMs
-        prefs.edit().putLong(KEY_RESEND_AVAILABLE_AT, resendAvailableAt).apply()
+        synchronized(securityStateLock) {
+            val elapsedNow = elapsedClockNowMs()
+            val wallNow = wallClockNowMs()
+            resendCooldownActive = durationMs > 0L
+            resendStartedElapsedMs = elapsedNow
+            resendStartedWallMs = wallNow
+            resendDurationMs = durationMs.coerceAtLeast(0L)
+            resendAvailableElapsedAt = elapsedNow + durationMs.coerceAtLeast(0L)
+            resendBootCount = bootCountProvider()
+            persistSecurityStateLocked()
+        }
         launchResendCooldownCountdown()
     }
 
     internal fun clearResendCooldown() {
         resendTickerJob?.cancel()
-        resendAvailableAt = 0L
+        synchronized(securityStateLock) {
+            resendCooldownActive = false
+            resendAvailableElapsedAt = 0L
+            resendStartedElapsedMs = 0L
+            resendStartedWallMs = 0L
+            resendDurationMs = 0L
+            resendBootCount = -1
+            persistSecurityStateLocked()
+        }
         _resendCooldownSeconds.value = 0
-        prefs.edit().remove(KEY_RESEND_AVAILABLE_AT).apply()
     }
 
     internal fun setResendCooldownForTest(availableAtMs: Long) {
-        resendAvailableAt = availableAtMs
-        prefs.edit().putLong(KEY_RESEND_AVAILABLE_AT, availableAtMs).apply()
+        synchronized(securityStateLock) {
+            val wallNow = wallClockNowMs()
+            val elapsedNow = elapsedClockNowMs()
+            val delta = (availableAtMs - wallNow).coerceAtLeast(0L)
+            resendCooldownActive = delta > 0L
+            resendStartedElapsedMs = elapsedNow
+            resendStartedWallMs = wallNow
+            resendDurationMs = delta
+            resendAvailableElapsedAt = elapsedNow + delta
+            resendBootCount = bootCountProvider()
+            persistSecurityStateLocked()
+        }
         _resendCooldownSeconds.value = getResendCooldownRemainingSeconds()
     }
 
@@ -289,13 +639,22 @@ class AuthManager(context: Context) {
         resendTickerJob?.cancel()
         _resendCooldownSeconds.value = getResendCooldownRemainingSeconds()
         resendTickerJob = scope.launch {
-            while (isActive && System.currentTimeMillis() < resendAvailableAt) {
+            while (isActive && getResendCooldownRemainingSeconds() > 0) {
                 _resendCooldownSeconds.value = getResendCooldownRemainingSeconds()
                 delay(500)
             }
             _resendCooldownSeconds.value = 0
-            resendAvailableAt = 0L
-            prefs.edit().remove(KEY_RESEND_AVAILABLE_AT).apply()
+            synchronized(securityStateLock) {
+                if (getResendRemainingMsLocked() <= 0L) {
+                    resendCooldownActive = false
+                    resendAvailableElapsedAt = 0L
+                    resendStartedElapsedMs = 0L
+                    resendStartedWallMs = 0L
+                    resendDurationMs = 0L
+                    resendBootCount = -1
+                    persistSecurityStateLocked()
+                }
+            }
         }
     }
 
@@ -308,52 +667,64 @@ class AuthManager(context: Context) {
                 delay(500)
             }
             _lockRemainingSeconds.value = 0
-            lockUntil = 0
-            loginFails = 0
-            prefs.edit().remove(KEY_LOCK_UNTIL).remove(KEY_FAILS).apply()
-        }
-    }
-
-    internal suspend fun recordFailedAuthAttempt(): String? {
-        return withContext(Dispatchers.Main) {
-            loginFails += 1
-            if (loginFails >= MAX_AUTH_TRIES) {
-                val strikes = (prefs.getInt(KEY_LOCK_STRIKES, 0) + 1).coerceAtMost(5)
-                val lockDurationMs = when (strikes) {
-                    1 -> 60_000L
-                    2 -> 180_000L
-                    else -> 300_000L
+            synchronized(securityStateLock) {
+                if (getRemainingLockMsLocked() <= 0L) {
+                    clearActiveLockLocked()
                 }
-                lockUntil = System.currentTimeMillis() + lockDurationMs
-                loginFails = 0
-                prefs.edit()
-                    .putInt(KEY_FAILS, 0)
-                    .putInt(KEY_LOCK_STRIKES, strikes)
-                    .putLong(KEY_LOCK_UNTIL, lockUntil)
-                    .apply()
-                startLockCountdown()
-                val secs = (lockDurationMs / 1000L).toInt()
-                "Too many failed attempts. Locked for ${secs}s."
-            } else {
-                prefs.edit().putInt(KEY_FAILS, loginFails).apply()
-                val left = MAX_AUTH_TRIES - loginFails
-                val word = if (left == 1) "attempt" else "attempts"
-                "$left $word left before temporary lockout."
             }
         }
     }
 
+    internal suspend fun recordFailedAuthAttempt(
+        httpStatusCode: Int = 0,
+        retryAfterSeconds: Int? = null
+    ): String? {
+        return withContext(Dispatchers.Main.immediate) {
+            var shouldStartCountdown = false
+            val message: String
+            synchronized(securityStateLock) {
+                if (httpStatusCode == 429) {
+                    val strikes = (lockStrikes + 1).coerceAtMost(5)
+                    val baseDurationMs = strikeDurationMs(strikes)
+                    val serverDurationMs = (retryAfterSeconds ?: 0).coerceIn(0, 3600) * 1000L
+                    val effectiveDurationMs = maxOf(baseDurationMs, serverDurationMs)
+                    engageLockoutLocked(effectiveDurationMs, strikes)
+                    shouldStartCountdown = true
+                    val secs = ((effectiveDurationMs + 999L) / 1000L).toInt()
+                    message = "Too many failed attempts. Locked for ${secs}s."
+                } else {
+                    loginFails += 1
+                    if (loginFails >= MAX_AUTH_TRIES) {
+                        val strikes = (lockStrikes + 1).coerceAtMost(5)
+                        val durationMs = strikeDurationMs(strikes)
+                        engageLockoutLocked(durationMs, strikes)
+                        shouldStartCountdown = true
+                        val secs = ((durationMs + 999L) / 1000L).toInt()
+                        message = "Too many failed attempts. Locked for ${secs}s."
+                    } else {
+                        persistSecurityStateLocked()
+                        val left = MAX_AUTH_TRIES - loginFails
+                        val word = if (left == 1) "attempt" else "attempts"
+                        message = "$left $word left before temporary lockout."
+                    }
+                }
+            }
+            if (shouldStartCountdown) {
+                startLockCountdown()
+            }
+            message
+        }
+    }
+
     internal suspend fun resetAuthFailures() {
-        withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main.immediate) {
             tickerJob?.cancel()
-            loginFails = 0
-            lockUntil = 0L
+            synchronized(securityStateLock) {
+                loginFails = 0
+                lockStrikes = 0
+                clearActiveLockLocked()
+            }
             _lockRemainingSeconds.value = 0
-            prefs.edit()
-                .remove(KEY_FAILS)
-                .remove(KEY_LOCK_UNTIL)
-                .remove(KEY_LOCK_STRIKES)
-                .apply()
         }
     }
 
@@ -947,93 +1318,107 @@ class AuthManager(context: Context) {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (!isSupabaseConfigured()) {
-                    if (allowOfflineTestFallback()) {
-                        resolveAndCompleteSessionBlocking(clean)
+                authNetworkMutex.withLock {
+                    if (isLocked()) {
                         withContext(Dispatchers.Main) {
-                            callback(true, "Account created & signed in.")
+                            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
                         }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            callback(false, unconfiguredAuthMessage())
-                        }
+                        return@withLock
                     }
-                    return@launch
-                }
-
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val json = JSONObject()
-                    .put("email", clean)
-                    .put("password", password)
-                    .toString()
-
-                val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/signup")
-                    .addHeader("apikey", apiKey)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-
-                httpClient.newCall(req).execute().use { resp ->
-                    val respBody = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) {
-                        val obj = try { JSONObject(respBody) } catch (_: Exception) { null }
-                        val accessToken = obj?.optString("access_token").orEmpty()
-                        val refreshToken = obj?.optString("refresh_token").orEmpty()
-                        val userObj = obj?.optJSONObject("user")
-                        val identitiesEmpty = userObj?.optJSONArray("identities")?.length() == 0
-
-                        val hasConfirmationMetadata = userObj != null &&
-                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
-                        val emailAlreadyConfirmed = !hasConfirmationMetadata || isEmailConfirmed(userObj)
-
-                        when {
-                            identitiesEmpty -> {
-                                withContext(Dispatchers.Main) {
-                                    callback(false, "An account with this email already exists. Use Sign In instead.")
-                                }
+                    if (!isSupabaseConfigured()) {
+                        if (allowOfflineTestFallback()) {
+                            resolveAndCompleteSessionBlocking(clean)
+                            withContext(Dispatchers.Main) {
+                                callback(true, "Account created & signed in.")
                             }
-                            accessToken.isNotBlank() && emailAlreadyConfirmed -> {
-                                resolveAndCompleteSessionBlocking(
-                                    email = clean,
-                                    accessToken = accessToken,
-                                    refreshToken = refreshToken,
-                                    metadataIsAdmin = isMetadataAdmin(userObj)
-                                )
-                                withContext(Dispatchers.Main) {
-                                    callback(true, "Account created & signed in!")
-                                }
-                            }
-                            else -> {
-                                val remoteUsers = fetchRemoteAppUsersBlocking()
-                                val remoteMatch = remoteUsers?.find { it.email.equals(clean, ignoreCase = true) }
-                                if (remoteUsers != null && remoteMatch == null) {
-                                    pushRemoteUserUpsert(clean, false)
-                                }
-                                withContext(Dispatchers.Main) {
-                                    if (remoteUsers != null) {
-                                        val list = if (remoteMatch == null) remoteUsers + UserAccount(clean, false) else remoteUsers
-                                        saveUsersLocally(list)
-                                    } else if (_registeredUsers.value.none { it.email.equals(clean, ignoreCase = true) }) {
-                                        saveUsersLocally(_registeredUsers.value + UserAccount(clean, false))
-                                    }
-                                    prefs.edit().putString(KEY_LAST_EMAIL, clean).apply()
-                                    setPendingVerificationEmail(clean)
-                                    startOtpExpiryTimer()
-                                    startResendCooldown()
-                                    callback(
-                                        true,
-                                        "OTP code sent to $clean (expires in 5 minutes). Enter the code below."
-                                    )
-                                }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                callback(false, unconfiguredAuthMessage())
                             }
                         }
-                    } else {
-                        val msg = friendlySupabaseError(respBody, resp.code)
-                        withContext(Dispatchers.Main) {
-                            callback(false, msg)
+                        return@withLock
+                    }
+
+                    val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
+                    val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                    val json = JSONObject()
+                        .put("email", clean)
+                        .put("password", password)
+                        .toString()
+
+                    val req = Request.Builder()
+                        .url("$baseUrl/auth/v1/signup")
+                        .addHeader("apikey", apiKey)
+                        .addHeader("Authorization", "Bearer $apiKey")
+                        .addHeader("Content-Type", "application/json")
+                        .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+
+                    httpClient.newCall(req).execute().use { resp ->
+                        val respBody = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful) {
+                            val obj = try { JSONObject(respBody) } catch (_: Exception) { null }
+                            val accessToken = obj?.optString("access_token").orEmpty()
+                            val refreshToken = obj?.optString("refresh_token").orEmpty()
+                            val userObj = obj?.optJSONObject("user")
+                            val identitiesEmpty = userObj?.optJSONArray("identities")?.length() == 0
+
+                            val hasConfirmationMetadata = userObj != null &&
+                                (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                            val emailAlreadyConfirmed = !hasConfirmationMetadata || isEmailConfirmed(userObj)
+
+                            when {
+                                identitiesEmpty -> {
+                                    withContext(Dispatchers.Main) {
+                                        callback(false, "An account with this email already exists. Use Sign In instead.")
+                                    }
+                                }
+                                accessToken.isNotBlank() && emailAlreadyConfirmed -> {
+                                    resolveAndCompleteSessionBlocking(
+                                        email = clean,
+                                        accessToken = accessToken,
+                                        refreshToken = refreshToken,
+                                        metadataIsAdmin = isMetadataAdmin(userObj)
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        callback(true, "Account created & signed in!")
+                                    }
+                                }
+                                else -> {
+                                    val remoteUsers = fetchRemoteAppUsersBlocking()
+                                    val remoteMatch = remoteUsers?.find { it.email.equals(clean, ignoreCase = true) }
+                                    if (remoteUsers != null && remoteMatch == null) {
+                                        pushRemoteUserUpsert(clean, false)
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        if (remoteUsers != null) {
+                                            val list = if (remoteMatch == null) remoteUsers + UserAccount(clean, false) else remoteUsers
+                                            saveUsersLocally(list)
+                                        } else if (_registeredUsers.value.none { it.email.equals(clean, ignoreCase = true) }) {
+                                            saveUsersLocally(_registeredUsers.value + UserAccount(clean, false))
+                                        }
+                                        prefs.edit().putString(KEY_LAST_EMAIL, clean).apply()
+                                        setPendingVerificationEmail(clean)
+                                        startOtpExpiryTimer()
+                                        startResendCooldown()
+                                        callback(
+                                            true,
+                                            "OTP code sent to $clean (expires in 5 minutes). Enter the code below."
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (resp.code == 429) {
+                            val retryAfter = parseRetryAfterSeconds(resp.header("Retry-After"))
+                            val lockMsg = recordFailedAuthAttempt(httpStatusCode = 429, retryAfterSeconds = retryAfter)
+                            withContext(Dispatchers.Main) {
+                                callback(false, lockMsg ?: friendlySupabaseError(respBody, resp.code))
+                            }
+                        } else {
+                            val msg = friendlySupabaseError(respBody, resp.code)
+                            withContext(Dispatchers.Main) {
+                                callback(false, msg)
+                            }
                         }
                     }
                 }
@@ -1072,67 +1457,76 @@ class AuthManager(context: Context) {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (!isSupabaseConfigured()) {
-                    if (allowOfflineTestFallback()) {
-                        resolveAndCompleteSessionBlocking(clean)
+                authNetworkMutex.withLock {
+                    if (isLocked()) {
                         withContext(Dispatchers.Main) {
-                            callback(true, "Email verified! Welcome to Stock.")
+                            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
                         }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            callback(false, unconfiguredAuthMessage())
-                        }
+                        return@withLock
                     }
-                    return@launch
-                }
-
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val payload = JSONObject()
-                    .put("type", "signup")
-                    .put("email", clean)
-                    .put("token", cleanOtp)
-                    .toString()
-
-                val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/verify")
-                    .addHeader("apikey", apiKey)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-
-                httpClient.newCall(req).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) {
-                        val obj = try { JSONObject(body) } catch (_: Exception) { null }
-                        val userObj = obj?.optJSONObject("user")
-                        val accessToken = obj?.optString("access_token").orEmpty()
-                        val refreshToken = obj?.optString("refresh_token").orEmpty()
-                        val hasConfirmationMetadata = userObj != null &&
-                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
-                        if (accessToken.isBlank() || (hasConfirmationMetadata && !isEmailConfirmed(userObj))) {
+                    if (!isSupabaseConfigured()) {
+                        if (allowOfflineTestFallback()) {
+                            resolveAndCompleteSessionBlocking(clean)
                             withContext(Dispatchers.Main) {
-                                callback(false, "OTP verification incomplete. Please check the code and try again.")
+                                callback(true, "Email verified! Welcome to Stock.")
                             }
-                            return@use
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                callback(false, unconfiguredAuthMessage())
+                            }
                         }
-                        resetAuthFailures()
-                        resolveAndCompleteSessionBlocking(
-                            email = clean,
-                            accessToken = accessToken,
-                            refreshToken = refreshToken,
-                            metadataIsAdmin = isMetadataAdmin(userObj)
-                        )
-                        withContext(Dispatchers.Main) {
-                            callback(true, "Email verified! Welcome to Stock.")
-                        }
-                    } else {
-                        val msg = friendlySupabaseError(body, resp.code)
-                        val lockHint = recordFailedAuthAttempt()
-                        val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
-                        withContext(Dispatchers.Main) {
-                            callback(false, fullMsg)
+                        return@withLock
+                    }
+
+                    val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
+                    val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                    val payload = JSONObject()
+                        .put("type", "signup")
+                        .put("email", clean)
+                        .put("token", cleanOtp)
+                        .toString()
+
+                    val req = Request.Builder()
+                        .url("$baseUrl/auth/v1/verify")
+                        .addHeader("apikey", apiKey)
+                        .addHeader("Authorization", "Bearer $apiKey")
+                        .addHeader("Content-Type", "application/json")
+                        .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+
+                    httpClient.newCall(req).execute().use { resp ->
+                        val body = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful) {
+                            val obj = try { JSONObject(body) } catch (_: Exception) { null }
+                            val userObj = obj?.optJSONObject("user")
+                            val accessToken = obj?.optString("access_token").orEmpty()
+                            val refreshToken = obj?.optString("refresh_token").orEmpty()
+                            val hasConfirmationMetadata = userObj != null &&
+                                (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                            if (accessToken.isBlank() || (hasConfirmationMetadata && !isEmailConfirmed(userObj))) {
+                                withContext(Dispatchers.Main) {
+                                    callback(false, "OTP verification incomplete. Please check the code and try again.")
+                                }
+                                return@use
+                            }
+                            resetAuthFailures()
+                            resolveAndCompleteSessionBlocking(
+                                email = clean,
+                                accessToken = accessToken,
+                                refreshToken = refreshToken,
+                                metadataIsAdmin = isMetadataAdmin(userObj)
+                            )
+                            withContext(Dispatchers.Main) {
+                                callback(true, "Email verified! Welcome to Stock.")
+                            }
+                        } else {
+                            val msg = friendlySupabaseError(body, resp.code)
+                            val retryAfter = parseRetryAfterSeconds(resp.header("Retry-After"))
+                            val lockHint = recordFailedAuthAttempt(httpStatusCode = resp.code, retryAfterSeconds = retryAfter)
+                            val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
+                            withContext(Dispatchers.Main) {
+                                callback(false, fullMsg)
+                            }
                         }
                     }
                 }
@@ -1148,6 +1542,10 @@ class AuthManager(context: Context) {
         email: String,
         callback: (Boolean, String?) -> Unit
     ) {
+        if (isLocked()) {
+            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
+            return
+        }
         val cooldown = getResendCooldownRemainingSeconds()
         if (cooldown > 0) {
             callback(false, "Please wait ${cooldown}s before requesting another OTP.")
@@ -1160,47 +1558,61 @@ class AuthManager(context: Context) {
         }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (!isSupabaseConfigured()) {
-                    if (allowOfflineTestFallback()) {
+                authNetworkMutex.withLock {
+                    if (isLocked()) {
                         withContext(Dispatchers.Main) {
-                            startOtpExpiryTimer()
-                            startResendCooldown()
-                            callback(true, "OTP code ready for $clean (valid for 5 minutes).")
+                            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
                         }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            callback(false, unconfiguredAuthMessage())
-                        }
+                        return@withLock
                     }
-                    return@launch
-                }
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val json = JSONObject()
-                    .put("type", "signup")
-                    .put("email", clean)
-                    .toString()
-
-                val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/resend")
-                    .addHeader("apikey", apiKey)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-
-                httpClient.newCall(req).execute().use { resp ->
-                    val respBody = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) {
-                        withContext(Dispatchers.Main) {
-                            startOtpExpiryTimer()
-                            startResendCooldown()
-                            callback(true, "New OTP code sent to $clean (expires in 5 minutes).")
+                    if (!isSupabaseConfigured()) {
+                        if (allowOfflineTestFallback()) {
+                            withContext(Dispatchers.Main) {
+                                startOtpExpiryTimer()
+                                startResendCooldown()
+                                callback(true, "OTP code ready for $clean (valid for 5 minutes).")
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                callback(false, unconfiguredAuthMessage())
+                            }
                         }
-                    } else {
-                        val msg = friendlySupabaseError(respBody, resp.code)
-                        withContext(Dispatchers.Main) {
-                            callback(false, msg)
+                        return@withLock
+                    }
+                    val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
+                    val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                    val json = JSONObject()
+                        .put("type", "signup")
+                        .put("email", clean)
+                        .toString()
+
+                    val req = Request.Builder()
+                        .url("$baseUrl/auth/v1/resend")
+                        .addHeader("apikey", apiKey)
+                        .addHeader("Authorization", "Bearer $apiKey")
+                        .addHeader("Content-Type", "application/json")
+                        .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+
+                    httpClient.newCall(req).execute().use { resp ->
+                        val respBody = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful) {
+                            withContext(Dispatchers.Main) {
+                                startOtpExpiryTimer()
+                                startResendCooldown()
+                                callback(true, "New OTP code sent to $clean (expires in 5 minutes).")
+                            }
+                        } else if (resp.code == 429) {
+                            val retryAfter = parseRetryAfterSeconds(resp.header("Retry-After"))
+                            val lockMsg = recordFailedAuthAttempt(httpStatusCode = 429, retryAfterSeconds = retryAfter)
+                            withContext(Dispatchers.Main) {
+                                callback(false, lockMsg ?: friendlySupabaseError(respBody, resp.code))
+                            }
+                        } else {
+                            val msg = friendlySupabaseError(respBody, resp.code)
+                            withContext(Dispatchers.Main) {
+                                callback(false, msg)
+                            }
                         }
                     }
                 }
@@ -1377,73 +1789,82 @@ class AuthManager(context: Context) {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (!isSupabaseConfigured()) {
-                    if (allowOfflineTestFallback()) {
-                        resetAuthFailures()
-                        resolveAndCompleteSessionBlocking(clean)
+                authNetworkMutex.withLock {
+                    if (isLocked()) {
                         withContext(Dispatchers.Main) {
-                            callback(true, null)
+                            callback(false, "Too many failed attempts. Try again in ${getRemainingSeconds()}s.")
                         }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            callback(false, unconfiguredAuthMessage())
-                        }
+                        return@withLock
                     }
-                    return@launch
-                }
-
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
-                val json = JSONObject()
-                    .put("email", clean)
-                    .put("password", password)
-                    .toString()
-
-                val req = Request.Builder()
-                    .url("$baseUrl/auth/v1/token?grant_type=password")
-                    .addHeader("apikey", apiKey)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-                httpClient.newCall(req).execute().use { resp ->
-                    val respBody = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) {
-                        val obj = try { JSONObject(respBody) } catch (_: Exception) { null }
-                        val accessToken = obj?.optString("access_token").orEmpty()
-                        val refreshToken = obj?.optString("refresh_token").orEmpty()
-                        val userObj = obj?.optJSONObject("user")
-                        val hasConfirmationMetadata = userObj != null &&
-                            (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
-                        if (hasConfirmationMetadata && !isEmailConfirmed(userObj)) {
+                    if (!isSupabaseConfigured()) {
+                        if (allowOfflineTestFallback()) {
+                            resetAuthFailures()
+                            resolveAndCompleteSessionBlocking(clean)
                             withContext(Dispatchers.Main) {
-                                setPendingVerificationEmail(clean)
-                                callback(false, "Your email is not verified yet. Open your inbox and confirm your email first.")
+                                callback(true, null)
                             }
-                            return@use
-                        }
-                        if (accessToken.isBlank()) {
+                        } else {
                             withContext(Dispatchers.Main) {
-                                callback(false, "Sign in failed: missing session token.")
+                                callback(false, unconfiguredAuthMessage())
                             }
-                            return@use
                         }
-                        resetAuthFailures()
-                        resolveAndCompleteSessionBlocking(
-                            email = clean,
-                            accessToken = accessToken,
-                            refreshToken = refreshToken,
-                            metadataIsAdmin = isMetadataAdmin(userObj)
-                        )
-                        withContext(Dispatchers.Main) {
-                            callback(true, null)
-                        }
-                    } else {
-                        val msg = friendlySupabaseError(respBody, resp.code)
-                        val lockHint = recordFailedAuthAttempt()
-                        val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
-                        withContext(Dispatchers.Main) {
-                            callback(false, fullMsg)
+                        return@withLock
+                    }
+
+                    val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
+                    val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                    val json = JSONObject()
+                        .put("email", clean)
+                        .put("password", password)
+                        .toString()
+
+                    val req = Request.Builder()
+                        .url("$baseUrl/auth/v1/token?grant_type=password")
+                        .addHeader("apikey", apiKey)
+                        .addHeader("Authorization", "Bearer $apiKey")
+                        .addHeader("Content-Type", "application/json")
+                        .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        val respBody = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful) {
+                            val obj = try { JSONObject(respBody) } catch (_: Exception) { null }
+                            val accessToken = obj?.optString("access_token").orEmpty()
+                            val refreshToken = obj?.optString("refresh_token").orEmpty()
+                            val userObj = obj?.optJSONObject("user")
+                            val hasConfirmationMetadata = userObj != null &&
+                                (userObj.has("email_confirmed_at") || userObj.has("confirmed_at"))
+                            if (hasConfirmationMetadata && !isEmailConfirmed(userObj)) {
+                                withContext(Dispatchers.Main) {
+                                    setPendingVerificationEmail(clean)
+                                    callback(false, "Your email is not verified yet. Open your inbox and confirm your email first.")
+                                }
+                                return@use
+                            }
+                            if (accessToken.isBlank()) {
+                                withContext(Dispatchers.Main) {
+                                    callback(false, "Sign in failed: missing session token.")
+                                }
+                                return@use
+                            }
+                            resetAuthFailures()
+                            resolveAndCompleteSessionBlocking(
+                                email = clean,
+                                accessToken = accessToken,
+                                refreshToken = refreshToken,
+                                metadataIsAdmin = isMetadataAdmin(userObj)
+                            )
+                            withContext(Dispatchers.Main) {
+                                callback(true, null)
+                            }
+                        } else {
+                            val msg = friendlySupabaseError(respBody, resp.code)
+                            val retryAfter = parseRetryAfterSeconds(resp.header("Retry-After"))
+                            val lockHint = recordFailedAuthAttempt(httpStatusCode = resp.code, retryAfterSeconds = retryAfter)
+                            val fullMsg = if (lockHint != null && lockHint.startsWith("Too many")) lockHint else "$msg ${lockHint.orEmpty()}".trim()
+                            withContext(Dispatchers.Main) {
+                                callback(false, fullMsg)
+                            }
                         }
                     }
                 }

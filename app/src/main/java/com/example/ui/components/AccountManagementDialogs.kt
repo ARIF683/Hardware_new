@@ -132,7 +132,7 @@ fun ChangeEmailDialog(
                                 }
                             }
                         },
-                        enabled = !isBusy && resendCooldown <= 0,
+                        enabled = !isBusy && !isLocked && resendCooldown <= 0,
                         modifier = Modifier
                             .height(48.dp)
                             .testTag("change_email_resend_button")
@@ -140,7 +140,11 @@ fun ChangeEmailDialog(
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend OTP Code"
+                            when {
+                                isLocked -> "Locked (${lockRemaining}s)"
+                                resendCooldown > 0 -> "Resend in ${resendCooldown}s"
+                                else -> "Resend OTP Code"
+                            }
                         )
                     }
                 }
@@ -171,7 +175,7 @@ fun ChangeEmailDialog(
                             }
                         }
                     },
-                    enabled = !isBusy && resendCooldown <= 0,
+                    enabled = !isBusy && !isLocked && resendCooldown <= 0,
                     modifier = Modifier
                         .height(48.dp)
                         .testTag("change_email_send_otp_button")
@@ -185,7 +189,11 @@ fun ChangeEmailDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        if (resendCooldown > 0) "Send OTP (${resendCooldown}s)" else "Send OTP"
+                        when {
+                            isLocked -> "Locked (${lockRemaining}s)"
+                            resendCooldown > 0 -> "Send OTP (${resendCooldown}s)"
+                            else -> "Send OTP"
+                        }
                     )
                 }
             } else {
@@ -323,7 +331,7 @@ fun DeleteAccountOtpDialog(
                                 }
                             }
                         },
-                        enabled = !isBusy && resendCooldown <= 0,
+                        enabled = !isBusy && !isLocked && resendCooldown <= 0,
                         modifier = Modifier
                             .height(48.dp)
                             .testTag("delete_account_resend_button")
@@ -331,7 +339,11 @@ fun DeleteAccountOtpDialog(
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend OTP Code"
+                            when {
+                                isLocked -> "Locked (${lockRemaining}s)"
+                                resendCooldown > 0 -> "Resend in ${resendCooldown}s"
+                                else -> "Resend OTP Code"
+                            }
                         )
                     }
                 }
@@ -362,7 +374,7 @@ fun DeleteAccountOtpDialog(
                             }
                         }
                     },
-                    enabled = !isBusy && resendCooldown <= 0,
+                    enabled = !isBusy && !isLocked && resendCooldown <= 0,
                     colors = ButtonDefaults.buttonColors(containerColor = ext.danger),
                     modifier = Modifier
                         .height(48.dp)
@@ -377,7 +389,11 @@ fun DeleteAccountOtpDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        if (resendCooldown > 0) "Send Deletion OTP (${resendCooldown}s)" else "Send Deletion OTP"
+                        when {
+                            isLocked -> "Locked (${lockRemaining}s)"
+                            resendCooldown > 0 -> "Send Deletion OTP (${resendCooldown}s)"
+                            else -> "Send Deletion OTP"
+                        }
                     )
                 }
             } else {

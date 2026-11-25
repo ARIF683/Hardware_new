@@ -367,7 +367,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                         Button(
                             onClick = { sendResetOtp() },
-                            enabled = !isChecking && resendCooldown <= 0,
+                            enabled = !isChecking && !isLocked && resendCooldown <= 0,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -383,7 +383,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
                             Text(
-                                text = if (resendCooldown > 0) "Send Reset OTP (${resendCooldown}s)" else "Send Reset OTP",
+                                text = when {
+                                    isLocked -> "Locked (${lockRemaining}s)"
+                                    resendCooldown > 0 -> "Send Reset OTP (${resendCooldown}s)"
+                                    else -> "Send Reset OTP"
+                                },
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -474,7 +478,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
 
                         OutlinedButton(
                             onClick = { sendResetOtp() },
-                            enabled = !isChecking && resendCooldown <= 0,
+                            enabled = !isChecking && !isLocked && resendCooldown <= 0,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -484,7 +488,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                if (resendCooldown > 0) "Resend in ${resendCooldown}s" else "Resend Reset OTP"
+                                when {
+                                    isLocked -> "Locked (${lockRemaining}s)"
+                                    resendCooldown > 0 -> "Resend in ${resendCooldown}s"
+                                    else -> "Resend Reset OTP"
+                                }
                             )
                         }
                     }
@@ -621,7 +629,7 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                                 }
                             }
                         },
-                        enabled = !isChecking && resendCooldown <= 0,
+                        enabled = !isChecking && !isLocked && resendCooldown <= 0,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -636,7 +644,11 @@ fun AuthGateScreen(viewModel: StockViewModel) {
                             Spacer(modifier = Modifier.width(8.dp))
                         }
                         Text(
-                            if (resendCooldown > 0) "Resend OTP in ${resendCooldown}s" else "Resend OTP Code"
+                            when {
+                                isLocked -> "Locked (${lockRemaining}s)"
+                                resendCooldown > 0 -> "Resend OTP in ${resendCooldown}s"
+                                else -> "Resend OTP Code"
+                            }
                         )
                     }
 

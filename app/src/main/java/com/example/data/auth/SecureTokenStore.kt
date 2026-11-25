@@ -159,6 +159,28 @@ internal class SecureTokenStore(
             .apply()
     }
 
+    fun saveEncryptedString(key: String, value: String) {
+        if (value.isBlank()) {
+            prefs.edit().remove(key).apply()
+            return
+        }
+        prefs.edit()
+            .putString(key, encodeSecret(value))
+            .apply()
+    }
+
+    fun readEncryptedString(key: String): String? {
+        val stored = prefs.getString(key, null) ?: return null
+        val decoded = decodeSecret(stored)
+        return decoded.ifBlank { null }
+    }
+
+    fun hasEncryptedValue(key: String): Boolean = prefs.contains(key)
+
+    fun removeEncryptedKey(key: String) {
+        prefs.edit().remove(key).apply()
+    }
+
     private fun decryptV1(payload: String): String {
         val parts = payload.split(":", limit = 2)
         if (parts.size != 2) return ""
