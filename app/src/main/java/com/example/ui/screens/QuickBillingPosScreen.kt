@@ -110,6 +110,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -127,6 +128,7 @@ import com.example.data.model.Item
 import com.example.data.model.QuotationLineItem
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import com.example.util.InvoicePrintManager
 import com.example.util.ItemSearchMatcher
 import com.example.util.rememberAppHaptics
@@ -220,6 +222,7 @@ fun QuickBillingPosScreen(
 
     val bankingInfo by viewModel.bankingInfo.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val instantDispatchSlip by viewModel.instantDispatchSlip.collectAsState()
     var showCartDrawer by remember { mutableStateOf(false) }
     var showCashCheckoutDialog by remember { mutableStateOf(false) }
     var showUpiCheckoutDialog by remember { mutableStateOf(false) }
@@ -351,10 +354,8 @@ fun QuickBillingPosScreen(
             viewModel.showToast("Cart is empty! Add products to bill.")
             return
         }
-        val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(Date())
-        val invoiceNo = "POS-${System.currentTimeMillis().toString().takeLast(6)}"
+        val nowIso = DateTimeHelper.nowIso()
+        val invoiceNo = viewModel.consumeNextInvoiceNo()
         val invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
         val gstLineItems = cartItems.map { c ->
@@ -399,16 +400,23 @@ fun QuickBillingPosScreen(
         )
 
         haptics.confirm()
-        viewModel.saveGstBill(billRecord)
-        prefilledQuotation?.let { quotation ->
-            viewModel.updateQuotationStatus(quotation, "Converted")
-        }
+        viewModel.completePosOrGstSale(
+            bill = billRecord,
+            lineItems = gstLineItems,
+            deductStock = true,
+            recordCashflowSale = true,
+            paymentMode = paymentMode
+        )
 
         lastSavedBill = billRecord
         showCartDrawer = false
         showCashCheckoutDialog = false
         showUpiCheckoutDialog = false
-        showReceiptSuccessDialog = true
+        if (instantDispatchSlip) {
+            showReceiptSuccessDialog = true
+        } else {
+            cartItems.clear()
+        }
         viewModel.showToast("✅ Bill #$invoiceNo saved via $paymentMode!")
     }
 
@@ -721,6 +729,57 @@ fun QuickBillingPosScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
+                    // Selectable GST Slab Bar (0%, 5%, 12%, 18%, 28%)
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        item {
+                            Text(
+                                text = "GST:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        items(listOf(0.0, 5.0, 12.0, 18.0, 28.0)) { slab ->
+                            val selected = taxRateSelected == slab
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (selected) {
+                                    if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
+                                border = BorderStroke(
+                                    0.8.dp,
+                                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                ),
+                                modifier = Modifier
+                                    .testTag("pos_gst_slab_${slab.toInt()}")
+                                    .clickable {
+                                        taxRateSelected = slab
+                                        for (i in cartItems.indices) {
+                                            cartItems[i] = cartItems[i].copy(customTaxRate = slab)
+                                        }
+                                    }
+                            ) {
+                                Text(
+                                    text = if (slab == 0.0) "0% Free" else "${slab.toInt()}%",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
                     // Quick Action Row: Discount, Customer, Clear Cart
                     Row(
                         modifier = Modifier

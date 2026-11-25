@@ -1717,6 +1717,22 @@ fun QuotationFormDialog(
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
+                                fun formatQuoteNum(v: Double): String = if (v == 0.0) "" else if (v % 1.0 == 0.0) v.toLong().toString() else java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString()
+                                var qtyText by remember(rowKey) { mutableStateOf(formatQuoteNum(item.qty)) }
+                                LaunchedEffect(item.qty) {
+                                    val parsed = qtyText.trim().toDoubleOrNull()
+                                    if (parsed != item.qty && !(qtyText.isBlank() && item.qty == 0.0)) {
+                                        qtyText = formatQuoteNum(item.qty)
+                                    }
+                                }
+                                var rateText by remember(rowKey) { mutableStateOf(formatQuoteNum(item.unitPrice)) }
+                                LaunchedEffect(item.unitPrice) {
+                                    val parsed = rateText.trim().toDoubleOrNull()
+                                    if (parsed != item.unitPrice && !(rateText.isBlank() && item.unitPrice == 0.0)) {
+                                        rateText = formatQuoteNum(item.unitPrice)
+                                    }
+                                }
+
                                 // Single-line 4-column aligned row for Qty, Unit, Rate, and Total
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1724,10 +1740,15 @@ fun QuotationFormDialog(
                                     verticalAlignment = Alignment.Top
                                 ) {
                                     OutlinedTextField(
-                                        value = if (item.qty == 0.0) "" else item.qty.toString(),
+                                        value = qtyText,
                                         onValueChange = { qStr ->
-                                            val qVal = qStr.toDoubleOrNull() ?: 0.0
-                                            updateThisRow { it.copy(qty = qVal, total = qVal * it.unitPrice) }
+                                            qtyText = qStr
+                                            val qVal = qStr.trim().toDoubleOrNull()
+                                            if (qVal != null) {
+                                                updateThisRow { it.copy(qty = qVal, total = qVal * it.unitPrice) }
+                                            } else if (qStr.isBlank()) {
+                                                updateThisRow { it.copy(qty = 0.0, total = 0.0) }
+                                            }
                                         },
                                         label = {
                                             Text(
@@ -1737,7 +1758,7 @@ fun QuotationFormDialog(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         modifier = Modifier
                                             .weight(0.85f)
                                             .widthIn(min = 0.dp)
@@ -1764,10 +1785,15 @@ fun QuotationFormDialog(
                                     )
 
                                     OutlinedTextField(
-                                        value = if (item.unitPrice == 0.0) "" else item.unitPrice.toString(),
+                                        value = rateText,
                                         onValueChange = { rStr ->
-                                            val rVal = rStr.toDoubleOrNull() ?: 0.0
-                                            updateThisRow { it.copy(unitPrice = rVal, total = it.qty * rVal) }
+                                            rateText = rStr
+                                            val rVal = rStr.trim().toDoubleOrNull()
+                                            if (rVal != null) {
+                                                updateThisRow { it.copy(unitPrice = rVal, total = it.qty * rVal) }
+                                            } else if (rStr.isBlank()) {
+                                                updateThisRow { it.copy(unitPrice = 0.0, total = 0.0) }
+                                            }
                                         },
                                         label = {
                                             Text(
@@ -1777,7 +1803,7 @@ fun QuotationFormDialog(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         modifier = Modifier
                                             .weight(1.05f)
                                             .widthIn(min = 0.dp)

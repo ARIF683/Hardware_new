@@ -47,9 +47,91 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS quotations (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        quotation_no TEXT NOT NULL,
+                        customer_name TEXT NOT NULL,
+                        customer_phone TEXT NOT NULL,
+                        customer_address TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        valid_until TEXT NOT NULL,
+                        items_json TEXT NOT NULL,
+                        subtotal REAL NOT NULL,
+                        discount REAL NOT NULL,
+                        tax_percent REAL NOT NULL,
+                        tax_amount REAL NOT NULL,
+                        grand_total REAL NOT NULL,
+                        status TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS ledger_accounts (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        address TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        net_balance REAL NOT NULL,
+                        credit_limit REAL NOT NULL,
+                        notes TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS ledger_entries (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        account_id TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        balance_after REAL NOT NULL,
+                        date TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        bill_ref TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS daily_cashflow (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        type TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        title TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        payment_mode TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE items ADD COLUMN image_url TEXT")
+                try {
+                    db.execSQL("ALTER TABLE items ADD COLUMN image_url TEXT")
+                } catch (e: Exception) {
+                    android.util.Log.d("AppDatabase", "Migration 3->4 skipped image_url: ${e.message}")
+                }
             }
         }
 
@@ -152,6 +234,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Version 8 removed the temporary supplier_purchases table entity in favor of unified purchases sync.
+                db.execSQL("DROP TABLE IF EXISTS supplier_purchases")
+            }
+        }
+
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -175,7 +264,16 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stock_manager.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_8_9)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                        MIGRATION_7_8,
+                        MIGRATION_8_9
+                    )
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

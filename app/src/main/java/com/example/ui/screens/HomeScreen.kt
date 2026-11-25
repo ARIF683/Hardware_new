@@ -89,6 +89,7 @@ import com.example.data.remote.UpdateStatus
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import com.example.util.ImageModelHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -96,6 +97,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -111,6 +113,9 @@ fun HomeScreen(viewModel: StockViewModel) {
     val activeAnnouncement by viewModel.activeAnnouncement.collectAsState()
     val activeFestivals by viewModel.activeFestivals.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+    val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
+    val lowStockDefaultThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
     val isAnnouncementDismissed by viewModel.isAnnouncementDismissed.collectAsState()
     val isUpdateBannerDismissed by viewModel.isUpdateBannerDismissed.collectAsState()
@@ -215,28 +220,26 @@ fun HomeScreen(viewModel: StockViewModel) {
 
     val totalItems = items.size
     val inStockCount = items.count { it.qty > 0 }
-    val lowStockCount = items.count { it.qty <= 0 || (it.low > 0 && it.qty <= it.low) }
+    val lowStockCount = remember(items, lowStockDefaultThreshold) {
+        items.count { viewModel.appSettingsManager.isLowOrOutOfStock(it) }
+    }
 
-    val filteredRecentTx = remember(allTransactions, recentTx, overviewPeriod) {
-        val baseList = if (allTransactions.isNotEmpty()) allTransactions else recentTx
-        val nowCal = Calendar.getInstance()
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-        val filtered = baseList.filter { tx ->
-            if (overviewPeriod == "All Time") return@filter true
-            val date = try { sdf.parse(tx.createdAt.take(19)) } catch (_: Exception) { null }
-            if (date == null) return@filter true
-            val cutoff = Calendar.getInstance().apply {
-                timeInMillis = nowCal.timeInMillis
+    val baseRecentTx = if (allTransactions.isNotEmpty()) allTransactions else recentTx
+    val filteredRecentTx = remember(baseRecentTx, overviewPeriod) {
+        if (overviewPeriod == "All Time") {
+            baseRecentTx.take(3)
+        } else {
+            val cutoffMillis = Calendar.getInstance().apply {
                 when (overviewPeriod) {
                     "This Week" -> add(Calendar.DAY_OF_YEAR, -7)
                     "This Month" -> add(Calendar.DAY_OF_YEAR, -30)
                 }
-            }
-            date.time >= cutoff.timeInMillis
+            }.timeInMillis
+            baseRecentTx.filter { tx ->
+                val txMillis = DateTimeHelper.parseTimestampMillis(tx.createdAt)
+                txMillis != null && txMillis >= cutoffMillis
+            }.take(3)
         }
-        (if (filtered.isNotEmpty()) filtered else baseList).take(3)
     }
 
     val greetingText = remember {
@@ -312,6 +315,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                             .clickable {
                                 if (lowStockCount > 0) {
                                     viewModel.inStockOnly.value = false
+                                    viewModel.requestedStockStatusFilter.value = "low"
                                     viewModel.navigateTo(NavigationTab.ITEMS)
                                 } else {
                                     viewModel.showToast("All inventory levels are healthy")
@@ -326,7 +330,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(24.dp)
                         )
-                        if (lowStockCount > 0) {
+                        if (lowStockCount > 0 && lowStockAlertsEnabled) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -687,11 +691,13 @@ fun HomeScreen(viewModel: StockViewModel) {
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Shahazim!",
+                            text = "${storeIdentity.supervisorName.ifBlank { "Operator" }}!",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
-                            letterSpacing = (-0.3).sp
+                            letterSpacing = (-0.3).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -792,53 +798,6 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-
-                        Box {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                                modifier = Modifier
-                                    .heightIn(min = 44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { showPeriodMenu = true }
-                                    .testTag("home_overview_period_filter")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                                ) {
-                                    Text(
-                                        text = overviewPeriod,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Select time period",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = showPeriodMenu,
-                                onDismissRequest = { showPeriodMenu = false }
-                            ) {
-                                listOf("This Month", "This Week", "All Time").forEach { period ->
-                                    DropdownMenuItem(
-                                        text = { Text(period) },
-                                        onClick = {
-                                            overviewPeriod = period
-                                            showPeriodMenu = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -858,6 +817,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 .testTag("overview_total_items"),
                             onClick = {
                                 viewModel.inStockOnly.value = false
+                                viewModel.requestedStockStatusFilter.value = "all"
                                 viewModel.navigateTo(NavigationTab.ITEMS)
                             }
                         )
@@ -872,6 +832,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 .testTag("overview_in_stock"),
                             onClick = {
                                 viewModel.inStockOnly.value = true
+                                viewModel.requestedStockStatusFilter.value = "in_stock"
                                 viewModel.navigateTo(NavigationTab.ITEMS)
                             }
                         )
@@ -886,6 +847,7 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 .testTag("overview_low_stock"),
                             onClick = {
                                 viewModel.inStockOnly.value = false
+                                viewModel.requestedStockStatusFilter.value = "low"
                                 viewModel.navigateTo(NavigationTab.ITEMS)
                             }
                         )
@@ -908,7 +870,10 @@ fun HomeScreen(viewModel: StockViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.History,
                                 contentDescription = null,
@@ -920,7 +885,9 @@ fun HomeScreen(viewModel: StockViewModel) {
                                 text = "Recent Transactions",
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -949,6 +916,55 @@ fun HomeScreen(viewModel: StockViewModel) {
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Box {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .heightIn(min = 40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { showPeriodMenu = true }
+                                .testTag("home_overview_period_filter")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = overviewPeriod,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Select time period",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showPeriodMenu,
+                            onDismissRequest = { showPeriodMenu = false }
+                        ) {
+                            listOf("This Month", "This Week", "All Time").forEach { period ->
+                                DropdownMenuItem(
+                                    text = { Text(period) },
+                                    onClick = {
+                                        overviewPeriod = period
+                                        showPeriodMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     if (filteredRecentTx.isEmpty()) {
@@ -959,7 +975,11 @@ fun HomeScreen(viewModel: StockViewModel) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No recent transactions yet.",
+                                text = if (baseRecentTx.isEmpty()) {
+                                    "No recent transactions yet."
+                                } else {
+                                    "No transactions in selected period."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1315,10 +1335,8 @@ private fun HomeRecentTxRow(
 
 private fun formatRelativeTimestamp(raw: String): String {
     return try {
-        val sdfIn = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-        val date = sdfIn.parse(raw.take(19)) ?: return raw
+        val millis = DateTimeHelper.parseTimestampMillis(raw) ?: return raw
+        val date = Date(millis)
         val target = Calendar.getInstance().apply { time = date }
         val now = Calendar.getInstance()
         val timePart = SimpleDateFormat("h:mm a", Locale.getDefault()).format(date)

@@ -161,6 +161,21 @@ object DailyReminderScheduler {
         return cal.timeInMillis
     }
 
+    internal fun computeNextDayTriggerMillis(
+        nowMillis: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Long {
+        val cal = Calendar.getInstance(timeZone).apply {
+            timeInMillis = nowMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, TARGET_HOUR)
+            set(Calendar.MINUTE, TARGET_MINUTE)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis
+    }
+
     private fun buildAlarmPendingIntent(
         context: Context,
         createIfMissing: Boolean = true
@@ -237,6 +252,32 @@ object DailyReminderScheduler {
             Log.d(TAG, "Scheduled daily sales & expenses window starting ${Date(triggerAt)}")
         } catch (e: Exception) {
             Log.w(TAG, "Failed scheduling daily reminder alarm", e)
+        }
+        return triggerAt
+    }
+
+    fun scheduleNextDay(context: Context, nowMillis: Long = System.currentTimeMillis()): Long? {
+        ensureNotificationChannel(context)
+        if (!isEnabled(context)) {
+            cancel(context)
+            return null
+        }
+
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return null
+        val triggerAt = computeNextDayTriggerMillis(nowMillis)
+        val pendingIntent = buildAlarmPendingIntent(context, createIfMissing = true) ?: return null
+
+        try {
+            alarmManager.setWindow(
+                AlarmManager.RTC_WAKEUP,
+                triggerAt,
+                WINDOW_LENGTH_MILLIS,
+                pendingIntent
+            )
+            prefs(context).edit().putLong(KEY_SCHEDULED_AT, triggerAt).apply()
+            Log.d(TAG, "Scheduled tomorrow's daily reminder window starting ${Date(triggerAt)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed scheduling tomorrow's daily reminder alarm", e)
         }
         return triggerAt
     }
@@ -401,7 +442,8 @@ object DailyReminderScheduler {
         if (!forceTest) {
             val lastFired = prefs(context).getString(KEY_LAST_FIRED_DATE, null)
             if (lastFired == today) {
-                Log.d(TAG, "Daily reminder already shown today ($today)")
+                Log.d(TAG, "Daily reminder already shown today ($today); rescheduling for tomorrow")
+                scheduleNextDay(context, nowMillis)
                 return false
             }
             prefs(context).edit().putString(KEY_LAST_FIRED_DATE, today).apply()

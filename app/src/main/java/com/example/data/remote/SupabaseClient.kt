@@ -8,6 +8,7 @@ import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.TransactionRecord
+import com.example.util.DateTimeHelper
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -371,13 +372,20 @@ class SupabaseClient(
     }
 
     suspend fun clearTransactions(): Unit = withContext(Dispatchers.IO) {
-        val req = newRequestBuilder("transactions?id=not.is.null")
+        val reqId = newRequestBuilder("transactions?id=not.is.null")
             .delete()
             .build()
-        executeSupabaseCall(req).use { resp ->
+        val firstFailedMsg = executeSupabaseCall(reqId).use { resp ->
+            if (resp.isSuccessful) return@withContext
+            resp.body?.string() ?: "HTTP ${resp.code}"
+        }
+        val reqClientId = newRequestBuilder("transactions?client_id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(reqClientId).use { resp ->
             if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                throw Exception("Failed to clear transactions: $err")
+                val secondErr = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to clear transactions: $firstFailedMsg / $secondErr")
             }
         }
     }
@@ -428,7 +436,7 @@ class SupabaseClient(
             val cleanCategory = rec.category.ifBlank { cleanTitle }
             return JSONObject().apply {
                 put("id", rec.id)
-                put("date", rec.date.ifEmpty { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) })
+                put("date", rec.date.ifEmpty { DateTimeHelper.localDateKey() })
                 put("type", cleanType)
                 if (incTitle) {
                     put("title", cleanTitle)
@@ -439,7 +447,7 @@ class SupabaseClient(
                     put("payment_mode", rec.paymentMode.ifBlank { "Cash" })
                 }
                 put("note", rec.note)
-                put("created_at", rec.createdAt.ifEmpty { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date()) })
+                put("created_at", rec.createdAt.ifEmpty { DateTimeHelper.nowIso() })
             }
         }
 
@@ -527,15 +535,19 @@ class SupabaseClient(
                         if (handled) continue
                     }
 
-                    // Try 3b: Single record PATCH if record already exists
+                    // Try 3b: Single record PATCH only counts if at least 1 row was matched & updated
                     val patchReq = newRequestBuilder("daily_cashflow?id=eq.${java.net.URLEncoder.encode(rec.id, "UTF-8")}")
-                        .addHeader("Prefer", "return=minimal")
+                        .addHeader("Prefer", "return=representation")
                         .patch(obj.toString().toRequestBody(jsonMediaType))
                         .build()
                     executeSupabaseCall(patchReq).use { patchResp ->
                         if (patchResp.isSuccessful) {
-                            successCount++
-                            handled = true
+                            val patchBody = patchResp.body?.string() ?: "[]"
+                            val updatedRows = runCatching { JSONArray(patchBody).length() }.getOrDefault(0)
+                            if (updatedRows > 0) {
+                                successCount++
+                                handled = true
+                            }
                         }
                     }
                     if (handled) continue
@@ -646,7 +658,7 @@ class SupabaseClient(
 
                     val safeDate = when {
                         q.date.isNotBlank() && q.date.matches(Regex("""\d{4}-\d{2}-\d{2}""")) -> q.date.trim()
-                        else -> SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                        else -> DateTimeHelper.localDateKey()
                     }
                     put("date", safeDate)
 
@@ -673,7 +685,7 @@ class SupabaseClient(
 
                     val safeCreatedAt = when {
                         q.createdAt.isNotBlank() -> q.createdAt.trim()
-                        else -> SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                        else -> DateTimeHelper.nowIso()
                     }
                     put("created_at", safeCreatedAt)
                 }
@@ -724,19 +736,48 @@ class SupabaseClient(
             .build()
         executeSupabaseCall(req).use { resp ->
             if (!resp.isSuccessful) {
-                Log.e(tag, "Failed to delete quotations: ${resp.body?.string()}")
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                Log.e(tag, "Failed to delete quotations: $err")
+                throw Exception("Failed to delete quotations: $err")
+            }
+        }
+    }
+
+    suspend fun deleteAllCashflow(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("daily_cashflow?id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to delete all cashflow: $err")
+            }
+        }
+    }
+
+    suspend fun deleteAllQuotations(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("quotations?id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to delete all quotations: $err")
             }
         }
     }
 
     // ==================== LEDGER ACCOUNTS SYNC ====================
-    suspend fun fetchAllLedgerAccounts(): List<LedgerAccount> = withContext(Dispatchers.IO) {
+    suspend fun fetchAllLedgerAccounts(): List<LedgerAccount>? = withContext(Dispatchers.IO) {
         try {
             val req = newRequestBuilder("ledger_accounts?select=*&order=name.asc&limit=1000")
                 .get()
                 .build()
             executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
+                if (!resp.isSuccessful) {
+                    Log.w(tag, "Failed to fetch ledger accounts (HTTP ${resp.code})")
+                    return@withContext null
+                }
                 val body = resp.body?.string() ?: "[]"
                 val jsonArr = JSONArray(body)
                 val list = mutableListOf<LedgerAccount>()
@@ -748,40 +789,38 @@ class SupabaseClient(
             }
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch ledger accounts", e)
-            emptyList()
+            null
         }
     }
 
     suspend fun upsertLedgerAccounts(records: List<LedgerAccount>): Unit = withContext(Dispatchers.IO) {
         if (records.isEmpty()) return@withContext
-        try {
-            val jsonArray = JSONArray()
-            for (acc in records) {
-                val obj = JSONObject().apply {
-                    put("id", acc.id)
-                    put("name", acc.name)
-                    put("phone", acc.phone)
-                    put("address", acc.address)
-                    put("type", acc.type)
-                    put("net_balance", acc.netBalance)
-                    put("credit_limit", acc.creditLimit)
-                    put("notes", acc.notes)
-                    put("created_at", acc.createdAt)
-                    put("updated_at", acc.updatedAt)
-                }
-                jsonArray.put(obj)
+        val jsonArray = JSONArray()
+        for (acc in records) {
+            val obj = JSONObject().apply {
+                put("id", acc.id)
+                put("name", acc.name)
+                put("phone", acc.phone)
+                put("address", acc.address)
+                put("type", acc.type)
+                put("net_balance", acc.netBalance)
+                put("credit_limit", acc.creditLimit)
+                put("notes", acc.notes)
+                put("created_at", acc.createdAt)
+                put("updated_at", acc.updatedAt)
             }
-            val req = newRequestBuilder("ledger_accounts?on_conflict=id")
-                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-                .post(jsonArray.toString().toRequestBody(jsonMediaType))
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.e(tag, "Failed to upsert ledger accounts: ${resp.body?.string()}")
-                }
+            jsonArray.put(obj)
+        }
+        val req = newRequestBuilder("ledger_accounts?on_conflict=id")
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+            .post(jsonArray.toString().toRequestBody(jsonMediaType))
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                Log.e(tag, "Failed to upsert ledger accounts: $err")
+                throw Exception("Failed to upsert ledger accounts: $err")
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to upsert ledger accounts", e)
         }
     }
 
@@ -793,7 +832,9 @@ class SupabaseClient(
             .build()
         executeSupabaseCall(req).use { resp ->
             if (!resp.isSuccessful) {
-                Log.e(tag, "Failed to delete ledger accounts: ${resp.body?.string()}")
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                Log.e(tag, "Failed to delete ledger accounts: $err")
+                throw Exception("Failed to delete ledger accounts: $err")
             }
         }
     }
@@ -822,7 +863,7 @@ class SupabaseClient(
 
     suspend fun saveStoreProfile(profile: RemoteStoreProfile): Boolean = withContext(Dispatchers.IO) {
         try {
-            val billDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val billDate = DateTimeHelper.localDateKey()
             val payload = StoreProfileSyncCodec.toPurchasesPayload(profile, billDate)
             val req = newRequestBuilder("purchases?on_conflict=client_id")
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
@@ -867,14 +908,41 @@ class SupabaseClient(
         }
     }
 
+    suspend fun deleteAllLedgerAccounts(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("ledger_accounts?id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to delete all ledger accounts: $err")
+            }
+        }
+    }
+
+    suspend fun deleteAllLedgerEntries(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("ledger_entries?id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to delete all ledger entries: $err")
+            }
+        }
+    }
+
     // ==================== LEDGER ENTRIES SYNC ====================
-    suspend fun fetchAllLedgerEntries(): List<LedgerEntry> = withContext(Dispatchers.IO) {
+    suspend fun fetchAllLedgerEntries(): List<LedgerEntry>? = withContext(Dispatchers.IO) {
         try {
             val req = newRequestBuilder("ledger_entries?select=*&order=created_at.desc&limit=5000")
                 .get()
                 .build()
             executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
+                if (!resp.isSuccessful) {
+                    Log.w(tag, "Failed to fetch ledger entries (HTTP ${resp.code})")
+                    return@withContext null
+                }
                 val body = resp.body?.string() ?: "[]"
                 val jsonArr = JSONArray(body)
                 val list = mutableListOf<LedgerEntry>()
@@ -886,39 +954,37 @@ class SupabaseClient(
             }
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch ledger entries", e)
-            emptyList()
+            null
         }
     }
 
     suspend fun upsertLedgerEntries(records: List<LedgerEntry>): Unit = withContext(Dispatchers.IO) {
         if (records.isEmpty()) return@withContext
-        try {
-            val jsonArray = JSONArray()
-            for (entry in records) {
-                val obj = JSONObject().apply {
-                    put("id", entry.id)
-                    put("account_id", entry.accountId)
-                    put("type", entry.type)
-                    put("amount", entry.amount)
-                    put("balance_after", entry.balanceAfter)
-                    put("date", entry.date)
-                    put("description", entry.description)
-                    put("bill_ref", entry.billRef)
-                    put("created_at", entry.createdAt)
-                }
-                jsonArray.put(obj)
+        val jsonArray = JSONArray()
+        for (entry in records) {
+            val obj = JSONObject().apply {
+                put("id", entry.id)
+                put("account_id", entry.accountId)
+                put("type", entry.type)
+                put("amount", entry.amount)
+                put("balance_after", entry.balanceAfter)
+                put("date", entry.date)
+                put("description", entry.description)
+                put("bill_ref", entry.billRef)
+                put("created_at", entry.createdAt)
             }
-            val req = newRequestBuilder("ledger_entries?on_conflict=id")
-                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-                .post(jsonArray.toString().toRequestBody(jsonMediaType))
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.e(tag, "Failed to upsert ledger entries: ${resp.body?.string()}")
-                }
+            jsonArray.put(obj)
+        }
+        val req = newRequestBuilder("ledger_entries?on_conflict=id")
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+            .post(jsonArray.toString().toRequestBody(jsonMediaType))
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                Log.e(tag, "Failed to upsert ledger entries: $err")
+                throw Exception("Failed to upsert ledger entries: $err")
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to upsert ledger entries", e)
         }
     }
 
@@ -930,7 +996,9 @@ class SupabaseClient(
             .build()
         executeSupabaseCall(req).use { resp ->
             if (!resp.isSuccessful) {
-                Log.e(tag, "Failed to delete ledger entries: ${resp.body?.string()}")
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                Log.e(tag, "Failed to delete ledger entries: $err")
+                throw Exception("Failed to delete ledger entries: $err")
             }
         }
     }

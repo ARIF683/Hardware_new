@@ -12,9 +12,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -92,6 +94,7 @@ import com.example.data.model.DailyCashflowRecord
 import com.example.ui.NavigationTab
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import com.example.util.XlsExporter
 import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
@@ -99,7 +102,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -146,7 +148,7 @@ fun TransactionsScreen(
         SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(cal.time)
     }
 
-    val todayDateStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val todayDateStr = remember { DateTimeHelper.localDateKey() }
 
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -245,7 +247,7 @@ fun TransactionsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = if (isEmbeddedInHub) 4.dp else 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -279,7 +281,7 @@ fun TransactionsScreen(
                     ) {
                         Text(
                             text = "Ledger & Transactions",
-                            fontSize = 17.5.sp,
+                            fontSize = if (isEmbeddedInHub) 15.5.sp else 17.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 1,
@@ -303,23 +305,26 @@ fun TransactionsScreen(
                             )
                         }
                     }
-                    Text(
-                        text = "Cashflow logs, daily sales & warehouse movement",
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (!isEmbeddedInHub) {
+                        Text(
+                            text = "Cashflow logs, daily sales & warehouse movement",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val actionBtnSize = if (isEmbeddedInHub) 38.dp else 44.dp
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(actionBtnSize)
                         .clip(CircleShape)
                         .clickable { showExportXlsDialog = true }
                         .testTag("transactions_export_xls_button")
@@ -329,7 +334,7 @@ fun TransactionsScreen(
                             imageVector = Icons.Default.Download,
                             contentDescription = "Export XLS Sheet",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -339,7 +344,7 @@ fun TransactionsScreen(
                     color = MaterialTheme.colorScheme.surface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(actionBtnSize)
                         .clip(CircleShape)
                         .clickable { showCategoryBreakdownDialog = true }
                         .testTag("transactions_breakdown_button")
@@ -349,7 +354,7 @@ fun TransactionsScreen(
                             imageVector = Icons.Default.PieChart,
                             contentDescription = "Category Breakdown",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -1401,7 +1406,7 @@ fun TransactionsScreen(
                     val targetMovements = if (exportAllHistory) {
                         stockTransactions
                     } else {
-                        stockTransactions.filter { it.createdAt.startsWith(selectedMonthKey) }
+                        stockTransactions.filter { DateTimeHelper.utcIsoToLocalMonthKey(it.createdAt) == selectedMonthKey }
                     }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -1565,13 +1570,15 @@ fun CashflowRowCard(
             .testTag("cashflow_row_${record.id}")
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .height(68.dp)
+                    .fillMaxHeight()
                     .background(accentColor)
             )
 
@@ -1669,7 +1676,10 @@ fun CashflowRowCard(
                         },
                         fontWeight = FontWeight.Black,
                         fontSize = 14.sp,
-                        color = accentColor
+                        color = accentColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     var dropMenu by remember { mutableStateOf(false) }

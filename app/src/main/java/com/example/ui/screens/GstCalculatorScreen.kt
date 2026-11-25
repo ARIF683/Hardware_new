@@ -55,10 +55,12 @@ import kotlinx.coroutines.launch
 import com.example.ui.StockViewModel
 import com.example.ui.components.SavedPaymentQrCard
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import com.example.util.InvoicePrintManager
 import com.example.util.rememberAppHaptics
 import androidx.compose.ui.platform.testTag
 import java.io.File
+import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -72,8 +74,15 @@ data class GstInvoiceRow(
     var costPrice: Double = 0.0,
     var unit: String = "pcs",
     var subtitle: String = "",
-    var imageUrl: String? = null
+    var imageUrl: String? = null,
+    val rowKey: String = UUID.randomUUID().toString()
 )
+
+private fun formatGstNumberInput(value: Double): String {
+    if (value == 0.0) return ""
+    return if (value % 1.0 == 0.0) value.toLong().toString()
+    else BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -90,7 +99,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var storeGstin by remember { mutableStateOf("27AABCS1234F1Z5") }
     var customerGstin by remember { mutableStateOf("") }
     var customerName by remember { mutableStateOf("") }
-    var invoiceNo by remember { mutableStateOf("GST-${System.currentTimeMillis().toString().takeLast(6)}") }
+    var invoiceNo by remember { mutableStateOf(viewModel.previewNextInvoiceNo()) }
+    var hasConsumedSequenceNo by remember { mutableStateOf(false) }
+    var deductStockAndCashflow by remember { mutableStateOf(true) }
     var invoiceDate by remember { mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())) }
     var isInterState by remember { mutableStateOf(false) } // false = CGST + SGST, true = IGST
 
@@ -106,6 +117,12 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var isGeneratingPdf by remember { mutableStateOf(false) }
     var showInvoicePreviewDialog by remember { mutableStateOf(false) }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearPrefilledGstQuotation()
+        }
+    }
+
     LaunchedEffect(prefilledQuotation) {
         val q = prefilledQuotation
         if (q != null) {
@@ -113,6 +130,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             customerPhone = q.customerPhone
             customerAddress = q.customerAddress
             invoiceNo = "GST-${q.quotationNo}"
+            hasConsumedSequenceNo = true
             quotationId = q.id
             quotationNo = q.quotationNo
             defaultTaxRate = q.taxPercent
@@ -144,6 +162,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val scope = rememberCoroutineScope()
     val bankingInfo by viewModel.bankingInfo.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
+    val instantDispatchSlip by viewModel.instantDispatchSlip.collectAsState()
 
     // Calculations
     val taxableTotal by remember { derivedStateOf { rows.sumOf { it.qty * it.rate } } }
@@ -483,10 +502,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             }
 
             // Invoice Row Editors
-            itemsIndexed(rows, key = { _, row -> row.id }) { _, row ->
-                val rowId = row.id
-                var isSuggestionsOpen by remember(rowId) { mutableStateOf(false) }
-                var matchingItems by remember(rowId) { mutableStateOf<List<com.example.data.model.Item>>(emptyList()) }
+            itemsIndexed(rows, key = { _, row -> row.rowKey }) { rowIndex, row ->
+                val rowKey = row.rowKey
+                var isSuggestionsOpen by remember(rowKey) { mutableStateOf(false) }
+                var matchingItems by remember(rowKey) { mutableStateOf<List<com.example.data.model.Item>>(emptyList()) }
 
                 LaunchedEffect(isSuggestionsOpen, row.itemName, allItems) {
                     if (!isSuggestionsOpen || row.itemName.isBlank()) {
@@ -502,7 +521,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                 }
 
                 fun updateThisRow(transform: (GstInvoiceRow) -> GstInvoiceRow) {
-                    val curIdx = rows.indexOfFirst { it.id == rowId }
+                    val curIdx = rows.indexOfFirst { it.rowKey == rowKey }
                     if (curIdx >= 0) {
                         rows[curIdx] = transform(rows[curIdx])
                     }
@@ -555,7 +574,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             )
                             IconButton(
                                 onClick = {
-                                    val curIdx = rows.indexOfFirst { it.id == rowId }
+                                    val curIdx = rows.indexOfFirst { it.rowKey == rowKey }
                                     if (curIdx >= 0 && rows.size > 1) rows.removeAt(curIdx)
                                 },
                                 modifier = Modifier.size(44.dp)
@@ -643,7 +662,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                                         }
                                                         updateThisRow { curRow ->
                                                             curRow.copy(
+                                                                id = matched.id,
                                                                 itemName = displayName,
+                                                                hsnCode = matched.code.ifBlank { curRow.hsnCode.ifBlank { "8481" } },
                                                                 costPrice = matched.cost,
                                                                 rate = if (matched.price > 0.0) matched.price else (if (matched.cost > 0.0) matched.cost * 1.18 else curRow.rate),
                                                                 unit = matched.unit,
@@ -714,26 +735,63 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
+                        var qtyText by remember(rowKey) { mutableStateOf(formatGstNumberInput(row.qty)) }
+                        LaunchedEffect(row.qty) {
+                            val parsed = qtyText.trim().toDoubleOrNull()
+                            if (parsed != row.qty && !(qtyText.isBlank() && row.qty == 0.0)) {
+                                qtyText = formatGstNumberInput(row.qty)
+                            }
+                        }
+                        var rateText by remember(rowKey) { mutableStateOf(formatGstNumberInput(row.rate)) }
+                        LaunchedEffect(row.rate) {
+                            val parsed = rateText.trim().toDoubleOrNull()
+                            if (parsed != row.rate && !(rateText.isBlank() && row.rate == 0.0)) {
+                                rateText = formatGstNumberInput(row.rate)
+                            }
+                        }
+
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.Top,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             OutlinedTextField(
-                                value = row.qty.toString(),
-                                onValueChange = { qStr -> updateThisRow { it.copy(qty = qStr.toDoubleOrNull() ?: 1.0) } },
+                                value = qtyText,
+                                onValueChange = { qStr ->
+                                    qtyText = qStr
+                                    val parsed = qStr.trim().toDoubleOrNull()
+                                    if (parsed != null) {
+                                        updateThisRow { it.copy(qty = parsed) }
+                                    } else if (qStr.isBlank()) {
+                                        updateThisRow { it.copy(qty = 0.0) }
+                                    }
+                                },
                                 label = { Text("Qty", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
-                                modifier = Modifier.weight(0.85f).widthIn(min = 0.dp)
+                                modifier = Modifier
+                                    .weight(0.85f)
+                                    .widthIn(min = 0.dp)
+                                    .testTag("gst_row_qty_$rowIndex")
                             )
                             OutlinedTextField(
-                                value = row.rate.toString(),
-                                onValueChange = { rStr -> updateThisRow { it.copy(rate = rStr.toDoubleOrNull() ?: 0.0) } },
+                                value = rateText,
+                                onValueChange = { rStr ->
+                                    rateText = rStr
+                                    val parsed = rStr.trim().toDoubleOrNull()
+                                    if (parsed != null) {
+                                        updateThisRow { it.copy(rate = parsed) }
+                                    } else if (rStr.isBlank()) {
+                                        updateThisRow { it.copy(rate = 0.0) }
+                                    }
+                                },
                                 label = { Text("Rate", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
-                                modifier = Modifier.weight(1.05f).widthIn(min = 0.dp)
+                                modifier = Modifier
+                                    .weight(1.05f)
+                                    .widthIn(min = 0.dp)
+                                    .testTag("gst_row_rate_$rowIndex")
                             )
                             OutlinedTextField(
                                 value = row.hsnCode,
@@ -906,9 +964,30 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                 }
             }
 
-            // Generate Button inside LazyColumn
+            // Stock Deduction & Cashflow Sale Option + Action Buttons
             item {
                 Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { deductStockAndCashflow = !deductStockAndCashflow }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = deductStockAndCashflow,
+                        onCheckedChange = { deductStockAndCashflow = it }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Deduct Inventory Stock & Log Cashflow Sale",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -937,6 +1016,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 haptics.reject()
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@Button
+                            }
+                            if (!hasConsumedSequenceNo && quotationId == null && invoiceNo == viewModel.previewNextInvoiceNo()) {
+                                invoiceNo = viewModel.consumeNextInvoiceNo()
+                                hasConsumedSequenceNo = true
                             }
                             scope.launch {
                                 isGeneratingPdf = true
@@ -989,8 +1072,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     )
                                     exportedPdfInfo = Pair(file, storagePath)
 
-                                    // Auto-save generated GST bill into app database
-                                    val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+                                    val nowIso = DateTimeHelper.nowIso()
                                     val gstLineItems = validRows.map { r ->
                                         val tAmt = (r.qty * r.rate) * (r.taxRatePercent / 100.0)
                                         GstBillLineItem(
@@ -1031,12 +1113,13 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         createdAt = nowIso
                                     )
                                     haptics.confirm()
-                                    viewModel.saveGstBill(gstRecord)
-                                    if (quotationId != null) {
-                                        prefilledQuotation?.let { quotation ->
-                                            viewModel.updateQuotationStatus(quotation, "Converted")
-                                        }
-                                    }
+                                    viewModel.completePosOrGstSale(
+                                        bill = gstRecord,
+                                        lineItems = gstLineItems,
+                                        deductStock = deductStockAndCashflow,
+                                        recordCashflowSale = deductStockAndCashflow,
+                                        paymentMode = "Cash"
+                                    )
                                 } catch (e: Exception) {
                                     haptics.reject()
                                     viewModel.showToast("Failed to generate PDF: ${e.message}")
@@ -1068,7 +1151,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@OutlinedButton
                             }
-                            val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+                            if (!hasConsumedSequenceNo && quotationId == null && invoiceNo == viewModel.previewNextInvoiceNo()) {
+                                invoiceNo = viewModel.consumeNextInvoiceNo()
+                                hasConsumedSequenceNo = true
+                            }
+                            val nowIso = DateTimeHelper.nowIso()
                             val gstLineItems = validRows.map { r ->
                                 val tAmt = (r.qty * r.rate) * (r.taxRatePercent / 100.0)
                                 GstBillLineItem(
@@ -1109,16 +1196,19 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 createdAt = nowIso
                             )
                             haptics.confirm()
-                            viewModel.saveGstBill(gstRecord)
-                            if (quotationId != null) {
-                                prefilledQuotation?.let { quotation ->
-                                    viewModel.updateQuotationStatus(quotation, "Converted")
-                                }
+                            viewModel.completePosOrGstSale(
+                                bill = gstRecord,
+                                lineItems = gstLineItems,
+                                deductStock = deductStockAndCashflow,
+                                recordCashflowSale = deductStockAndCashflow,
+                                paymentMode = "Cash"
+                            )
+                            if (instantDispatchSlip) {
+                                savedBillForCompletion = gstRecord
                             }
-                            savedBillForCompletion = gstRecord
                         },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1.1f)
+                        modifier = Modifier.weight(1.1f).testTag("gst_save_bill_button")
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(15.dp), tint = ext.positive)
                         Spacer(modifier = Modifier.width(4.dp))

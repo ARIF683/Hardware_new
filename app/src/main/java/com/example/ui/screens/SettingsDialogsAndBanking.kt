@@ -1909,14 +1909,14 @@ fun SettingsImportItemsDialog(
 }
 
 fun parseCsvItems(csv: String): List<Item> {
-    val lines = csv.lines().filter { it.isNotBlank() }
-    if (lines.size <= 1) return emptyList()
+    val rows = com.example.util.SpreadsheetReportParser.parseCsvOrDelimited(csv)
+    if (rows.size <= 1) return emptyList()
 
     val result = mutableListOf<Item>()
-    val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).format(java.util.Date())
+    val now = com.example.util.DateTimeHelper.nowIso()
 
-    for (lineIdx in 1 until lines.size) {
-        val parts = lines[lineIdx].split(",").map { it.trim().removeSurrounding("\"") }
+    for (lineIdx in 1 until rows.size) {
+        val parts = rows[lineIdx].map { it.trim() }
         if (parts.size >= 3) {
             val name = parts.getOrNull(2) ?: ""
             if (name.isBlank()) continue

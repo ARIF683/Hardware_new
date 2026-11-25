@@ -95,9 +95,11 @@ fun BillingHubScreen(viewModel: StockViewModel) {
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
+    val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
+    val lowStockDefaultThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
 
-    val lowStockCount = remember(allItems) {
-        allItems.count { it.qty <= 0 || (it.low > 0 && it.qty <= it.low) }
+    val lowStockCount = remember(allItems, lowStockDefaultThreshold) {
+        allItems.count { viewModel.appSettingsManager.isLowOrOutOfStock(it) }
     }
 
     val logoPickerLauncher = rememberLauncherForActivityResult(
@@ -250,6 +252,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                         .clickable {
                             if (lowStockCount > 0) {
                                 viewModel.inStockOnly.value = false
+                                viewModel.requestedStockStatusFilter.value = "low"
                                 viewModel.navigateTo(NavigationTab.ITEMS)
                             } else {
                                 viewModel.showToast("All inventory levels are healthy")
@@ -264,7 +267,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                         tint = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.size(24.dp)
                     )
-                    if (lowStockCount > 0) {
+                    if (lowStockCount > 0 && lowStockAlertsEnabled) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)

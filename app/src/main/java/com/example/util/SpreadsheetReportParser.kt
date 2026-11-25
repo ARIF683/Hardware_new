@@ -377,19 +377,28 @@ object SpreadsheetReportParser {
         val result = mutableListOf<String>()
         val current = StringBuilder()
         var inQuotes = false
+        var i = 0
 
-        for (i in line.indices) {
+        while (i < line.length) {
             val c = line[i]
             when {
-                c == '\"' -> inQuotes = !inQuotes
+                c == '\"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '\"') {
+                        current.append('\"')
+                        i++
+                    } else {
+                        inQuotes = !inQuotes
+                    }
+                }
                 c == delimiter && !inQuotes -> {
-                    result.add(current.toString().trim().removeSurrounding("\""))
+                    result.add(current.toString().trim())
                     current.clear()
                 }
                 else -> current.append(c)
             }
+            i++
         }
-        result.add(current.toString().trim().removeSurrounding("\""))
+        result.add(current.toString().trim())
         return result
     }
 

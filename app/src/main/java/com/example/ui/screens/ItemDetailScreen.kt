@@ -120,6 +120,8 @@ fun ItemDetailScreen(
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
+    val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
+    val lowStockDefaultThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
 
     val item = items.firstOrNull { it.id == itemId }
 
@@ -203,8 +205,11 @@ fun ItemDetailScreen(
         allTransactions.filter { it.itemId == item.id }
     }
 
+    val effectiveLowThreshold = remember(item, lowStockDefaultThreshold) {
+        viewModel.appSettingsManager.effectiveThresholdFor(item)
+    }
     val isOutOfStock = item.qty <= 0.0
-    val isLowStock = !isOutOfStock && (item.low > 0.0 && item.qty <= item.low)
+    val isLowStock = lowStockAlertsEnabled && !isOutOfStock && (effectiveLowThreshold > 0.0 && item.qty <= effectiveLowThreshold)
     val unitStr = item.unit.ifBlank { "pcs" }
     val skuStr = item.code.ifBlank { item.id.takeLast(6).uppercase() }
 
@@ -217,7 +222,7 @@ fun ItemDetailScreen(
     val isPositiveMargin = (marginPct ?: 0.0) >= 0.0
     val stockValue = (item.qty.coerceAtLeast(0.0)) * item.cost
 
-    val minAlert = item.low.coerceAtLeast(0.0)
+    val minAlert = effectiveLowThreshold.coerceAtLeast(0.0)
     val maxRef = maxOf(item.qty * 1.4, minAlert * 4.0, 100.0)
     val progressFraction = (item.qty / maxRef).toFloat().coerceIn(0f, 1f)
     val alertMarkerFraction = if (minAlert > 0.0) (minAlert / maxRef).toFloat().coerceIn(0.08f, 0.5f) else 0f
@@ -392,8 +397,8 @@ fun ItemDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = { onOpenTransactionDialog(item, "out") },
@@ -403,14 +408,22 @@ fun ItemDetailScreen(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = MaterialTheme.colorScheme.onSurface
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
                             .testTag("detail_adjust_stock_button")
                     ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Adjust Stock", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Adjust Stock",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
@@ -420,14 +433,22 @@ fun ItemDetailScreen(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
                             .testTag("detail_reorder_button")
                     ) {
-                        Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Reorder Stock", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Reorder Stock",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

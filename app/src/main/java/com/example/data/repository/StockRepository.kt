@@ -22,6 +22,7 @@ import com.example.data.pref.StoreProfilePreferenceManager
 import com.example.data.remote.RemoteStoreProfile
 import com.example.data.remote.StoreProfileSyncCodec
 import com.example.data.remote.SupabaseClient
+import com.example.util.DateTimeHelper
 import java.io.File
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -211,9 +212,10 @@ class StockRepository(
     private val auditLogAdapter = moshi.adapter(com.example.data.model.AuditLogRecord::class.java).serializeNulls()
 
     init {
-        // Start background realtime listener and queue flusher
-        initRealtime()
-        startPeriodicSync()
+        if (authManager.isAuthed.value) {
+            initRealtime()
+            startPeriodicSync()
+        }
     }
 
     private fun isOnline(): Boolean {
@@ -223,11 +225,7 @@ class StockRepository(
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun nowIso(): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-        return sdf.format(Date())
-    }
+    private fun nowIso(): String = DateTimeHelper.nowIso()
 
     private var reconnectJob: Job? = null
 
@@ -872,17 +870,21 @@ class StockRepository(
     suspend fun deleteAllData() = withContext(Dispatchers.IO) {
         database.itemDao().deleteAll()
         enqueueOp("deleteAll", "{}")
-        
+
         database.quotationDao().deleteAll()
-        // Remote delete for quotations can be added to SupabaseClient if needed, 
-        // for now we follow the same pattern as deleteAll for items
-        
-        database.ledgerDao().deleteAllAccounts()
+        enqueueOp("deleteAllQuotations", "{}")
+
         database.ledgerDao().deleteAllEntries()
-        
+        enqueueOp("deleteAllLedgerEntries", "{}")
+
+        database.ledgerDao().deleteAllAccounts()
+        enqueueOp("deleteAllLedgerAccounts", "{}")
+
         database.dailyCashflowDao().deleteAll()
+        enqueueOp("deleteAllCashflow", "{}")
+
         recordAudit("DELETE_ALL_DATA", "Cleared all inventory, quotation, ledger, and cashflow data")
-        
+
         flushQueue()
     }
 
@@ -1093,11 +1095,15 @@ class StockRepository(
                     enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(newAcc)))
                     newId
                 }
+                val normalizedBillDate = DateTimeHelper.normalizeDateToIso(
+                    raw = billDate,
+                    fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
+                )
                 addLedgerEntry(
                     accountId = accountId,
                     type = "GOT", // GOT means we owe the supplier (Payable increases)
                     amount = totalAmount,
-                    date = billDate.ifBlank { now.substring(0, 10) },
+                    date = normalizedBillDate,
                     description = "Purchase Bill #${billNo.ifBlank { "N/A" }}",
                     billRef = billNo
                 )
@@ -1110,7 +1116,10 @@ class StockRepository(
         if (paidInCash && totalAmount > 0.0) {
             try {
                 val expenseId = UUID.randomUUID().toString()
-                val parsedDate = billDate.ifBlank { now.substring(0, 10) }
+                val parsedDate = DateTimeHelper.normalizeDateToIso(
+                    raw = billDate,
+                    fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
+                )
                 val cashflowRecord = DailyCashflowRecord(
                     id = expenseId,
                     type = "EXPENSE",
@@ -1308,12 +1317,18 @@ class StockRepository(
                         "deleteCashflow" -> {
                             supabaseClient.deleteCashflow(listOf(op.payloadJson))
                         }
+                        "deleteAllCashflow" -> {
+                            supabaseClient.deleteAllCashflow()
+                        }
                         "upsertQuotations" -> {
                             val items = quotationListAdapter.fromJson(op.payloadJson) ?: emptyList()
                             supabaseClient.upsertQuotations(items)
                         }
                         "deleteQuotation" -> {
                             supabaseClient.deleteQuotations(listOf(op.payloadJson))
+                        }
+                        "deleteAllQuotations" -> {
+                            supabaseClient.deleteAllQuotations()
                         }
                         "upsertLedgerAcc" -> {
                             val items = ledgerAccountListAdapter.fromJson(op.payloadJson) ?: emptyList()
@@ -1322,12 +1337,18 @@ class StockRepository(
                         "deleteLedgerAcc" -> {
                             supabaseClient.deleteLedgerAccounts(listOf(op.payloadJson))
                         }
+                        "deleteAllLedgerAccounts" -> {
+                            supabaseClient.deleteAllLedgerAccounts()
+                        }
                         "upsertLedgerEntry" -> {
                             val items = ledgerEntryListAdapter.fromJson(op.payloadJson) ?: emptyList()
                             supabaseClient.upsertLedgerEntries(items)
                         }
                         "deleteLedgerEntry" -> {
                             supabaseClient.deleteLedgerEntries(listOf(op.payloadJson))
+                        }
+                        "deleteAllLedgerEntries" -> {
+                            supabaseClient.deleteAllLedgerEntries()
                         }
                         "upsertStoreProfile" -> {
                             val json = JSONObject(op.payloadJson)
@@ -1350,8 +1371,17 @@ class StockRepository(
                 } catch (e: Exception) {
                     Log.e(tag, "Error processing sync item #${op.id} (${op.type})", e)
                     lastErrorMsg = e.message
-                    // Discard invalid/failed op so queue is never permanently stuck
-                    opsToDelete.add(op.id)
+                    val isPermanentPayloadError =
+                        e is org.json.JSONException ||
+                            e is com.squareup.moshi.JsonDataException ||
+                            e is com.squareup.moshi.JsonEncodingException ||
+                            e is IllegalArgumentException
+                    if (isPermanentPayloadError) {
+                        opsToDelete.add(op.id)
+                    } else {
+                        // Transient network / server failure: preserve queued op and maintain causal order
+                        break
+                    }
                 }
             }
 
@@ -1476,6 +1506,119 @@ class StockRepository(
 
     suspend fun saveGstBill(bill: com.example.data.model.GstBillRecord) = withContext(Dispatchers.IO) {
         database.gstBillDao().insert(bill)
+    }
+
+    /**
+     * Saves a POS/GST bill, deducts matched inventory stock once per line (even when the same item
+     * appears in multiple rows), records a SALE entry in daily_cashflow, and marks any source
+     * quotation as Converted.
+     */
+    suspend fun saveAndFinalizeGstBill(
+        bill: com.example.data.model.GstBillRecord,
+        lineItems: List<com.example.data.model.GstBillLineItem>,
+        deductStock: Boolean = true,
+        recordCashflowSale: Boolean = true,
+        paymentMode: String = "Cash",
+        prefilledQuotation: com.example.data.model.QuotationRecord? = null
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val now = nowIso()
+            database.gstBillDao().insert(bill)
+
+            var deductedLineCount = 0
+            if (deductStock && lineItems.isNotEmpty()) {
+                val allItems = database.itemDao().getAllItemsList()
+                val itemsById = allItems.associateBy { it.id }.toMutableMap()
+                val itemsByName = allItems.associateBy { it.name.trim().lowercase(Locale.US) }
+
+                val txList = mutableListOf<TransactionRecord>()
+                val touchedItems = linkedMapOf<String, Item>()
+
+                for (line in lineItems) {
+                    if (line.qty <= 0.0) continue
+                    val matched = itemsById[line.id]
+                        ?: itemsByName[line.name.trim().lowercase(Locale.US)]
+                    if (matched != null) {
+                        val currentItem = touchedItems[matched.id] ?: matched
+                        val newQty = currentItem.qty - line.qty
+                        val updatedItem = currentItem.copy(qty = newQty, updatedAt = now)
+                        touchedItems[matched.id] = updatedItem
+                        itemsById[matched.id] = updatedItem
+
+                        txList.add(
+                            TransactionRecord(
+                                clientId = UUID.randomUUID().toString(),
+                                itemId = matched.id,
+                                itemName = matched.name,
+                                action = "out",
+                                qty = line.qty,
+                                balance = newQty,
+                                note = "Sale Inv #${bill.invoiceNo} (${bill.customerName.ifBlank { "Walk-in" }})",
+                                unit = matched.unit,
+                                createdAt = now
+                            )
+                        )
+                        deductedLineCount++
+                    }
+                }
+
+                if (touchedItems.isNotEmpty()) {
+                    val updatedList = touchedItems.values.toList()
+                    database.itemDao().insertAll(updatedList)
+                    enqueueOp("upsert", itemListAdapter.toJson(updatedList))
+                }
+                if (txList.isNotEmpty()) {
+                    database.transactionDao().insertAll(txList)
+                    enqueueOp("tx", txListAdapter.toJson(txList))
+                }
+            }
+
+            if (recordCashflowSale && bill.grandTotal > 0.0) {
+                val saleDate = DateTimeHelper.normalizeDateToIso(
+                    raw = bill.invoiceDate,
+                    fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
+                )
+                val cashflowRecord = DailyCashflowRecord(
+                    id = UUID.randomUUID().toString(),
+                    type = "SALE",
+                    amount = bill.grandTotal,
+                    title = "Bill #${bill.invoiceNo}",
+                    category = "Sales",
+                    paymentMode = paymentMode.ifBlank { "Cash" },
+                    date = saleDate,
+                    note = "Customer: ${bill.customerName.ifBlank { "Walk-in" }}",
+                    createdAt = now
+                )
+                database.dailyCashflowDao().insert(cashflowRecord)
+                enqueueOp("upsertCashflow", cashflowListAdapter.toJson(listOf(cashflowRecord)))
+            }
+
+            if (prefilledQuotation != null && prefilledQuotation.status != "Converted") {
+                val tagNote = "Converted to Inv #${bill.invoiceNo}"
+                val updatedNotes = if (prefilledQuotation.notes.isNotBlank()) {
+                    if (prefilledQuotation.notes.contains(bill.invoiceNo)) prefilledQuotation.notes
+                    else "${prefilledQuotation.notes} | $tagNote"
+                } else {
+                    tagNote
+                }
+                val updatedQuot = prefilledQuotation.copy(
+                    status = "Converted",
+                    notes = updatedNotes
+                )
+                database.quotationDao().insert(updatedQuot)
+                enqueueOp("upsertQuotations", quotationListAdapter.toJson(listOf(updatedQuot)))
+            }
+
+            recordAudit(
+                "GST_BILL_SALE",
+                "Saved Invoice #${bill.invoiceNo} (₹${String.format(Locale.US, "%.2f", bill.grandTotal)}, $deductedLineCount stock lines deducted)"
+            )
+            flushQueue()
+            Result.success(deductedLineCount)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to finalize GST bill #${bill.invoiceNo}", e)
+            Result.failure(e)
+        }
     }
 
     suspend fun deleteGstBill(id: String) = withContext(Dispatchers.IO) {
@@ -2131,6 +2274,7 @@ class StockRepository(
             val newTintLogs = mutableListOf<ColorTintLog>()
             val newTransactions = mutableListOf<TransactionRecord>()
             val updatedItemsMap = mutableMapOf<String, Item>()
+            val autoCreatedIds = mutableSetOf<String>()
 
             var totalLiters = 0.0
             var totalCans = 0
@@ -2178,6 +2322,7 @@ class StockRepository(
                     )
                     allCurrentItems[newItemId] = newItem
                     updatedItemsMap[newItemId] = newItem
+                    autoCreatedIds.add(newItemId)
                     targetItem = newItem
                 }
 
@@ -2188,7 +2333,7 @@ class StockRepository(
 
                 val prevQty = targetItem.qty
                 val deductQty = row.deductQty
-                val newQty = prevQty - deductQty
+                val newQty = (prevQty - deductQty).coerceAtLeast(0.0)
                 val updatedItem = targetItem.copy(
                     qty = newQty,
                     updatedAt = now
@@ -2252,15 +2397,21 @@ class StockRepository(
 
             if (updatedItemsMap.isNotEmpty()) {
                 database.itemDao().insertAll(updatedItemsMap.values.toList())
+                val autoCreatedList = updatedItemsMap.values.filter { autoCreatedIds.contains(it.id) }
+                if (autoCreatedList.isNotEmpty()) {
+                    enqueueOp("upsert", itemListAdapter.toJson(autoCreatedList))
+                }
                 for (item in updatedItemsMap.values) {
-                    val patchObj = JSONObject().apply {
-                        put("qty", item.qty)
-                        put("updated_at", now)
+                    if (!autoCreatedIds.contains(item.id)) {
+                        val patchObj = JSONObject().apply {
+                            put("qty", item.qty)
+                            put("updated_at", now)
+                        }
+                        enqueueOp("patch", JSONObject().apply {
+                            put("id", item.id)
+                            put("patch", patchObj)
+                        }.toString())
                     }
-                    enqueueOp("patch", JSONObject().apply {
-                        put("id", item.id)
-                        put("patch", patchObj)
-                    }.toString())
                 }
             }
 

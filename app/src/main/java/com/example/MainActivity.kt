@@ -284,7 +284,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
                     viewModel.checkForUpdatesOnResume()
                     if (isAuthed) {
                         viewModel.ensureRealtimeConnected()
-                        viewModel.reloadFromDatabase()
+                        viewModel.reloadFromDatabase(showToast = false)
                         viewModel.refreshCurrentUserRole()
                     }
                 }
@@ -300,7 +300,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
         }
     }
 
-    BackHandler(enabled = isAuthed) {
+    BackHandler(enabled = isAuthed && (currentScreen !is CurrentScreen.Main || currentTab != NavigationTab.HOME)) {
         val handled = viewModel.navigateBack()
         if (!handled && currentTab != NavigationTab.HOME) {
             viewModel.navigateTo(NavigationTab.HOME)

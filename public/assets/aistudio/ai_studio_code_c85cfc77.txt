@@ -1,0 +1,75 @@
+Please audit and fix the following confirmed bugs, data-loss risks, and UI layout glitches across the app. Keep all existing Robolectric/Compose tests passing and add unit/Compose tests for the fixes.
+
+================================================================
+PART 1: CRITICAL DATA, SYNC & BUSINESS LOGIC FIXES
+================================================================
+
+1. Prevent Khata data wipe on network/auth errors (`SupabaseClient.kt` & `StockRepository.kt`)
+- In `SupabaseClient.kt`, `fetchAllLedgerAccounts()` and `fetchAllLedgerEntries()` currently catch exceptions and non-2xx HTTP responses and return `emptyList()`. In `StockRepository.loadFromRemote()`, seeing a non-null empty list causes local deletion of all Khata accounts and entries.
+- Fix: Make `fetchAllLedgerAccounts()` and `fetchAllLedgerEntries()` return `List<...>?` (`null` on HTTP error or exception, just like `fetchAllQuotations()`), so `loadFromRemote()` skips deletion reconciliation whenever the fetch fails.
+
+2. Stop discarding offline sync operations on transient failures (`StockRepository.kt`)
+- In `StockRepository.flushQueue()`, the `catch (e: Exception)` block currently adds `op.id` to `opsToDelete`, permanently deleting unsynced items/transactions/bills if the network drops or the server returns 502/503.
+- Fix: Keep failed operations in `sync_queue` so they retry on the next flush (only drop an op if its local JSON payload itself is unparseable/corrupt, or stop flushing on network/5xx errors).
+
+3. Fix Quick POS Checkout & GST Calculator stock/cashflow updates (`QuickBillingPosScreen.kt`, `GstCalculatorScreen.kt`, `StockViewModel.kt`)
+- In `QuickBillingPosScreen.finalizeAndSaveBill()`, the success dialog claims "Inventory stock levels have been automatically updated", but it only saves `GstBillRecord` locally and never deducts item stock or logs a SALE in `daily_cashflow`.
+  - Fix: Deduct stock (`performTransaction(..., action = "out", ...)` or batch stock out) for matched inventory items and insert a `"SALE"` entry in `daily_cashflow` when completing a POS bill (and optionally offer a toggle/checkbox in `GstCalculatorScreen` as well).
+  - Also add a GST slab selector (`0%`, `5%`, `12%`, `18%`, `28%`) in `QuickBillingPosScreen` instead of locking `taxRateSelected` to `18.0`.
+- In `GstCalculatorScreen.kt`:
+  - When selecting an item from DB autocomplete, copy `id = matched.id` into `GstInvoiceRow` (currently it keeps a random UUID, which breaks `StockViewModel.processSalesReturn()`).
+  - Call `viewModel.clearPrefilledGstQuotation()` when a converted GST bill is saved or when leaving `GstCalculatorScreen`, so the previous converted quotation doesn't keep pre-filling new invoices.
+- In `StockViewModel.processSalesReturn()`:
+  - If `line.id` isn't found in `ItemDao`, fall back to matching by `line.name`; inspect the `Result` of `repository.performTransaction(...)` before claiming `"Stock restocked ✓"` in the toast; include tax in the refund calculation.
+
+4. Fix `AppDatabase.kt` missing `MIGRATION_7_8`
+- `AppDatabase` is at `version = 9` with `MIGRATION_3_4`, `4_5`, `5_6`, `6_7`, and `8_9`, but `MIGRATION_7_8` is missing. Combined with `fallbackToDestructiveMigration()`, users upgrading from v7 lose all local Room data.
+- Fix: Add `MIGRATION_7_8` (and `1_2`, `2_3` or verified migration path) and register it in `addMigrations(...)`.
+
+5. Fix `deleteAllData()`, `upsertCashflow()` PATCH bug, and `clearTransactions()` (`StockRepository.kt`, `SupabaseClient.kt`)
+- `StockRepository.deleteAllData()` deletes quotations, ledger accounts, ledger entries, and daily cashflow locally only; add remote delete-all calls (or queue delete ops) so deleted records don't reappear on the next `loadFromRemote()`.
+- In `SupabaseClient.upsertCashflow()` step 3b, `PATCH daily_cashflow?id=eq.<id>` returns HTTP 204 (`isSuccessful == true`) even when 0 rows match, skipping step 3c (`POST`). Use `Prefer: return=representation` and verify a non-empty JSON array `[]` check before marking `handled = true`, or go straight to `POST` insert when 0 rows were updated.
+- In `SupabaseClient.clearTransactions()`, handle tables keyed by `client_id` as well as `id` (fall back to `transactions?client_id=not.is.null` if `id=not.is.null` fails).
+
+6. Fix Realtime WebSocket auth & `MainActivity` resume reloads (`StockRepository.kt`, `StockViewModel.kt`, `MainActivity.kt`)
+- `StockRepository` currently starts `initRealtime()` and `loadFromRemote()` before the user logs in, and `ensureRealtimeConnected()` on login does `initRealtime(force = false)` which skips reconnecting with the new user JWT.
+- Fix: Gate initial remote sync/realtime on `authManager.isAuthed.value`, and when `isAuthed` transitions from `false` to `true`, call `repository.initRealtime(force = true)` and `repository.loadFromRemote()`.
+- In `MainActivity` `ON_RESUME`, stop showing the `"Reloaded from database"` toast on every resume (e.g., returning from camera/gallery/share sheet); keep `reloadFromDatabase()` silent when triggered automatically, and only show the toast on explicit user pull/refresh.
+- In `MainActivity`, change `BackHandler(enabled = isAuthed)` to `BackHandler(enabled = isAuthed && (currentScreen !is CurrentScreen.Main || currentTab != NavigationTab.HOME))` so the system Back button exits the app normally from the Home tab.
+
+7. Fix `BillScreen.kt` date format, fake camera barcode scan, and Color Machine sync (`BillScreen.kt`, `StockRepository.kt`, `ColorMachineTintDialog.kt`)
+- `BillScreen.kt` formats `billDate` as `"dd/MM/yyyy"`, which `StockRepository.confirmBill()` writes directly into `DailyCashflowRecord.date` and `LedgerEntry.date`. `TransactionsScreen` filters cashflow by `"yyyy-MM"`, so cash purchase expenses never appear in monthly P&L. Fix by normalizing `billDate` to `"yyyy-MM-dd"` when writing `DailyCashflowRecord` and `LedgerEntry`.
+- In `BillScreen.kt` -> `SequentialScanBillDialog`, the `"📷 Camera Scanner"` button currently ignores the captured image and blindly adds `allItems.firstOrNull()`. Replace this with real barcode scanning (e.g., ML Kit barcode scanning) or remove the misleading button until a real scanner is wired.
+- In `StockRepository.processColorMachineImport()`, newly auto-created paint items (`autoCreateMissing = true`) enqueue `"patch"` instead of `"upsert"`, so they are never created in Supabase. Enqueue `"upsert"` for newly created items, and make the stock deduction clamping/negative rule match `ColorMachineTintDialog`'s preview.
+
+8. Fix UTC vs Local Timezone bugs (`StockViewModel.kt`, `TransactionsDialogsAndStockMovement.kt`)
+- `StockViewModel.addDailyCashflow()` formats local time with a literal `'Z'` suffix; set `timeZone = TimeZone.getTimeZone("UTC")` on the formatter.
+- `StockViewModel.stockFlow7Days` and `todayQtyDelta` compare UTC `createdAt` date strings against local `Date()`, misclassifying transactions between 12:00 AM and 5:30 AM IST as yesterday. Convert `createdAt` from UTC to the local timezone before extracting the date key.
+- In `TransactionsDialogsAndStockMovement.kt`, `formatTxTimeLabel()` parses UTC `createdAt` without setting `TimeZone.getTimeZone("UTC")`, displaying UTC times instead of IST (`+5:30`), and `groupedByDate` groups by raw UTC `createdAt.take(10)`. Parse as UTC and convert to local timezone for both date grouping and time display.
+
+================================================================
+PART 2: UI & LAYOUT GLITCHES (SEEN IN DEVICE SCREENSHOTS)
+================================================================
+
+9. Prevent vertical letter/badge wrapping & double-stacked headers (`TransactionsScreen.kt`, `TransactionsDialogsAndStockMovement.kt`, `BillingHubScreen.kt`, `ItemDetailScreen.kt`)
+- Ensure `LIVE P&L` badge, `SegmentedLedgerTab` count badge (`59`), `SalesBarChartCard` `Daily | Monthly` toggle, `Max: ₹...` label, and `CashflowRowCard` amounts all have `maxLines = 1, softWrap = false`, and adjacent titles use `Modifier.weight(1f)` with `TextOverflow.Ellipsis` so badges/toggles never wrap vertically on 320dp-360dp screens or larger font scales.
+- In `CashflowRowCard`, replace the fixed `.height(68.dp)` on the left accent `Box` with `Modifier.height(IntrinsicSize.Min)` on the `Row` and `Modifier.fillMaxHeight()` on the accent strip so it stretches cleanly if text wraps.
+- When `TransactionsScreen` is embedded inside `BillingHubScreen` (`isEmbeddedInHub == true`), make the inner header compact (or move Export/PieChart actions inline with the `Sales & Expenses | Stock Movement` bar) so there aren't two stacked headers + two stacked tab bars taking ~40% of the screen.
+- In `ItemDetailScreen.kt` bottom bar, add `maxLines = 1, softWrap = false` to `"Adjust Stock"` and `"Reorder Stock"` and slightly tighter horizontal padding so they don't wrap onto 2 lines on narrow screens.
+
+10. Fix decimal & backspace input in numeric fields (`QuotationScreen.kt`, `GstCalculatorScreen.kt`, `BillScreen.kt`)
+- In `QuotationFormDialog`, `GstCalculatorScreen`, and `BillRowEditor`, `OutlinedTextField` binds `value` directly to `Double.toString()` (e.g., `item.qty.toString()`, `row.rate.toString()`). This prevents typing `"0.5"`, `"1."`, or backspacing past `.0`.
+- Fix: Keep raw `String` state (`qtyText`, `rateText`) per row and parse `toDoubleOrNull()` for totals/saving without overwriting the user's in-progress text.
+
+11. Fix `HomeScreen.kt` hardcoded name & broken `Overview` period filter
+- Replace hardcoded `"Shahazim!"` in `HomeScreen.kt` with `storeIdentity.supervisorName`.
+- In `HomeScreen.kt`, `overviewPeriod` is inside the `Overview` card header but doesn't affect `Total Items / In Stock / Low Stock`, and `filteredRecentTx` silently falls back to all-time `baseList` when the selected period has 0 transactions. Move the period selector to `Recent Transactions` (or update stats accordingly) and remove the silent fallback to `baseList`.
+
+12. Fix `ItemsScreen.kt` brand pills & Low Stock navigation
+- In `ItemsScreen.kt`, `categoryEntries` includes `it.brand` when `it.type` is blank, but tapping the chip sets `groupBy = "type"`, returning 0 items. Filter properly by `type` OR `brand` (or only list `type` values).
+- Make tapping the **Low Stock** overview box on `HomeScreen` open `ItemsScreen` with the `"low"` stock status filter active.
+
+13. Fix CSV import quoted commas, Settings dead toggles, and Alarm edge case (`SettingsDialogsAndBanking.kt`, `SettingsScreen.kt`, `DailyReminderScheduler.kt`)
+- In `SettingsDialogsAndBanking.kt`, `parseCsvItems()` uses `line.split(",")`, which breaks on quoted fields containing commas; use `SpreadsheetReportParser.parseCsvOrDelimited()` instead.
+- Either wire `invoice_prefix` / `next_invoice_num`, `low_stock_alerts_enabled` / `low_stock_default_threshold`, and `instant_dispatch_slip` from `settings_prefs` into `QuickBillingPosScreen` / `GstCalculatorScreen` / `QuotationScreen` / `ItemsScreen`, or remove the unimplemented toggles so Settings matches real behavior.
+- In `DailyReminderScheduler.kt`, if `showReminderNotification` already fired today (`KEY_LAST_FIRED_DATE == todayKey()`), pass `tomorrow` to `scheduleNext()` so an early OS wakeup (e.g., `18:59:59`) never re-arms the alarm 1 second later on the same day.

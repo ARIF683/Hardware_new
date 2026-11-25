@@ -18,6 +18,7 @@ import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
 import com.example.data.model.QuotationRecord
 import com.example.data.model.GstBillRecord
+import com.example.data.pref.AppSettingsManager
 import com.example.data.pref.AppLogoStyle
 import com.example.data.pref.BankingInfo
 import com.example.data.pref.BankingPreferenceManager
@@ -30,6 +31,7 @@ import com.example.data.remote.AppUpdateManager
 import com.example.data.remote.UpdateStatus
 import com.example.data.repository.BillRowData
 import com.example.data.repository.StockRepository
+import com.example.util.DateTimeHelper
 import com.example.util.InvoicePrintManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -87,9 +89,39 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val bankingPreferenceManager = BankingPreferenceManager(application)
     val storeProfilePreferenceManager = StoreProfilePreferenceManager(application)
     val festivalPreferenceManager = FestivalPreferenceManager(application)
+    val appSettingsManager = AppSettingsManager(application)
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
     val storeIdentity: StateFlow<StoreIdentity> = storeProfilePreferenceManager.currentStoreIdentity
     val festivalStudioConfig: StateFlow<FestivalStudioConfig> = festivalPreferenceManager.currentConfig
+
+    val invoicePrefix: StateFlow<String> = appSettingsManager.invoicePrefix
+    val nextInvoiceNum: StateFlow<Int> = appSettingsManager.nextInvoiceNum
+    val lowStockAlertsEnabled: StateFlow<Boolean> = appSettingsManager.lowStockAlertsEnabled
+    val lowStockDefaultThreshold: StateFlow<Int> = appSettingsManager.lowStockDefaultThreshold
+    val instantDispatchSlip: StateFlow<Boolean> = appSettingsManager.instantDispatchSlip
+
+    fun setLowStockAlertsEnabled(enabled: Boolean) {
+        appSettingsManager.setLowStockAlertsEnabled(enabled)
+        showToast(if (enabled) "Low Stock Alerts Enabled" else "Low Stock Alerts Paused")
+    }
+
+    fun setLowStockDefaultThreshold(threshold: Int) {
+        appSettingsManager.setLowStockDefaultThreshold(threshold)
+        showToast("Default low stock threshold updated to $threshold")
+    }
+
+    fun setInstantDispatchSlip(enabled: Boolean) {
+        appSettingsManager.setInstantDispatchSlip(enabled)
+        showToast(if (enabled) "Instant dispatch prompt enabled" else "Instant dispatch prompt disabled")
+    }
+
+    fun setInvoiceSequence(prefix: String, nextNum: Int) {
+        appSettingsManager.setInvoiceSequence(prefix, nextNum)
+        showToast("Invoice numbering set to ${appSettingsManager.previewNextInvoiceNo()}")
+    }
+
+    fun previewNextInvoiceNo(): String = appSettingsManager.previewNextInvoiceNo()
+    fun consumeNextInvoiceNo(): String = appSettingsManager.consumeNextInvoiceNo()
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
     private val _customThemeColor = MutableStateFlow(
@@ -287,21 +319,19 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val stockFlow7Days: StateFlow<List<StockFlowDayPoint>> = allTransactions.combine(repository.allItems) { txs, _ ->
-        val calendar = java.util.Calendar.getInstance()
         val dayFormat = java.text.SimpleDateFormat("EEE", java.util.Locale.ENGLISH)
-        val isoDayFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-        
-        // Generate last 7 days in chronological order
+
+        // Generate last 7 days in chronological order using local timezone
         val days = (6 downTo 0).map { daysAgo ->
             val cal = java.util.Calendar.getInstance()
             cal.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
-            val dateKey = isoDayFormat.format(cal.time)
+            val dateKey = DateTimeHelper.localDateKey(cal.timeInMillis)
             val dayLabel = if (daysAgo == 0) "Today" else dayFormat.format(cal.time)
             Triple(dateKey, dayLabel, daysAgo)
         }
 
         days.map { (dateKey, dayLabel, _) ->
-            val dayTxs = txs.filter { it.createdAt.startsWith(dateKey) }
+            val dayTxs = txs.filter { DateTimeHelper.utcIsoToLocalDateKey(it.createdAt) == dateKey }
             val inQty = dayTxs.filter { it.action == "in" }.sumOf { it.qty }
             val outQty = dayTxs.filter { it.action == "out" }.sumOf { it.qty }
             StockFlowDayPoint(
@@ -315,9 +345,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val todayQtyDelta: StateFlow<Double> = allTransactions.combine(repository.allItems) { txs, _ ->
-        val isoDayFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-        val todayKey = isoDayFormat.format(java.util.Date())
-        val todayTxs = txs.filter { it.createdAt.startsWith(todayKey) }
+        val todayKey = DateTimeHelper.localDateKey()
+        val todayTxs = txs.filter { DateTimeHelper.utcIsoToLocalDateKey(it.createdAt) == todayKey }
         val inQty = todayTxs.filter { it.action == "in" }.sumOf { it.qty }
         val outQty = todayTxs.filter { it.action == "out" }.sumOf { it.qty }
         inQty - outQty
@@ -393,6 +422,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val selectedGroup = MutableStateFlow<String?>(null)
     val inStockOnly = MutableStateFlow(false)
     val sortOption = MutableStateFlow("o") // "o", "n", "nz", "q", "c"
+    val requestedStockStatusFilter = MutableStateFlow<String?>(null)
     val selectedItemIds = MutableStateFlow<Set<String>>(emptySet())
     val isSelectionMode = MutableStateFlow(false)
 
@@ -424,9 +454,24 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 repository.saveAndSyncUserRoles(rolesJson, updatedAt)
             }
         }
-        // Trigger initial remote load when ViewModel initializes
+        // Trigger initial remote load only when authenticated; otherwise wait for login
         viewModelScope.launch {
-            repository.loadFromRemote()
+            if (authManager.isAuthed.value) {
+                repository.loadFromRemote()
+            }
+        }
+        viewModelScope.launch {
+            var wasAuthed = authManager.isAuthed.value
+            authManager.isAuthed.collect { authedNow ->
+                if (!wasAuthed && authedNow) {
+                    repository.resumeBackgroundWork()
+                    repository.initRealtime(force = true)
+                    repository.loadFromRemote()
+                } else if (wasAuthed && !authedNow) {
+                    repository.pauseBackgroundWork()
+                }
+                wasAuthed = authedNow
+            }
         }
         // Reset announcement dismissal whenever a new announcement arrives from Supabase
         viewModelScope.launch {
@@ -957,14 +1002,18 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun reloadFromDatabase() {
+    fun reloadFromDatabase(showToast: Boolean = true) {
         viewModelScope.launch {
             if (!repository.isCloudConfigured()) {
-                showToast("Running locally · Set SUPABASE_URL & SUPABASE_KEY in Secrets")
+                if (showToast) {
+                    showToast("Running locally · Set SUPABASE_URL & SUPABASE_KEY in Secrets")
+                }
                 return@launch
             }
             repository.loadFromRemote()
-            showToast("Reloaded from database")
+            if (showToast) {
+                showToast("Reloaded from database")
+            }
         }
     }
 
@@ -1066,6 +1115,36 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun completePosOrGstSale(
+        bill: GstBillRecord,
+        lineItems: List<com.example.data.model.GstBillLineItem>,
+        deductStock: Boolean = true,
+        recordCashflowSale: Boolean = true,
+        paymentMode: String = "Cash",
+        onComplete: ((Result<Int>) -> Unit)? = null
+    ) {
+        val sourceQuotation = prefilledQuotationForGst.value
+        prefilledQuotationForGst.value = null
+        viewModelScope.launch {
+            val res = repository.saveAndFinalizeGstBill(
+                bill = bill,
+                lineItems = lineItems,
+                deductStock = deductStock,
+                recordCashflowSale = recordCashflowSale,
+                paymentMode = paymentMode,
+                prefilledQuotation = sourceQuotation
+            )
+            if (res.isSuccess) {
+                val deductedCount = res.getOrDefault(0)
+                val stockNote = if (deductStock && deductedCount > 0) " · Stock deducted" else ""
+                showToast("Invoice #${bill.invoiceNo} saved$stockNote ✓")
+            } else {
+                showToast("Failed to save invoice: ${res.exceptionOrNull()?.message}")
+            }
+            onComplete?.invoke(res)
+        }
+    }
+
     fun processSalesReturn(
         bill: GstBillRecord,
         returnMap: Map<String, Double>,
@@ -1075,25 +1154,55 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val lineItems = InvoicePrintManager.parseGstLineItems(bill.itemsJson)
+                val allInventory = repository.getAllItemsList()
+                val byId = allInventory.associateBy { it.id }
+                val byName = allInventory.associateBy { it.name.trim().lowercase(Locale.US) }
+
                 var totalRefund = 0.0
+                var restockedCount = 0
+                val missingOrFailed = mutableListOf<String>()
+
                 returnMap.forEach { (itemId, qty) ->
                     if (qty > 0.0) {
                         val line = lineItems.find { it.id == itemId || it.name == itemId }
                         if (line != null) {
-                            val rate = line.rate
-                            totalRefund += qty * rate
+                            val perUnitWithTax = if (line.qty > 0.0 && line.totalAmount > 0.0) {
+                                line.totalAmount / line.qty
+                            } else {
+                                line.rate * (1.0 + line.taxRatePercent / 100.0)
+                            }
+                            totalRefund += qty * perUnitWithTax
                             if (restock) {
-                                repository.performTransaction(
-                                    itemId = line.id,
-                                    action = "in",
-                                    qty = qty,
-                                    note = "Sales Return (Inv #${bill.invoiceNo}): $reason"
-                                )
+                                val targetItem = byId[line.id]
+                                    ?: byName[line.name.trim().lowercase(Locale.US)]
+                                if (targetItem == null) {
+                                    missingOrFailed.add(line.name)
+                                } else {
+                                    val res = repository.performTransaction(
+                                        itemId = targetItem.id,
+                                        action = "in",
+                                        qty = qty,
+                                        note = "Sales Return (Inv #${bill.invoiceNo}): $reason"
+                                    )
+                                    if (res.isSuccess) {
+                                        restockedCount++
+                                    } else {
+                                        missingOrFailed.add(line.name)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                showToast("Credit Note processed for ₹%.2f! Stock ${if (restock) "restocked" else "written off"} ✓".format(totalRefund))
+
+                when {
+                    restock && missingOrFailed.isNotEmpty() && restockedCount == 0 ->
+                        showToast("Credit Note ₹%.2f — could not restock unmatched items: %s".format(totalRefund, missingOrFailed.joinToString(", ")))
+                    restock && missingOrFailed.isNotEmpty() ->
+                        showToast("Credit Note ₹%.2f — restocked $restockedCount items; skipped: %s".format(totalRefund, missingOrFailed.joinToString(", ")))
+                    else ->
+                        showToast("Credit Note processed for ₹%.2f! Stock ${if (restock) "restocked ($restockedCount)" else "written off"} ✓".format(totalRefund))
+                }
             } catch (e: Exception) {
                 showToast("Failed to process return: ${e.message}")
             }
@@ -1195,7 +1304,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val cleanTitle = title.trim()
             val cleanCategory = category.trim().ifBlank { cleanTitle.ifBlank { if (type.uppercase() == "SALE") "Counter Sale" else "General Expense" } }
-            val cleanDate = date.trim().ifBlank { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date()) }
+            val cleanDate = date.trim().ifBlank { DateTimeHelper.localDateKey() }
 
             val record = DailyCashflowRecord(
                 id = java.util.UUID.randomUUID().toString(),
@@ -1206,7 +1315,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 paymentMode = paymentMode.trim().ifBlank { "Cash" },
                 date = cleanDate,
                 note = note.trim(),
-                createdAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(java.util.Date())
+                createdAt = DateTimeHelper.nowIso()
             )
             val res = repository.addDailyCashflow(record)
             if (res.isSuccess) {

@@ -88,6 +88,7 @@ import com.example.data.model.DailyCashflowRecord
 import com.example.data.model.TransactionRecord
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -122,29 +123,31 @@ fun StockMovementContent(
     var showPeriodMenu by remember { mutableStateOf(false) }
     var directionFilter by remember { mutableStateOf(StockDirectionFilter.ALL) }
 
-    val todayKey = remember {
-        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-    }
+    val todayKey = remember { DateTimeHelper.localDateKey() }
     val yesterdayKey = remember {
         val cal = Calendar.getInstance()
         cal.add(Calendar.DAY_OF_YEAR, -1)
-        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        DateTimeHelper.localDateKey(cal.timeInMillis)
     }
-    val currentMonthKey = remember(todayKey) { todayKey.take(7) }
+    val currentMonthKey = remember(todayKey) { DateTimeHelper.localMonthKey() }
     val currentMonthName = remember {
         SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(Date())
     }
     val thirtyDaysAgoKey = remember {
         val cal = Calendar.getInstance()
         cal.add(Calendar.DAY_OF_YEAR, -30)
-        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        DateTimeHelper.localDateKey(cal.timeInMillis)
     }
 
     val periodScoped = remember(stockTransactions, periodFilter, currentMonthKey, thirtyDaysAgoKey) {
         when (periodFilter) {
             StockPeriodFilter.ALL_TIME -> stockTransactions
-            StockPeriodFilter.THIS_MONTH -> stockTransactions.filter { it.createdAt.startsWith(currentMonthKey) }
-            StockPeriodFilter.LAST_30_DAYS -> stockTransactions.filter { it.createdAt.take(10) >= thirtyDaysAgoKey }
+            StockPeriodFilter.THIS_MONTH -> stockTransactions.filter {
+                DateTimeHelper.utcIsoToLocalMonthKey(it.createdAt) == currentMonthKey
+            }
+            StockPeriodFilter.LAST_30_DAYS -> stockTransactions.filter {
+                DateTimeHelper.utcIsoToLocalDateKey(it.createdAt) >= thirtyDaysAgoKey
+            }
         }
     }
 
@@ -173,7 +176,7 @@ fun StockMovementContent(
     }
 
     val groupedByDate = remember(filteredLogs) {
-        filteredLogs.groupBy { it.createdAt.take(10).ifBlank { "Unknown" } }
+        filteredLogs.groupBy { DateTimeHelper.utcIsoToLocalDateKey(it.createdAt).ifBlank { "Unknown" } }
             .toSortedMap(compareByDescending { it })
     }
 
@@ -1359,28 +1362,7 @@ private fun formatMovementQty(qty: Double): String {
 }
 
 private fun formatTxTimeLabel(createdAt: String): String {
-    return try {
-        val patterns = listOf(
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd'T'HH:mm:ss"
-        )
-        for (pattern in patterns) {
-            try {
-                val parser = SimpleDateFormat(pattern, Locale.US)
-                val parsed = parser.parse(createdAt.take(24))
-                if (parsed != null) {
-                    return SimpleDateFormat("hh:mm a", Locale.US).format(parsed)
-                }
-            } catch (e: Exception) {
-                android.util.Log.d("StockMovement", "Timestamp pattern '$pattern' did not match: ${e.message}")
-            }
-        }
-        ""
-    } catch (_: Exception) {
-        ""
-    }
+    return DateTimeHelper.utcIsoToLocalTimeLabel(createdAt)
 }
 
 private fun formatReadableDateHeading(dateKey: String): String {

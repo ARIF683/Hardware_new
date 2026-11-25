@@ -113,6 +113,7 @@ import com.example.ui.components.DeleteAccountOtpDialog
 import com.example.ui.components.InputPromptDialog
 import com.example.ui.components.SimpleConfirmDialog
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.DateTimeHelper
 import com.example.util.GeminiBillScanner
 import com.example.util.ImageModelHelper
 import com.example.util.XlsxParser
@@ -120,8 +121,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -129,10 +128,6 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ext = LocalExtendedColors.current
-
-    val settingsPrefs = remember {
-        context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
-    }
 
     val syncStatus by viewModel.syncStatus.collectAsState()
     val isRealtimeLive by viewModel.isRealtimeLive.collectAsState()
@@ -156,21 +151,12 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val supervisorName = storeIdentity.supervisorName
     val supervisorRole = storeIdentity.roleTitle
     val depotLocation = storeIdentity.location
-    var lowStockAlertsEnabled by remember {
-        mutableStateOf(settingsPrefs.getBoolean("low_stock_alerts_enabled", true))
-    }
-    val lowStockThreshold by remember {
-        mutableIntStateOf(settingsPrefs.getInt("low_stock_default_threshold", 15))
-    }
-    var invoicePrefix by remember {
-        mutableStateOf(settingsPrefs.getString("invoice_prefix", "BILL-") ?: "BILL-")
-    }
-    var nextInvoiceNum by remember {
-        mutableIntStateOf(settingsPrefs.getInt("next_invoice_num", 1043))
-    }
-    var instantDispatchSlip by remember {
-        mutableStateOf(settingsPrefs.getBoolean("instant_dispatch_slip", true))
-    }
+    val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
+    val lowStockThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
+    val invoicePrefix by viewModel.invoicePrefix.collectAsState()
+    val nextInvoiceNum by viewModel.nextInvoiceNum.collectAsState()
+    val instantDispatchSlip by viewModel.instantDispatchSlip.collectAsState()
+    var showLowStockThresholdDialog by remember { mutableStateOf(false) }
 
     // Navigation & Dialog States
     var showBankingScreen by remember { mutableStateOf(false) }
@@ -203,7 +189,9 @@ fun SettingsScreen(viewModel: StockViewModel) {
     var inputCustomKey by remember { mutableStateOf("") }
     var replaceExisting by remember { mutableStateOf(false) }
 
-    val lowStockCount = allItems.count { it.qty <= 0 || (it.low > 0 && it.qty <= it.low) }
+    val lowStockCount = remember(allItems, lowStockThreshold) {
+        allItems.count { viewModel.appSettingsManager.isLowOrOutOfStock(it) }
+    }
     val terminalId = remember {
         val modelTag = android.os.Build.MODEL.replace("[^A-Za-z0-9]".toRegex(), "").take(6).uppercase().ifBlank { "01" }
         "HS-DEPOT-$modelTag-SHAH"
@@ -267,7 +255,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                         if (parsed.isEmpty()) {
                             viewModel.showToast("Could not parse XLSX. Verify sheet layout.")
                         } else {
-                            val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                            val nowIso = DateTimeHelper.nowIso()
                             val items = parsed.mapIndexed { index, i ->
                                 Item(
                                     id = System.currentTimeMillis().toString(36) + (1000..9999).random().toString(36) + index,
@@ -390,6 +378,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             .clickable {
                                 if (lowStockCount > 0) {
                                     viewModel.inStockOnly.value = false
+                                    viewModel.requestedStockStatusFilter.value = "low"
                                     viewModel.navigateTo(NavigationTab.ITEMS)
                                 } else {
                                     viewModel.showToast("All inventory levels are healthy")
@@ -735,24 +724,44 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     icon = Icons.Outlined.WarningAmber,
                     iconTint = ext.danger,
                     title = "Low Stock Trigger",
-                    subtitle = "Warn badge on items below < $lowStockThreshold units ($lowStockCount active)",
+                    subtitle = "Warn badge on items ≤ $lowStockThreshold units ($lowStockCount active)",
                     onClick = {
-                        lowStockAlertsEnabled = !lowStockAlertsEnabled
-                        settingsPrefs.edit().putBoolean("low_stock_alerts_enabled", lowStockAlertsEnabled).apply()
+                        viewModel.setLowStockAlertsEnabled(!lowStockAlertsEnabled)
                     },
                     trailingContent = {
-                        Switch(
-                            checked = lowStockAlertsEnabled,
-                            onCheckedChange = { checked ->
-                                lowStockAlertsEnabled = checked
-                                settingsPrefs.edit().putBoolean("low_stock_alerts_enabled", checked).apply()
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.testTag("settings_low_stock_switch")
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showLowStockThresholdDialog = true }
+                                    .testTag("settings_low_stock_threshold_edit")
+                            ) {
+                                Text(
+                                    text = "≤$lowStockThreshold",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+                            Switch(
+                                checked = lowStockAlertsEnabled,
+                                onCheckedChange = { checked ->
+                                    viewModel.setLowStockAlertsEnabled(checked)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.testTag("settings_low_stock_switch")
+                            )
+                        }
                     }
                 )
                 SettingsRowDivider()
@@ -867,15 +876,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     title = "Instant Dispatch Slip",
                     subtitle = "Auto WhatsApp PDF + Thermal Print prompt",
                     onClick = {
-                        instantDispatchSlip = !instantDispatchSlip
-                        settingsPrefs.edit().putBoolean("instant_dispatch_slip", instantDispatchSlip).apply()
+                        viewModel.setInstantDispatchSlip(!instantDispatchSlip)
                     },
                     trailingContent = {
                         Switch(
                             checked = instantDispatchSlip,
                             onCheckedChange = { checked ->
-                                instantDispatchSlip = checked
-                                settingsPrefs.edit().putBoolean("instant_dispatch_slip", checked).apply()
+                                viewModel.setInstantDispatchSlip(checked)
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
@@ -1512,19 +1519,32 @@ fun SettingsScreen(viewModel: StockViewModel) {
         )
     }
 
+    if (showLowStockThresholdDialog) {
+        InputPromptDialog(
+            title = "Default Low Stock Threshold",
+            message = "Current default threshold: $lowStockThreshold units. Items with custom alerts override this value.",
+            placeholder = lowStockThreshold.toString(),
+            confirmText = "Save",
+            onConfirm = { input ->
+                val parsed = input.trim().toIntOrNull()?.coerceAtLeast(0)
+                if (parsed == null) {
+                    viewModel.showToast("Enter a valid whole number (0 or higher)")
+                } else {
+                    viewModel.setLowStockDefaultThreshold(parsed)
+                    showLowStockThresholdDialog = false
+                }
+            },
+            onDismiss = { showLowStockThresholdDialog = false }
+        )
+    }
+
     if (showInvoiceSequenceDialog) {
         SettingsInvoiceSequenceDialog(
             initialPrefix = invoicePrefix,
             initialNextNum = nextInvoiceNum,
             onSave = { prefix, nextNum ->
-                invoicePrefix = prefix
-                nextInvoiceNum = nextNum
-                settingsPrefs.edit()
-                    .putString("invoice_prefix", prefix)
-                    .putInt("next_invoice_num", nextNum)
-                    .apply()
+                viewModel.setInvoiceSequence(prefix, nextNum)
                 showInvoiceSequenceDialog = false
-                viewModel.showToast("Invoice sequence updated: $prefix#$nextNum")
             },
             onDismiss = { showInvoiceSequenceDialog = false }
         )

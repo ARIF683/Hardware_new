@@ -69,6 +69,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -1246,7 +1247,6 @@ fun SequentialScanBillDialog(
 ) {
     var scannedInput by remember { mutableStateOf("") }
     val scannedList = remember { mutableStateListOf<BillRowData>() }
-    var showCameraScannerDialog by remember { mutableStateOf(false) }
 
     val barcodeSpeechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -1255,52 +1255,6 @@ fun SequentialScanBillDialog(
             val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
                 scannedInput = spoken
-            }
-        }
-    }
-
-    val cameraScanLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bmp: Bitmap? ->
-        if (bmp != null) {
-            // Simulated / visual barcode scan feedback
-            val itemWithBarcode = allItems.firstOrNull { it.barcode.isNotBlank() } ?: allItems.firstOrNull()
-            if (itemWithBarcode != null) {
-                val codeToUse = if (itemWithBarcode.barcode.isNotBlank()) itemWithBarcode.barcode else itemWithBarcode.name
-                val existingIdx = scannedList.indexOfFirst { it.name.equals(itemWithBarcode.name, ignoreCase = true) }
-                if (existingIdx >= 0) {
-                    val cur = scannedList[existingIdx]
-                    scannedList[existingIdx] = cur.copy(qty = cur.qty + 1.0)
-                } else {
-                    scannedList.add(
-                        BillRowData(
-                            id = "scan_${System.currentTimeMillis()}_${scannedList.size}",
-                            name = itemWithBarcode.name,
-                            matchedItem = itemWithBarcode,
-                            rate = itemWithBarcode.cost,
-                            qty = 1.0,
-                            type = itemWithBarcode.type,
-                            brand = itemWithBarcode.brand,
-                            size = itemWithBarcode.size,
-                            unit = itemWithBarcode.unit.ifBlank { "pcs" },
-                            include = true
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    val context = LocalContext.current
-
-    val seqCameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            try {
-                cameraScanLauncher.launch(null)
-            } catch (e: Exception) {
-                android.util.Log.w("BillScreen", "Camera scanner launch failed after permission", e)
             }
         }
     }
@@ -1404,57 +1358,32 @@ fun SequentialScanBillDialog(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Scan barcodes with camera or enter codes sequentially as you unpack shipments.",
+                    text = "Enter, speak, or quick-tap item barcodes/SKUs sequentially as you unpack shipments.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Camera Scan & Voice Scan Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Voice Scan Action Button
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak barcode, SKU, or item name...")
+                        }
+                        try {
+                            barcodeSpeechLauncher.launch(intent)
+                        } catch (e: Exception) {
+                            android.util.Log.w("BillScreen", "Speech recognition unavailable", e)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        onClick = {
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                try {
-                                    cameraScanLauncher.launch(null)
-                                } catch (e: Exception) {
-                                    android.util.Log.w("BillScreen", "Camera scanner launch failed", e)
-                                }
-                            } else {
-                                seqCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("📷 Camera Scanner", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault())
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak barcode, SKU, or item name...")
-                            }
-                            try {
-                                barcodeSpeechLauncher.launch(intent)
-                            } catch (e: Exception) {
-                                android.util.Log.w("BillScreen", "Speech recognition unavailable", e)
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("🎤 Speak", fontSize = 12.sp)
-                    }
+                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("🎤 Speak Barcode / Item Name", fontSize = 12.sp)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1889,17 +1818,45 @@ fun BillRowEditor(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Rate and Quantity + Multi-Unit Conversion
+            // Rate and Quantity + Multi-Unit Conversion (raw strings preserve trailing decimals / zero backspaces)
+            fun formatBillNum(v: Double): String = if (v <= 0.0) "" else if (v % 1.0 == 0.0) v.toLong().toString() else java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString()
+            var rateText by remember { mutableStateOf(formatBillNum(row.rate)) }
+            LaunchedEffect(row.rate) {
+                val parsed = rateText.trim().toDoubleOrNull()
+                if (parsed != row.rate && !(rateText.isBlank() && row.rate == 0.0)) {
+                    rateText = formatBillNum(row.rate)
+                }
+            }
+            var qtyText by remember { mutableStateOf(formatBillNum(row.qty)) }
+            LaunchedEffect(row.qty) {
+                val parsed = qtyText.trim().toDoubleOrNull()
+                if (parsed != row.qty && !(qtyText.isBlank() && row.qty == 0.0)) {
+                    qtyText = formatBillNum(row.qty)
+                }
+            }
+            var sellingPriceText by remember { mutableStateOf(formatBillNum(row.sellingPrice)) }
+            LaunchedEffect(row.sellingPrice) {
+                val parsed = sellingPriceText.trim().toDoubleOrNull()
+                if (parsed != row.sellingPrice && !(sellingPriceText.isBlank() && row.sellingPrice == 0.0)) {
+                    sellingPriceText = formatBillNum(row.sellingPrice)
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 OutlinedTextField(
-                    value = if (row.rate > 0) row.rate.toString() else "",
-                    onValueChange = {
-                        val r = it.toDoubleOrNull() ?: 0.0
-                        onUpdate(row.copy(rate = r))
+                    value = rateText,
+                    onValueChange = { str ->
+                        rateText = str
+                        val r = str.trim().toDoubleOrNull()
+                        if (r != null) {
+                            onUpdate(row.copy(rate = r))
+                        } else if (str.isBlank()) {
+                            onUpdate(row.copy(rate = 0.0))
+                        }
                     },
                     label = { Text("Bill Cost (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -1913,10 +1870,15 @@ fun BillRowEditor(
                 )
 
                 OutlinedTextField(
-                    value = if (row.qty > 0) row.qty.toString() else "",
-                    onValueChange = {
-                        val q = it.toDoubleOrNull() ?: 0.0
-                        onUpdate(row.copy(qty = q))
+                    value = qtyText,
+                    onValueChange = { str ->
+                        qtyText = str
+                        val q = str.trim().toDoubleOrNull()
+                        if (q != null) {
+                            onUpdate(row.copy(qty = q))
+                        } else if (str.isBlank()) {
+                            onUpdate(row.copy(qty = 0.0))
+                        }
                     },
                     label = { Text("Qty (${row.unit})", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -1989,10 +1951,15 @@ fun BillRowEditor(
                     }
 
                     OutlinedTextField(
-                        value = if (row.sellingPrice > 0) row.sellingPrice.toString() else "",
-                        onValueChange = {
-                            val p = it.toDoubleOrNull() ?: 0.0
-                            onUpdate(row.copy(sellingPrice = p, updateSellingPrice = true))
+                        value = sellingPriceText,
+                        onValueChange = { str ->
+                            sellingPriceText = str
+                            val p = str.trim().toDoubleOrNull()
+                            if (p != null) {
+                                onUpdate(row.copy(sellingPrice = p, updateSellingPrice = true))
+                            } else if (str.isBlank()) {
+                                onUpdate(row.copy(sellingPrice = 0.0, updateSellingPrice = true))
+                            }
                         },
                         label = { Text("New Selling (₹)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

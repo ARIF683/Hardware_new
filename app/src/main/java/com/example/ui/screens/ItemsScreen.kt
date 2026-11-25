@@ -131,6 +131,9 @@ fun ItemsScreen(
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
+    val requestedFilter by viewModel.requestedStockStatusFilter.collectAsState()
+    val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
+    val lowStockDefaultThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
 
     var stockStatusFilter by remember { mutableStateOf(if (inStockOnly) "in_stock" else "all") }
     LaunchedEffect(inStockOnly) {
@@ -138,6 +141,17 @@ fun ItemsScreen(
             stockStatusFilter = "in_stock"
         } else if (!inStockOnly && stockStatusFilter == "in_stock") {
             stockStatusFilter = "all"
+        }
+    }
+    LaunchedEffect(requestedFilter) {
+        val req = requestedFilter
+        if (!req.isNullOrBlank()) {
+            stockStatusFilter = req
+            viewModel.inStockOnly.value = (req == "in_stock")
+            viewModel.searchQuery.value = ""
+            viewModel.selectedGroup.value = null
+            viewModel.groupBy.value = "none"
+            viewModel.requestedStockStatusFilter.value = null
         }
     }
 
@@ -217,14 +231,16 @@ fun ItemsScreen(
 
     val totalCount = allItemsList.size
     val outOfStockCount = remember(allItemsList) { allItemsList.count { it.qty <= 0.0 } }
-    val lowOnlyCount = remember(allItemsList) { allItemsList.count { it.qty > 0.0 && it.low > 0.0 && it.qty <= it.low } }
+    val lowOnlyCount = remember(allItemsList, lowStockDefaultThreshold) {
+        allItemsList.count { viewModel.appSettingsManager.isLowStockOnly(it) }
+    }
     val inStockCount = remember(allItemsList) { allItemsList.count { it.qty > 0.0 } }
     val alertCount = outOfStockCount + lowOnlyCount
     val healthPct = if (totalCount > 0) ((totalCount - alertCount).toDouble() / totalCount.toDouble()) * 100.0 else 100.0
 
-    val displayedItems = remember(items, stockStatusFilter) {
+    val displayedItems = remember(items, stockStatusFilter, lowStockDefaultThreshold) {
         when (stockStatusFilter) {
-            "low" -> items.filter { it.qty > 0.0 && it.low > 0.0 && it.qty <= it.low }
+            "low" -> items.filter { viewModel.appSettingsManager.isLowStockOnly(it) }
             "out" -> items.filter { it.qty <= 0.0 }
             "in_stock" -> items.filter { it.qty > 0.0 }
             else -> items
@@ -232,6 +248,7 @@ fun ItemsScreen(
     }
 
     val categoryEntries = remember(allItemsList) {
+        val typesSet = allItemsList.map { it.type.trim() }.filter { it.isNotBlank() }.toSet()
         val grouped = allItemsList
             .map { it.type.ifBlank { it.brand }.trim() }
             .filter { it.isNotBlank() }
@@ -239,8 +256,11 @@ fun ItemsScreen(
             .eachCount()
             .entries
             .sortedByDescending { it.value }
-            .map { it.key to it.value }
-        listOf("All" to allItemsList.size) + grouped
+            .map { entry ->
+                val field = if (entry.key in typesSet) "type" else "brand"
+                Triple(entry.key, entry.value, field)
+            }
+        listOf(Triple("All", allItemsList.size, "none")) + grouped
     }
 
     val isInGroup = selectedGroup != null
@@ -352,7 +372,7 @@ fun ItemsScreen(
                             tint = MaterialTheme.colorScheme.onBackground,
                             modifier = Modifier.size(24.dp)
                         )
-                        if (alertCount > 0) {
+                        if (alertCount > 0 && lowStockAlertsEnabled) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -540,11 +560,11 @@ fun ItemsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for ((cat, count) in categoryEntries) {
+                for ((cat, count, field) in categoryEntries) {
                     val isSelected = if (cat == "All") {
                         selectedGroup == null && groupBy == "none"
                     } else {
-                        selectedGroup.equals(cat, ignoreCase = true)
+                        selectedGroup.equals(cat, ignoreCase = true) && groupBy == field
                     }
                     Surface(
                         onClick = {
@@ -552,7 +572,7 @@ fun ItemsScreen(
                                 viewModel.selectedGroup.value = null
                                 viewModel.groupBy.value = "none"
                             } else {
-                                viewModel.groupBy.value = "type"
+                                viewModel.groupBy.value = field
                                 viewModel.selectedGroup.value = cat
                             }
                         },
@@ -562,7 +582,9 @@ fun ItemsScreen(
                             1.dp,
                             if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         ),
-                        modifier = Modifier.heightIn(min = 44.dp)
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag("items_category_pill_${cat.lowercase().replace(" ", "_")}")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -870,7 +892,9 @@ fun ItemsScreen(
                                     } else {
                                         viewModel.openItemDetail(item.id)
                                     }
-                                }
+                                },
+                                lowThreshold = viewModel.appSettingsManager.effectiveThresholdFor(item),
+                                alertsEnabled = lowStockAlertsEnabled
                             )
                         }
                     }
@@ -922,7 +946,9 @@ fun ItemsScreen(
                                                 } else {
                                                     viewModel.openItemDetail(item.id)
                                                 }
-                                            }
+                                            },
+                                            lowThreshold = viewModel.appSettingsManager.effectiveThresholdFor(item),
+                                            alertsEnabled = lowStockAlertsEnabled
                                         )
                                     }
                                 }

@@ -99,12 +99,14 @@ fun ItemShowcaseListCard(
     isSelected: Boolean,
     onToggleSelect: () -> Unit,
     onQuickAdjust: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    lowThreshold: Double = item.low,
+    alertsEnabled: Boolean = true
 ) {
     val ext = LocalExtendedColors.current
     val haptics = rememberAppHaptics()
     val isOutOfStock = item.qty <= 0.0
-    val isLow = !isOutOfStock && (item.low > 0.0 && item.qty <= item.low)
+    val isLow = alertsEnabled && !isOutOfStock && (lowThreshold > 0.0 && item.qty <= lowThreshold)
 
     val unitStr = item.unit.ifBlank { "pcs" }
     val skuStr = item.code.ifBlank { item.id.takeLast(5).uppercase() }
@@ -384,10 +386,10 @@ fun ItemShowcaseListCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
-                    if (item.low > 0.0 && (isLow || isOutOfStock)) {
+                    if (lowThreshold > 0.0 && (isLow || isOutOfStock)) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "(Min: ${formatCompactQty(item.low)})",
+                            text = "(Min: ${formatCompactQty(lowThreshold)})",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 2.dp)
@@ -488,11 +490,13 @@ fun ItemGridCard(
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onToggleSelect: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    lowThreshold: Double = item.low,
+    alertsEnabled: Boolean = true
 ) {
     val ext = LocalExtendedColors.current
     val haptics = rememberAppHaptics()
-    val isLow = item.qty > 0 && item.low > 0 && item.qty <= item.low
+    val isLow = alertsEnabled && item.qty > 0 && lowThreshold > 0.0 && item.qty <= lowThreshold
     val isOutOfStock = item.qty <= 0
     val unitStr = item.unit.ifBlank { "pcs" }
 
