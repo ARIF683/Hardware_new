@@ -1,7 +1,9 @@
 package com.example.data.remote
 
 import android.util.Log
+import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
+import com.example.data.model.GstBillRecord
 import com.example.data.model.Item
 import com.example.data.model.LedgerAccount
 import com.example.data.model.LedgerEntry
@@ -44,6 +46,10 @@ class SupabaseClient(
     private val apiKey: String = apiKey.trim().trim('"', '\'')
     private val realtimeSeq = AtomicLong(0L)
     companion object {
+        private const val PAGE_SIZE = 1000
+        private const val BATCH_SIZE = 150
+        private const val MAX_IMAGE_DOWNLOAD_BYTES = 5 * 1024 * 1024
+
         private fun defaultOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
@@ -134,7 +140,10 @@ class SupabaseClient(
 
     private fun activeBearerToken(): String {
         val userToken = accessTokenProvider?.invoke()?.trim().orEmpty()
-        return userToken.ifBlank { apiKey }
+        if (userToken.isBlank()) {
+            throw IllegalStateException("Authenticated user session required.")
+        }
+        return userToken
     }
 
     private fun executeSupabaseCall(request: Request): Response {
@@ -213,32 +222,42 @@ class SupabaseClient(
 
     suspend fun upsertItems(items: List<Item>): Unit = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext
-        val jsonArray = JSONArray(itemListAdapter.toJson(items))
-        val maxAttempts = 20
-        for (attempt in 1..maxAttempts) {
-            if (unsupportedItemColumns.isNotEmpty()) {
-                for (i in 0 until jsonArray.length()) {
-                    jsonArray.optJSONObject(i)?.let { stripUnsupportedColumns(it) }
+        items.chunked(BATCH_SIZE).forEach { chunk ->
+            val jsonArray = JSONArray(itemListAdapter.toJson(chunk))
+            val maxAttempts = 20
+            var chunkDone = false
+            for (attempt in 1..maxAttempts) {
+                if (unsupportedItemColumns.isNotEmpty()) {
+                    for (i in 0 until jsonArray.length()) {
+                        jsonArray.optJSONObject(i)?.let { stripUnsupportedColumns(it) }
+                    }
                 }
+                val req = newRequestBuilder("items?on_conflict=id")
+                    .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                    .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (resp.isSuccessful) {
+                        chunkDone = true
+                    } else {
+                        val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                        val missingCol = extractMissingPgrst204Column(err)
+                        if (
+                            missingCol != null &&
+                            missingCol != "id" &&
+                            missingCol != "name" &&
+                            unsupportedItemColumns.add(missingCol)
+                        ) {
+                            Log.w(tag, "Supabase 'items' lacks column '$missingCol' (PGRST204); stripping and retrying (attempt $attempt)")
+                        } else {
+                            throw Exception("Failed to upsert items: $err")
+                        }
+                    }
+                }
+                if (chunkDone) break
             }
-            val req = newRequestBuilder("items?on_conflict=id")
-                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-                .post(jsonArray.toString().toRequestBody(jsonMediaType))
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (resp.isSuccessful) return@withContext
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                val missingCol = extractMissingPgrst204Column(err)
-                if (
-                    missingCol != null &&
-                    missingCol != "id" &&
-                    missingCol != "name" &&
-                    unsupportedItemColumns.add(missingCol)
-                ) {
-                    Log.w(tag, "Supabase 'items' lacks column '$missingCol' (PGRST204); stripping and retrying (attempt $attempt)")
-                } else {
-                    throw Exception("Failed to upsert items: $err")
-                }
+            if (!chunkDone) {
+                throw Exception("Failed to upsert items chunk after $maxAttempts attempts")
             }
         }
     }
@@ -276,14 +295,16 @@ class SupabaseClient(
 
     suspend fun deleteItems(ids: List<String>): Unit = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
-        val idsFormatted = ids.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
-        val req = newRequestBuilder("items?id=in.($idsFormatted)")
-            .delete()
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                throw Exception("Failed to delete items: $err")
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("items?id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    throw Exception("Failed to delete items: $err")
+                }
             }
         }
     }
@@ -405,23 +426,27 @@ class SupabaseClient(
     }
 
     suspend fun fetchAllCashflow(): List<DailyCashflowRecord> = withContext(Dispatchers.IO) {
-        val req = newRequestBuilder("daily_cashflow?select=*&order=date.desc&limit=2000")
-            .get()
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                throw Exception("Failed to fetch cashflow: $err")
+        val list = mutableListOf<DailyCashflowRecord>()
+        var offset = 0
+        while (true) {
+            val req = newRequestBuilder("daily_cashflow?select=*&order=date.desc,id.asc&limit=$PAGE_SIZE&offset=$offset")
+                .get()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    throw Exception("Failed to fetch cashflow: $err")
+                }
+                val body = resp.body?.string() ?: "[]"
+                val jsonArr = JSONArray(body)
+                for (i in 0 until jsonArr.length()) {
+                    list.add(parseCashflowFromDb(jsonArr.getJSONObject(i)))
+                }
+                if (jsonArr.length() < PAGE_SIZE) return@withContext list
             }
-            val body = resp.body?.string() ?: "[]"
-            val jsonArr = JSONArray(body)
-            val list = mutableListOf<DailyCashflowRecord>()
-            for (i in 0 until jsonArr.length()) {
-                val obj = jsonArr.getJSONObject(i)
-                list.add(parseCashflowFromDb(obj))
-            }
-            list
+            offset += PAGE_SIZE
         }
+        list
     }
 
     suspend fun upsertCashflow(records: List<DailyCashflowRecord>): Unit = withContext(Dispatchers.IO) {
@@ -624,20 +649,24 @@ class SupabaseClient(
     // ==================== QUOTATIONS SYNC ====================
     suspend fun fetchAllQuotations(): List<QuotationRecord>? = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("quotations?select=*&order=created_at.desc&limit=1000")
-                .get()
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val body = resp.body?.string() ?: "[]"
-                val jsonArr = JSONArray(body)
-                val list = mutableListOf<QuotationRecord>()
-                for (i in 0 until jsonArr.length()) {
-                    val obj = jsonArr.getJSONObject(i)
-                    list.add(parseQuotationFromDb(obj))
+            val list = mutableListOf<QuotationRecord>()
+            var offset = 0
+            while (true) {
+                val req = newRequestBuilder("quotations?select=*&order=created_at.desc,id.asc&limit=$PAGE_SIZE&offset=$offset")
+                    .get()
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    val body = resp.body?.string() ?: "[]"
+                    val jsonArr = JSONArray(body)
+                    for (i in 0 until jsonArr.length()) {
+                        list.add(parseQuotationFromDb(jsonArr.getJSONObject(i)))
+                    }
+                    if (jsonArr.length() < PAGE_SIZE) return@withContext list
                 }
-                list
+                offset += PAGE_SIZE
             }
+            list
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch quotations", e)
             null
@@ -730,15 +759,17 @@ class SupabaseClient(
 
     suspend fun deleteQuotations(ids: List<String>): Unit = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
-        val idsFormatted = ids.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
-        val req = newRequestBuilder("quotations?id=in.($idsFormatted)")
-            .delete()
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to delete quotations: $err")
-                throw Exception("Failed to delete quotations: $err")
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("quotations?id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to delete quotations: $err")
+                    throw Exception("Failed to delete quotations: $err")
+                }
             }
         }
     }
@@ -770,23 +801,27 @@ class SupabaseClient(
     // ==================== LEDGER ACCOUNTS SYNC ====================
     suspend fun fetchAllLedgerAccounts(): List<LedgerAccount>? = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("ledger_accounts?select=*&order=name.asc&limit=1000")
-                .get()
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.w(tag, "Failed to fetch ledger accounts (HTTP ${resp.code})")
-                    return@withContext null
+            val list = mutableListOf<LedgerAccount>()
+            var offset = 0
+            while (true) {
+                val req = newRequestBuilder("ledger_accounts?select=*&order=name.asc,id.asc&limit=$PAGE_SIZE&offset=$offset")
+                    .get()
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(tag, "Failed to fetch ledger accounts (HTTP ${resp.code})")
+                        return@withContext null
+                    }
+                    val body = resp.body?.string() ?: "[]"
+                    val jsonArr = JSONArray(body)
+                    for (i in 0 until jsonArr.length()) {
+                        list.add(parseLedgerAccountFromDb(jsonArr.getJSONObject(i)))
+                    }
+                    if (jsonArr.length() < PAGE_SIZE) return@withContext list
                 }
-                val body = resp.body?.string() ?: "[]"
-                val jsonArr = JSONArray(body)
-                val list = mutableListOf<LedgerAccount>()
-                for (i in 0 until jsonArr.length()) {
-                    val obj = jsonArr.getJSONObject(i)
-                    list.add(parseLedgerAccountFromDb(obj))
-                }
-                list
+                offset += PAGE_SIZE
             }
+            list
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch ledger accounts", e)
             null
@@ -795,46 +830,50 @@ class SupabaseClient(
 
     suspend fun upsertLedgerAccounts(records: List<LedgerAccount>): Unit = withContext(Dispatchers.IO) {
         if (records.isEmpty()) return@withContext
-        val jsonArray = JSONArray()
-        for (acc in records) {
-            val obj = JSONObject().apply {
-                put("id", acc.id)
-                put("name", acc.name)
-                put("phone", acc.phone)
-                put("address", acc.address)
-                put("type", acc.type)
-                put("net_balance", acc.netBalance)
-                put("credit_limit", acc.creditLimit)
-                put("notes", acc.notes)
-                put("created_at", acc.createdAt)
-                put("updated_at", acc.updatedAt)
+        records.chunked(BATCH_SIZE).forEach { chunk ->
+            val jsonArray = JSONArray()
+            for (acc in chunk) {
+                val obj = JSONObject().apply {
+                    put("id", acc.id)
+                    put("name", acc.name)
+                    put("phone", acc.phone)
+                    put("address", acc.address)
+                    put("type", acc.type)
+                    put("net_balance", acc.netBalance)
+                    put("credit_limit", acc.creditLimit)
+                    put("notes", acc.notes)
+                    put("created_at", acc.createdAt)
+                    put("updated_at", acc.updatedAt)
+                }
+                jsonArray.put(obj)
             }
-            jsonArray.put(obj)
-        }
-        val req = newRequestBuilder("ledger_accounts?on_conflict=id")
-            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-            .post(jsonArray.toString().toRequestBody(jsonMediaType))
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to upsert ledger accounts: $err")
-                throw Exception("Failed to upsert ledger accounts: $err")
+            val req = newRequestBuilder("ledger_accounts?on_conflict=id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to upsert ledger accounts: $err")
+                    throw Exception("Failed to upsert ledger accounts: $err")
+                }
             }
         }
     }
 
     suspend fun deleteLedgerAccounts(ids: List<String>): Unit = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
-        val idsFormatted = ids.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
-        val req = newRequestBuilder("ledger_accounts?id=in.($idsFormatted)")
-            .delete()
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to delete ledger accounts: $err")
-                throw Exception("Failed to delete ledger accounts: $err")
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("ledger_accounts?id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to delete ledger accounts: $err")
+                    throw Exception("Failed to delete ledger accounts: $err")
+                }
             }
         }
     }
@@ -842,7 +881,7 @@ class SupabaseClient(
     // ==================== STORE PROFILE & BANKING SYNC ====================
     suspend fun fetchStoreProfile(): RemoteStoreProfile? = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("purchases?client_id=eq.${StoreProfileSyncCodec.PROFILE_CLIENT_ID}&limit=1")
+            val req = newRequestBuilder("store_profile?id=eq.${StoreProfileSyncCodec.PROFILE_CLIENT_ID}&limit=1")
                 .get()
                 .build()
             executeSupabaseCall(req).use { resp ->
@@ -851,7 +890,7 @@ class SupabaseClient(
                 val jsonArr = JSONArray(body)
                 if (jsonArr.length() > 0) {
                     val obj = jsonArr.getJSONObject(0)
-                    return@withContext StoreProfileSyncCodec.parseFromLines(obj.opt("lines"))
+                    return@withContext StoreProfileSyncCodec.parseFromStoreProfileRow(obj)
                 }
                 null
             }
@@ -861,11 +900,10 @@ class SupabaseClient(
         }
     }
 
-    suspend fun saveStoreProfile(profile: RemoteStoreProfile): Boolean = withContext(Dispatchers.IO) {
+    suspend fun saveStoreProfile(profile: RemoteStoreProfile, updatedBy: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
-            val billDate = DateTimeHelper.localDateKey()
-            val payload = StoreProfileSyncCodec.toPurchasesPayload(profile, billDate)
-            val req = newRequestBuilder("purchases?on_conflict=client_id")
+            val payload = StoreProfileSyncCodec.toStoreProfilePayload(profile, updatedBy)
+            val req = newRequestBuilder("store_profile?on_conflict=id")
                 .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
@@ -892,13 +930,29 @@ class SupabaseClient(
                 val commaIdx = trimmed.indexOf(',')
                 if (commaIdx <= 0 || commaIdx >= trimmed.length - 1) return@withContext null
                 val b64 = trimmed.substring(commaIdx + 1)
-                return@withContext android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                if (b64.length > MAX_IMAGE_DOWNLOAD_BYTES * 2) return@withContext null
+                val decoded = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                return@withContext if (decoded.size <= MAX_IMAGE_DOWNLOAD_BYTES) decoded else null
             }
             if (trimmed.startsWith("https://", ignoreCase = true)) {
                 val req = Request.Builder().url(trimmed).get().build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@withContext null
-                    return@withContext resp.body?.bytes()
+                    val body = resp.body ?: return@withContext null
+                    if (body.contentLength() > MAX_IMAGE_DOWNLOAD_BYTES) return@withContext null
+                    val out = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(8192)
+                    var total = 0
+                    body.byteStream().use { input ->
+                        while (true) {
+                            val read = input.read(buf)
+                            if (read <= 0) break
+                            total += read
+                            if (total > MAX_IMAGE_DOWNLOAD_BYTES) return@withContext null
+                            out.write(buf, 0, read)
+                        }
+                    }
+                    return@withContext out.toByteArray()
                 }
             }
             null
@@ -935,23 +989,27 @@ class SupabaseClient(
     // ==================== LEDGER ENTRIES SYNC ====================
     suspend fun fetchAllLedgerEntries(): List<LedgerEntry>? = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("ledger_entries?select=*&order=created_at.desc&limit=5000")
-                .get()
-                .build()
-            executeSupabaseCall(req).use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.w(tag, "Failed to fetch ledger entries (HTTP ${resp.code})")
-                    return@withContext null
+            val list = mutableListOf<LedgerEntry>()
+            var offset = 0
+            while (true) {
+                val req = newRequestBuilder("ledger_entries?select=*&order=created_at.desc,id.asc&limit=$PAGE_SIZE&offset=$offset")
+                    .get()
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(tag, "Failed to fetch ledger entries (HTTP ${resp.code})")
+                        return@withContext null
+                    }
+                    val body = resp.body?.string() ?: "[]"
+                    val jsonArr = JSONArray(body)
+                    for (i in 0 until jsonArr.length()) {
+                        list.add(parseLedgerEntryFromDb(jsonArr.getJSONObject(i)))
+                    }
+                    if (jsonArr.length() < PAGE_SIZE) return@withContext list
                 }
-                val body = resp.body?.string() ?: "[]"
-                val jsonArr = JSONArray(body)
-                val list = mutableListOf<LedgerEntry>()
-                for (i in 0 until jsonArr.length()) {
-                    val obj = jsonArr.getJSONObject(i)
-                    list.add(parseLedgerEntryFromDb(obj))
-                }
-                list
+                offset += PAGE_SIZE
             }
+            list
         } catch (e: Exception) {
             Log.w(tag, "Failed to fetch ledger entries", e)
             null
@@ -960,45 +1018,248 @@ class SupabaseClient(
 
     suspend fun upsertLedgerEntries(records: List<LedgerEntry>): Unit = withContext(Dispatchers.IO) {
         if (records.isEmpty()) return@withContext
-        val jsonArray = JSONArray()
-        for (entry in records) {
-            val obj = JSONObject().apply {
-                put("id", entry.id)
-                put("account_id", entry.accountId)
-                put("type", entry.type)
-                put("amount", entry.amount)
-                put("balance_after", entry.balanceAfter)
-                put("date", entry.date)
-                put("description", entry.description)
-                put("bill_ref", entry.billRef)
-                put("created_at", entry.createdAt)
+        records.chunked(BATCH_SIZE).forEach { chunk ->
+            val jsonArray = JSONArray()
+            for (entry in chunk) {
+                val obj = JSONObject().apply {
+                    put("id", entry.id)
+                    put("account_id", entry.accountId)
+                    put("type", entry.type)
+                    put("amount", entry.amount)
+                    put("balance_after", entry.balanceAfter)
+                    put("date", entry.date)
+                    put("description", entry.description)
+                    put("bill_ref", entry.billRef)
+                    put("created_at", entry.createdAt)
+                }
+                jsonArray.put(obj)
             }
-            jsonArray.put(obj)
-        }
-        val req = newRequestBuilder("ledger_entries?on_conflict=id")
-            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-            .post(jsonArray.toString().toRequestBody(jsonMediaType))
-            .build()
-        executeSupabaseCall(req).use { resp ->
-            if (!resp.isSuccessful) {
-                val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to upsert ledger entries: $err")
-                throw Exception("Failed to upsert ledger entries: $err")
+            val req = newRequestBuilder("ledger_entries?on_conflict=id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to upsert ledger entries: $err")
+                    throw Exception("Failed to upsert ledger entries: $err")
+                }
             }
         }
     }
 
     suspend fun deleteLedgerEntries(ids: List<String>): Unit = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
-        val idsFormatted = ids.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
-        val req = newRequestBuilder("ledger_entries?id=in.($idsFormatted)")
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("ledger_entries?id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to delete ledger entries: $err")
+                    throw Exception("Failed to delete ledger entries: $err")
+                }
+            }
+        }
+    }
+
+    // ==================== GST BILLS SYNC ====================
+    suspend fun fetchAllGstBills(): List<GstBillRecord>? = withContext(Dispatchers.IO) {
+        try {
+            val list = mutableListOf<GstBillRecord>()
+            var offset = 0
+            while (true) {
+                val req = newRequestBuilder("gst_bills?select=*&order=created_at.desc,id.asc&limit=$PAGE_SIZE&offset=$offset")
+                    .get()
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(tag, "Failed to fetch gst bills (HTTP ${resp.code})")
+                        return@withContext null
+                    }
+                    val body = resp.body?.string() ?: "[]"
+                    val jsonArr = JSONArray(body)
+                    for (i in 0 until jsonArr.length()) {
+                        list.add(parseGstBillFromDb(jsonArr.getJSONObject(i)))
+                    }
+                    if (jsonArr.length() < PAGE_SIZE) return@withContext list
+                }
+                offset += PAGE_SIZE
+            }
+            list
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch gst bills", e)
+            null
+        }
+    }
+
+    suspend fun upsertGstBills(records: List<GstBillRecord>): Unit = withContext(Dispatchers.IO) {
+        if (records.isEmpty()) return@withContext
+        records.chunked(BATCH_SIZE).forEach { chunk ->
+            val jsonArray = JSONArray()
+            for (bill in chunk) {
+                val obj = JSONObject().apply {
+                    put("id", bill.id)
+                    put("invoice_no", bill.invoiceNo)
+                    put("invoice_date", bill.invoiceDate)
+                    put("customer_name", bill.customerName)
+                    put("customer_phone", bill.customerPhone)
+                    put("customer_gstin", bill.customerGstin)
+                    put("customer_address", bill.customerAddress)
+                    put("store_gstin", bill.storeGstin)
+                    put("is_inter_state", bill.isInterState)
+                    put("items_json", bill.itemsJson)
+                    put("taxable_total", bill.taxableTotal)
+                    put("total_tax_amount", bill.totalTaxAmount)
+                    put("grand_total", bill.grandTotal)
+                    put("transporter_id", bill.transporterId)
+                    put("vehicle_no", bill.vehicleNo)
+                    if (bill.quotationId != null) put("quotation_id", bill.quotationId) else put("quotation_id", JSONObject.NULL)
+                    if (bill.quotationNo != null) put("quotation_no", bill.quotationNo) else put("quotation_no", JSONObject.NULL)
+                    if (bill.pdfPath != null) put("pdf_path", bill.pdfPath) else put("pdf_path", JSONObject.NULL)
+                    put("status", bill.status)
+                    put("created_at", bill.createdAt)
+                }
+                jsonArray.put(obj)
+            }
+            val req = newRequestBuilder("gst_bills?on_conflict=id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to upsert gst bills: $err")
+                    throw Exception("Failed to upsert gst bills: $err")
+                }
+            }
+        }
+    }
+
+    suspend fun deleteGstBills(ids: List<String>): Unit = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("gst_bills?id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    throw Exception("Failed to delete gst bills: $err")
+                }
+            }
+        }
+    }
+
+    suspend fun deleteAllGstBills(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("gst_bills?id=not.is.null")
             .delete()
             .build()
         executeSupabaseCall(req).use { resp ->
             if (!resp.isSuccessful) {
                 val err = resp.body?.string() ?: "HTTP ${resp.code}"
-                Log.e(tag, "Failed to delete ledger entries: $err")
-                throw Exception("Failed to delete ledger entries: $err")
+                throw Exception("Failed to delete all gst bills: $err")
+            }
+        }
+    }
+
+    // ==================== COLOR TINT LOGS SYNC ====================
+    suspend fun fetchAllColorTintLogs(): List<ColorTintLog>? = withContext(Dispatchers.IO) {
+        try {
+            val list = mutableListOf<ColorTintLog>()
+            var offset = 0
+            while (true) {
+                val req = newRequestBuilder("color_tint_logs?select=*&order=tint_timestamp.desc,tint_record_id.asc&limit=$PAGE_SIZE&offset=$offset")
+                    .get()
+                    .build()
+                executeSupabaseCall(req).use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(tag, "Failed to fetch color tint logs (HTTP ${resp.code})")
+                        return@withContext null
+                    }
+                    val body = resp.body?.string() ?: "[]"
+                    val jsonArr = JSONArray(body)
+                    for (i in 0 until jsonArr.length()) {
+                        list.add(parseColorTintLogFromDb(jsonArr.getJSONObject(i)))
+                    }
+                    if (jsonArr.length() < PAGE_SIZE) return@withContext list
+                }
+                offset += PAGE_SIZE
+            }
+            list
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to fetch color tint logs", e)
+            null
+        }
+    }
+
+    suspend fun upsertColorTintLogs(records: List<ColorTintLog>): Unit = withContext(Dispatchers.IO) {
+        if (records.isEmpty()) return@withContext
+        records.chunked(BATCH_SIZE).forEach { chunk ->
+            val jsonArray = JSONArray()
+            for (logRec in chunk) {
+                val obj = JSONObject().apply {
+                    put("tint_record_id", logRec.tintRecordId)
+                    put("product_name", logRec.productName)
+                    put("shade_name", logRec.shadeName)
+                    put("shade_code", logRec.shadeCode)
+                    put("base_code", logRec.baseCode)
+                    put("can_factor", logRec.canFactor)
+                    put("liters", logRec.liters)
+                    put("no_of_cans", logRec.noOfCans)
+                    put("tint_date", logRec.tintDate)
+                    put("tint_time", logRec.tintTime)
+                    put("tint_timestamp", logRec.tintTimestamp)
+                    if (logRec.matchedItemId != null) put("matched_item_id", logRec.matchedItemId) else put("matched_item_id", JSONObject.NULL)
+                    if (logRec.matchedItemName != null) put("matched_item_name", logRec.matchedItemName) else put("matched_item_name", JSONObject.NULL)
+                    put("qty_deducted", logRec.qtyDeducted)
+                    put("processed_at", logRec.processedAt)
+                    put("colorant_used", logRec.colorantUsed)
+                    put("colorant_quantity", logRec.colorantQuantity)
+                }
+                jsonArray.put(obj)
+            }
+            val req = newRequestBuilder("color_tint_logs?on_conflict=tint_record_id")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(jsonArray.toString().toRequestBody(jsonMediaType))
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    Log.e(tag, "Failed to upsert color tint logs: $err")
+                    throw Exception("Failed to upsert color tint logs: $err")
+                }
+            }
+        }
+    }
+
+    suspend fun deleteColorTintLogs(ids: List<String>): Unit = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        ids.chunked(BATCH_SIZE).forEach { chunk ->
+            val idsFormatted = chunk.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val req = newRequestBuilder("color_tint_logs?tint_record_id=in.($idsFormatted)")
+                .delete()
+                .build()
+            executeSupabaseCall(req).use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                    throw Exception("Failed to delete color tint logs: $err")
+                }
+            }
+        }
+    }
+
+    suspend fun deleteAllColorTintLogs(): Unit = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("color_tint_logs?tint_record_id=not.is.null")
+            .delete()
+            .build()
+        executeSupabaseCall(req).use { resp ->
+            if (!resp.isSuccessful) {
+                val err = resp.body?.string() ?: "HTTP ${resp.code}"
+                throw Exception("Failed to delete all color tint logs: $err")
             }
         }
     }
@@ -1119,6 +1380,63 @@ class SupabaseClient(
         )
     }
 
+    fun parseGstBillFromDb(obj: JSONObject): GstBillRecord {
+        fun optSafe(key: String, fallback: String = ""): String {
+            if (obj.isNull(key) || !obj.has(key)) return fallback
+            val v = obj.optString(key, fallback)
+            return if (v == "null") fallback else v
+        }
+        return GstBillRecord(
+            id = optSafe("id"),
+            invoiceNo = optSafe("invoice_no").ifEmpty { optSafe("invoiceNo") },
+            invoiceDate = optSafe("invoice_date").ifEmpty { optSafe("invoiceDate") },
+            customerName = optSafe("customer_name").ifEmpty { optSafe("customerName") },
+            customerPhone = optSafe("customer_phone").ifEmpty { optSafe("customerPhone") },
+            customerGstin = optSafe("customer_gstin").ifEmpty { optSafe("customerGstin") },
+            customerAddress = optSafe("customer_address").ifEmpty { optSafe("customerAddress") },
+            storeGstin = optSafe("store_gstin").ifEmpty { optSafe("storeGstin") },
+            isInterState = if (obj.has("is_inter_state")) obj.optBoolean("is_inter_state", false) else obj.optBoolean("isInterState", false),
+            itemsJson = optSafe("items_json").ifEmpty { optSafe("itemsJson", "[]") },
+            taxableTotal = obj.optDouble("taxable_total", obj.optDouble("taxableTotal", 0.0)),
+            totalTaxAmount = obj.optDouble("total_tax_amount", obj.optDouble("totalTaxAmount", 0.0)),
+            grandTotal = obj.optDouble("grand_total", obj.optDouble("grandTotal", 0.0)),
+            transporterId = optSafe("transporter_id").ifEmpty { optSafe("transporterId") },
+            vehicleNo = optSafe("vehicle_no").ifEmpty { optSafe("vehicleNo") },
+            quotationId = optSafe("quotation_id").ifEmpty { optSafe("quotationId") }.takeIf { it.isNotBlank() },
+            quotationNo = optSafe("quotation_no").ifEmpty { optSafe("quotationNo") }.takeIf { it.isNotBlank() },
+            pdfPath = optSafe("pdf_path").ifEmpty { optSafe("pdfPath") }.takeIf { it.isNotBlank() },
+            status = optSafe("status", "Generated"),
+            createdAt = optSafe("created_at").ifEmpty { optSafe("createdAt") }
+        )
+    }
+
+    fun parseColorTintLogFromDb(obj: JSONObject): ColorTintLog {
+        fun optSafe(key: String, fallback: String = ""): String {
+            if (obj.isNull(key) || !obj.has(key)) return fallback
+            val v = obj.optString(key, fallback)
+            return if (v == "null") fallback else v
+        }
+        return ColorTintLog(
+            tintRecordId = optSafe("tint_record_id").ifEmpty { optSafe("tintRecordId") },
+            productName = optSafe("product_name").ifEmpty { optSafe("productName") },
+            shadeName = optSafe("shade_name").ifEmpty { optSafe("shadeName") },
+            shadeCode = optSafe("shade_code").ifEmpty { optSafe("shadeCode") },
+            baseCode = optSafe("base_code").ifEmpty { optSafe("baseCode") },
+            canFactor = optSafe("can_factor").ifEmpty { optSafe("canFactor") },
+            liters = obj.optDouble("liters", 0.0),
+            noOfCans = obj.optInt("no_of_cans", obj.optInt("noOfCans", 1)),
+            tintDate = optSafe("tint_date").ifEmpty { optSafe("tintDate") },
+            tintTime = optSafe("tint_time").ifEmpty { optSafe("tintTime") },
+            tintTimestamp = optSafe("tint_timestamp").ifEmpty { optSafe("tintTimestamp") },
+            matchedItemId = optSafe("matched_item_id").ifEmpty { optSafe("matchedItemId") }.takeIf { it.isNotBlank() },
+            matchedItemName = optSafe("matched_item_name").ifEmpty { optSafe("matchedItemName") }.takeIf { it.isNotBlank() },
+            qtyDeducted = obj.optDouble("qty_deducted", obj.optDouble("qtyDeducted", 0.0)),
+            processedAt = optSafe("processed_at").ifEmpty { optSafe("processedAt") },
+            colorantUsed = optSafe("colorant_used").ifEmpty { optSafe("colorantUsed") },
+            colorantQuantity = optSafe("colorant_quantity").ifEmpty { optSafe("colorantQuantity") }
+        )
+    }
+
     // Realtime WebSocket support matching Phoenix channels protocol and Hardware_website
     fun connectRealtime(
         coroutineScope: CoroutineScope,
@@ -1128,6 +1446,8 @@ class SupabaseClient(
         onQuotationChanged: ((type: String, quotation: QuotationRecord?, oldId: String?) -> Unit)? = null,
         onLedgerAccountChanged: ((type: String, account: LedgerAccount?, oldId: String?) -> Unit)? = null,
         onLedgerEntryChanged: ((type: String, entry: LedgerEntry?, oldId: String?) -> Unit)? = null,
+        onGstBillChanged: ((type: String, bill: GstBillRecord?, oldId: String?) -> Unit)? = null,
+        onColorTintLogChanged: ((type: String, log: ColorTintLog?, oldId: String?) -> Unit)? = null,
         onStoreProfileChanged: ((RemoteStoreProfile) -> Unit)? = null,
         onClosedOrFailed: () -> Unit
     ): WebSocket? {
@@ -1139,15 +1459,19 @@ class SupabaseClient(
             onStatusChanged(false)
             return null
         }
-        val connSeq = realtimeSeq.incrementAndGet()
         val userToken = accessTokenProvider?.invoke()?.trim().orEmpty()
+        if (userToken.isBlank()) {
+            Log.w(tag, "Realtime connection aborted: authenticated user JWT required.")
+            onStatusChanged(false)
+            return null
+        }
+        val connSeq = realtimeSeq.incrementAndGet()
         val wsUrl = baseUrl.replace("https://", "wss://").replace("http://", "ws://") +
             "/realtime/v1/websocket?apikey=$apiKey&vsn=1.0.0"
-        val reqBuilder = Request.Builder().url(wsUrl)
-        if (userToken.isNotBlank()) {
-            reqBuilder.header("Authorization", "Bearer $userToken")
-        }
-        val request = reqBuilder.build()
+        val request = Request.Builder()
+            .url(wsUrl)
+            .header("Authorization", "Bearer $userToken")
+            .build()
 
         var webSocket: WebSocket? = null
         var heartbeatJob: Job? = null
@@ -1163,13 +1487,20 @@ class SupabaseClient(
                     return
                 }
                 Log.d(tag, "Realtime WS connected to Supabase")
-                val currentToken = accessTokenProvider?.invoke()?.trim().orEmpty()
-                val tables = listOf("items", "purchases", "daily_cashflow", "quotations", "ledger_accounts", "ledger_entries")
+                val currentToken = accessTokenProvider?.invoke()?.trim().orEmpty().ifBlank { userToken }
+                val tables = listOf(
+                    "items",
+                    "store_profile",
+                    "daily_cashflow",
+                    "quotations",
+                    "ledger_accounts",
+                    "ledger_entries",
+                    "gst_bills",
+                    "color_tint_logs"
+                )
                 tables.forEach { table ->
                     val payloadObj = JSONObject().apply {
-                        if (currentToken.isNotBlank()) {
-                            put("access_token", currentToken)
-                        }
+                        put("access_token", currentToken)
                         put("config", JSONObject().apply {
                             put("broadcast", JSONObject().apply { put("self", false) })
                             put("presence", JSONObject().apply { put("key", "") })
@@ -1235,7 +1566,11 @@ class SupabaseClient(
                         val record = dataObj?.optJSONObject("record") ?: dataObj?.optJSONObject("new")
                         val oldRecord = dataObj?.optJSONObject("old_record") ?: dataObj?.optJSONObject("old")
 
-                        fun extractOldId(): String? {
+                        fun extractOldId(vararg altKeys: String): String? {
+                            for (k in altKeys) {
+                                oldRecord?.optString(k)?.takeIf { it.isNotBlank() }?.let { return it }
+                                record?.optString(k)?.takeIf { it.isNotBlank() }?.let { return it }
+                            }
                             val idFromOldRecord = oldRecord?.optString("id")?.takeIf { it.isNotBlank() }
                             val idFromRecord = record?.optString("id")?.takeIf { it.isNotBlank() }
                             val idFromDataObj = dataObj?.optString("id")?.takeIf { it.isNotBlank() }
@@ -1283,6 +1618,26 @@ class SupabaseClient(
                                 val oldId = extractOldId()
                                 onLedgerEntryChanged?.invoke("DELETE", null, oldId)
                             }
+                        } else if (topic.contains("gst_bills") || table == "gst_bills") {
+                            if (type == "INSERT" || type == "UPDATE") {
+                                record?.let {
+                                    val bill = parseGstBillFromDb(it)
+                                    onGstBillChanged?.invoke(type, bill, null)
+                                }
+                            } else if (type == "DELETE") {
+                                val oldId = extractOldId()
+                                onGstBillChanged?.invoke("DELETE", null, oldId)
+                            }
+                        } else if (topic.contains("color_tint_logs") || table == "color_tint_logs") {
+                            if (type == "INSERT" || type == "UPDATE") {
+                                record?.let {
+                                    val logRec = parseColorTintLogFromDb(it)
+                                    onColorTintLogChanged?.invoke(type, logRec, null)
+                                }
+                            } else if (type == "DELETE") {
+                                val oldId = extractOldId("tint_record_id")
+                                onColorTintLogChanged?.invoke("DELETE", null, oldId)
+                            }
                         } else if (topic.contains("items") || table == "items") {
                             if (type == "INSERT" || type == "UPDATE") {
                                 record?.let {
@@ -1294,14 +1649,10 @@ class SupabaseClient(
                                 Log.d(tag, "Realtime items DELETE event received, oldId=$oldId")
                                 onItemChanged("DELETE", null, oldId)
                             }
-                        } else if (topic.contains("purchases") || table == "purchases") {
-                            val clientId = record?.optString("client_id")
-                            val supplier = record?.optString("supplier")
-                            if (clientId == StoreProfileSyncCodec.PROFILE_CLIENT_ID || supplier == StoreProfileSyncCodec.PROFILE_SUPPLIER) {
-                                val parsedProfile = StoreProfileSyncCodec.parseFromLines(record?.opt("lines"))
-                                if (parsedProfile != null) {
-                                    onStoreProfileChanged?.invoke(parsedProfile)
-                                }
+                        } else if (topic.contains("store_profile") || table == "store_profile") {
+                            val parsedProfile = StoreProfileSyncCodec.parseFromStoreProfileRow(record)
+                            if (parsedProfile != null) {
+                                onStoreProfileChanged?.invoke(parsedProfile)
                             }
                         }
                     }

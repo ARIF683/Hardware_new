@@ -66,7 +66,9 @@ class SupabaseClientTest {
             baseUrl = "https://example.supabase.co",
             apiKey = "test-key",
             okHttpClient = okHttp
-        )
+        ).apply {
+            configureAuth(accessTokenProvider = { "test-jwt" })
+        }
 
         val item = Item(
             id = "item-1",
@@ -136,7 +138,9 @@ class SupabaseClientTest {
             baseUrl = "https://example.supabase.co",
             apiKey = "test-key",
             okHttpClient = okHttp
-        )
+        ).apply {
+            configureAuth(accessTokenProvider = { "test-jwt" })
+        }
 
         client.patchItem("item-1", """{"qty":30.0,"conversion_factor":12.0}""")
         assertEquals(2, recordedPatches.size)

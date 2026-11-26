@@ -42,6 +42,12 @@ class AutoFestivalAndStudioTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    @org.junit.Before
+    fun setUp() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        FestivalPreferenceManager.resetForTest(app)
+    }
+
     @Test
     fun `auto festival calendar activates fixed and lunar Indian festivals automatically`() {
         val diwali = AutoFestivalCalendar.activeFestivalsOn("2026-11-08")
@@ -142,8 +148,8 @@ class AutoFestivalAndStudioTest {
             festivalConfigJson = studioJson,
             updatedAt = 987654321L
         )
-        val payload = StoreProfileSyncCodec.toPurchasesPayload(remote, "2026-11-19")
-        val parsedProfile = StoreProfileSyncCodec.parseFromLines(payload.get("lines"))
+        val payload = StoreProfileSyncCodec.toStoreProfilePayload(remote, "owner@store.com")
+        val parsedProfile = StoreProfileSyncCodec.parseFromStoreProfileRow(payload)
         assertNotNull(parsedProfile)
         assertEquals(studioJson, parsedProfile!!.festivalConfigJson)
 
@@ -171,8 +177,7 @@ class AutoFestivalAndStudioTest {
     @Test
     fun `announcement studio option in Settings is hidden until Admin PIN is unlocked`() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        val authPrefs = app.getSharedPreferences("stock_manager_auth", android.content.Context.MODE_PRIVATE)
-        authPrefs.edit().putBoolean("is_admin", false).commit()
+        com.example.data.auth.AuthManager.seedTestSessionForTest(app, "staff@store.com", isAdmin = false)
         val lockedVm = StockViewModel(app)
 
         composeRule.setContent {
@@ -194,8 +199,7 @@ class AutoFestivalAndStudioTest {
     @Test
     fun `announcement studio option in Settings becomes visible once Admin mode is unlocked`() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        val authPrefs = app.getSharedPreferences("stock_manager_auth", android.content.Context.MODE_PRIVATE)
-        authPrefs.edit().putBoolean("is_admin", true).commit()
+        com.example.data.auth.AuthManager.seedTestSessionForTest(app, "owner@store.com", isAdmin = true)
         val unlockedVm = StockViewModel(app)
 
         composeRule.setContent {
@@ -346,8 +350,7 @@ class AutoFestivalAndStudioTest {
     @Test
     fun `announcement studio dialog allows adding two custom festival cards and deleting any card`() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        val authPrefs = app.getSharedPreferences("stock_manager_auth", android.content.Context.MODE_PRIVATE)
-        authPrefs.edit().putBoolean("is_admin", true).commit()
+        com.example.data.auth.AuthManager.seedTestSessionForTest(app, "owner@store.com", isAdmin = true)
         val vm = StockViewModel(app)
 
         composeRule.setContent {

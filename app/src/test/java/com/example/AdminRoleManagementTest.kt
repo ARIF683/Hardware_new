@@ -62,9 +62,7 @@ class AdminRoleManagementTest {
 
     @Test
     fun `remote user roles sync grants admin status and updates current session`() {
-        val auth = AuthManager(app)
-        val prefs = app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-        prefs.edit().putString("current_user_email", "boss@hardware.com").commit()
+        AuthManager.seedTestSessionForTest(app, "boss@hardware.com", isAdmin = false)
 
         val authWithSession = AuthManager(app)
         assertEquals("boss@hardware.com", authWithSession.currentUserEmail.value)
@@ -118,18 +116,21 @@ class AdminRoleManagementTest {
     }
 
     @Test
-    fun `StoreProfileSyncCodec serializes parses and merges userRolesJson`() {
-        val rolesJson = """[{"email":"admin@shop.com","isAdmin":true}]"""
+    fun `StoreProfileSyncCodec excludes userRolesJson and ignores injected role fields`() {
         val profile = RemoteStoreProfile(
             storeName = "Apex Hardware",
-            userRolesJson = rolesJson,
             updatedAt = 2500L
         )
         val payload = StoreProfileSyncCodec.toJsonObject(profile)
+        assertFalse(payload.has("userRolesJson"))
+        assertFalse(payload.has("user_roles"))
+
+        // Inject untrusted role fields into incoming payload — parser must ignore them
+        payload.put("userRolesJson", """[{"email":"attacker@shop.com","isAdmin":true}]""")
+        payload.put("user_roles", """[{"email":"attacker@shop.com","is_admin":true}]""")
         val parsed = StoreProfileSyncCodec.parseFromObject(payload)
 
         assertEquals("Apex Hardware", parsed?.storeName)
-        assertEquals(rolesJson, parsed?.userRolesJson)
         assertEquals(2500L, parsed?.updatedAt)
 
         val merged = StoreProfileSyncCodec.merge(
@@ -137,7 +138,6 @@ class AdminRoleManagementTest {
             override = RemoteStoreProfile(storeName = "Apex Depot", updatedAt = 3000L)
         )
         assertEquals("Apex Depot", merged.storeName)
-        assertEquals(rolesJson, merged.userRolesJson)
         assertEquals(3000L, merged.updatedAt)
     }
 
@@ -161,11 +161,7 @@ class AdminRoleManagementTest {
 
     @Test
     fun `admin user management dialog adds staff and toggles admin role`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "owner@shop.com")
-            .putBoolean("is_admin", true)
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "owner@shop.com", isAdmin = true)
 
         val vm = StockViewModel(app)
         vm.authManager.upsertUser("owner@shop.com", true)

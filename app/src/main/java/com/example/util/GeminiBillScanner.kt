@@ -48,6 +48,24 @@ object GeminiBillScanner {
     internal fun buildGenerateContentUrl(modelName: String): String =
         "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
 
+    internal fun buildEdgeProxyUrl(supabaseUrl: String): String =
+        "${supabaseUrl.trim().trim('"', '\'').trimEnd('/')}/functions/v1/gemini-bill-scan"
+
+    private fun isSupabaseConfigured(): Boolean {
+        val baseUrl = BuildConfig.SUPABASE_URL.trim().trim('"', '\'').trimEnd('/')
+        val apiKey = BuildConfig.SUPABASE_KEY.trim().trim('"', '\'')
+        val isHttpsOrLocal = baseUrl.startsWith("https://", ignoreCase = true) ||
+            baseUrl.startsWith("http://localhost", ignoreCase = true) ||
+            baseUrl.startsWith("http://127.0.0.1", ignoreCase = true)
+        return isHttpsOrLocal &&
+            apiKey.isNotBlank() &&
+            !baseUrl.contains("YOUR_SUPABASE") &&
+            !apiKey.contains("YOUR_SUPABASE")
+    }
+
+    internal var customClientOverride: OkHttpClient? = null
+    private fun activeClient(): OkHttpClient = customClientOverride ?: client
+
     fun bitmapToBase64(bitmap: Bitmap): String {
         val baos = ByteArrayOutputStream()
         // If image is very large, downscale slightly so network transfer is fast and within limits
@@ -90,17 +108,18 @@ object GeminiBillScanner {
     }
 
     suspend fun parseBill(bitmap: Bitmap, inventoryItems: List<Item>, context: android.content.Context? = null): ParsedBillResult = withContext(Dispatchers.IO) {
-        val customKey = if (context != null) getSavedCustomApiKey(context) else ""
-        val candidateKeys = listOf(
-            customKey,
-            BuildConfig.GEMINI_KEY,
-            BuildConfig.GEMINI_API_KEY
-        ).map { it.trim() }
-         .filter { it.isNotBlank() && it != "MY_GEMINI_KEY" && it != "MY_GEMINI_API_KEY" }
-         .distinct()
+        val customKey = if (context != null) {
+            getSavedCustomApiKey(context).trim()
+                .takeIf { it.isNotBlank() && it != "MY_GEMINI_KEY" && it != "MY_GEMINI_API_KEY" }
+                .orEmpty()
+        } else ""
+        val userJwt = if (context != null) {
+            com.example.data.auth.AuthManager(context).activeAccessToken().trim()
+        } else ""
+        val useEdgeProxy = customKey.isBlank() && isSupabaseConfigured() && userJwt.isNotBlank()
 
-        if (candidateKeys.isEmpty()) {
-            throw IllegalStateException("Gemini API key is missing. Please add GEMINI_API_KEY or GEMINI_KEY to the AI Studio Secrets panel, or set it in the scanner.")
+        if (customKey.isBlank() && !useEdgeProxy) {
+            throw IllegalStateException("AI Bill Scanner requires an active cloud sign-in (for Supabase Edge Proxy) or a custom Gemini API key in Scanner Settings.")
         }
 
         val learnedAliasesPrompt = if (context != null) BillAliasManager.formatPromptAliases(context) else ""
@@ -224,23 +243,23 @@ Return ONLY valid JSON in this exact structure:
         )
         var lastException: Exception? = null
         var responseStr: String? = null
+        val http = activeClient()
 
-        keyLoop@ for (key in candidateKeys) {
+        if (customKey.isNotBlank()) {
             for (modelName in candidateModels) {
                 try {
                     val url = buildGenerateContentUrl(modelName)
                     val body = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
                     val request = Request.Builder()
                         .url(url)
-                        .header("x-goog-api-key", key)
+                        .header("x-goog-api-key", customKey)
                         .post(body)
                         .build()
 
-                    client.newCall(request).execute().use { response ->
+                    http.newCall(request).execute().use { response ->
                         val bodyStr = response.body?.string()
                         if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
                             responseStr = bodyStr
-                            break@keyLoop
                         } else {
                             val friendlyError = try {
                                 val errObj = JSONObject(bodyStr ?: "").optJSONObject("error")
@@ -250,15 +269,48 @@ Return ONLY valid JSON in this exact structure:
                                 bodyStr
                             }
                             lastException = Exception("Gemini ($modelName) failed (${response.code}): $friendlyError")
-                            // If this key is invalid or unauthorized, skip to the next key
-                            if (response.code in listOf(400, 401, 403) && (bodyStr?.contains("API key not valid", ignoreCase = true) == true || bodyStr?.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED", ignoreCase = true) == true)) {
-                                continue@keyLoop
-                            }
                         }
                     }
+                    if (responseStr != null) break
                 } catch (e: Exception) {
                     lastException = e
                 }
+            }
+        } else {
+            val baseUrl = BuildConfig.SUPABASE_URL.trim().trim('"', '\'').trimEnd('/')
+            val apiKey = BuildConfig.SUPABASE_KEY.trim().trim('"', '\'')
+            val proxyPayload = JSONObject().apply {
+                put("models", JSONArray(candidateModels))
+                put("requestBody", requestJson)
+            }
+            val request = Request.Builder()
+                .url(buildEdgeProxyUrl(baseUrl))
+                .header("apikey", apiKey)
+                .header("Authorization", "Bearer $userJwt")
+                .header("Content-Type", "application/json")
+                .post(proxyPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            try {
+                http.newCall(request).execute().use { response ->
+                    val bodyStr = response.body?.string()
+                    if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
+                        responseStr = bodyStr
+                    } else {
+                        val friendlyError = try {
+                            val errObj = JSONObject(bodyStr ?: "")
+                            errObj.optJSONObject("error")?.optString("message")
+                                ?: errObj.optString("error").takeIf { it.isNotBlank() }
+                                ?: errObj.optString("message").takeIf { it.isNotBlank() }
+                                ?: bodyStr
+                        } catch (_: Exception) {
+                            bodyStr
+                        }
+                        lastException = Exception("Gemini Edge Proxy failed (${response.code}): $friendlyError")
+                    }
+                }
+            } catch (e: Exception) {
+                lastException = e
             }
         }
 

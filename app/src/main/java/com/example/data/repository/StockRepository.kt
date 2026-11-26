@@ -8,6 +8,7 @@ import com.example.data.auth.AuthManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.ColorTintLog
 import com.example.data.model.DailyCashflowRecord
+import com.example.data.model.GstBillRecord
 import com.example.data.model.Item
 import com.example.data.model.LedgerAccount
 import com.example.data.model.PurchaseLine
@@ -16,6 +17,7 @@ import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
 import com.example.data.pref.BankingPreferenceManager
 import com.example.data.pref.FestivalPreferenceManager
+import com.example.data.pref.FestivalStudioCodec
 import com.example.data.pref.FestivalStudioConfig
 import com.example.data.pref.LogoPreferenceManager
 import com.example.data.pref.StoreProfilePreferenceManager
@@ -89,6 +91,10 @@ class StockRepository(
             accessTokenProvider = { authManager.activeAccessToken() },
             onRefreshSession = { authManager.refreshSessionBlocking() }
         )
+        authManager.onSessionClearedListener = {
+            pauseBackgroundWork()
+            lastKnownRemoteProfile = null
+        }
     }
 
     val allItems: Flow<List<Item>> = database.itemDao().getAllItems()
@@ -210,6 +216,12 @@ class StockRepository(
     ).serializeNulls()
     private val purchaseAdapter = moshi.adapter(PurchaseRecord::class.java).serializeNulls()
     private val auditLogAdapter = moshi.adapter(com.example.data.model.AuditLogRecord::class.java).serializeNulls()
+    private val gstBillListAdapter = moshi.adapter<List<GstBillRecord>>(
+        Types.newParameterizedType(List::class.java, GstBillRecord::class.java)
+    ).serializeNulls()
+    private val colorTintLogListAdapter = moshi.adapter<List<ColorTintLog>>(
+        Types.newParameterizedType(List::class.java, ColorTintLog::class.java)
+    ).serializeNulls()
 
     init {
         if (authManager.isAuthed.value) {
@@ -393,6 +405,42 @@ class StockRepository(
                     } catch (e: Exception) { Log.e(tag, "Error handling realtime ledger entry", e) }
                 }
             },
+            onGstBillChanged = { type, bill, oldId ->
+                repositoryScope.launch {
+                    try {
+                        val targetId = (bill?.id ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
+                        }
+                        val pending = database.syncQueueDao().getAll()
+                        val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
+                        if (hasPending) return@launch
+                        when (type) {
+                            "INSERT", "UPDATE" -> if (bill != null) database.gstBillDao().insert(bill)
+                            "DELETE" -> database.gstBillDao().deleteById(targetId)
+                        }
+                    } catch (e: Exception) { Log.e(tag, "Error handling realtime gst bill", e) }
+                }
+            },
+            onColorTintLogChanged = { type, logRec, oldId ->
+                repositoryScope.launch {
+                    try {
+                        val targetId = (logRec?.tintRecordId ?: oldId)?.trim()
+                        if (targetId.isNullOrEmpty()) {
+                            if (type == "DELETE") loadFromRemote()
+                            return@launch
+                        }
+                        val pending = database.syncQueueDao().getAll()
+                        val hasPending = pending.any { q -> q.payloadJson.contains(targetId) }
+                        if (hasPending) return@launch
+                        when (type) {
+                            "INSERT", "UPDATE" -> if (logRec != null) database.colorTintDao().insert(logRec)
+                            "DELETE" -> database.colorTintDao().deleteById(targetId)
+                        }
+                    } catch (e: Exception) { Log.e(tag, "Error handling realtime color tint log", e) }
+                }
+            },
             onStoreProfileChanged = { remoteProfile ->
                 repositoryScope.launch {
                     applyRemoteStoreProfile(remoteProfile)
@@ -459,20 +507,33 @@ class StockRepository(
                 for (i in 0 until arr.length()) {
                     val item = arr.get(i)
                     if (item is JSONObject) {
-                        if (item.has("id")) list.add(item.getString("id"))
-                    } else if (item is String) {
-                        list.add(item)
+                        when {
+                            item.has("id") -> list.add(item.getString("id"))
+                            item.has("tint_record_id") -> list.add(item.getString("tint_record_id"))
+                            item.has("tintRecordId") -> list.add(item.getString("tintRecordId"))
+                        }
+                    } else if (item is String && item.isNotBlank()) {
+                        list.add(item.trim())
                     }
                 }
                 list
             } else if (trimmed.startsWith("{")) {
                 val obj = JSONObject(trimmed)
-                if (obj.has("id")) listOf(obj.getString("id")) else emptyList()
-            } else {
+                when {
+                    obj.has("id") -> listOf(obj.getString("id"))
+                    obj.has("tint_record_id") -> listOf(obj.getString("tint_record_id"))
+                    obj.has("tintRecordId") -> listOf(obj.getString("tintRecordId"))
+                    else -> emptyList()
+                }
+            } else if (trimmed.contains(",")) {
+                trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            } else if (trimmed.isNotBlank()) {
                 listOf(trimmed)
+            } else {
+                emptyList()
             }
         } catch (e: Exception) {
-            listOf(payloadJson)
+            payloadJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         }
     }
 
@@ -484,6 +545,10 @@ class StockRepository(
         }
         _syncStatus.value = "Loading…"
         try {
+            if (isOnline()) {
+                flushQueue()
+            }
+
             var firstFetchError: String? = null
             fun <T> recordFetchError(e: Exception): T? {
                 if (firstFetchError == null) {
@@ -497,10 +562,12 @@ class StockRepository(
             val remoteQuotations = try { supabaseClient.fetchAllQuotations() } catch (e: Exception) { recordFetchError(e) }
             val remoteLedgerAcc = try { supabaseClient.fetchAllLedgerAccounts() } catch (e: Exception) { recordFetchError(e) }
             val remoteLedgerEntries = try { supabaseClient.fetchAllLedgerEntries() } catch (e: Exception) { recordFetchError(e) }
+            val remoteGstBills = try { supabaseClient.fetchAllGstBills() } catch (e: Exception) { recordFetchError(e) }
+            val remoteTintLogs = try { supabaseClient.fetchAllColorTintLogs() } catch (e: Exception) { recordFetchError(e) }
 
             if (remoteItems == null && remoteTx == null && remoteCashflow == null &&
                 remoteQuotations == null && remoteLedgerAcc == null && remoteLedgerEntries == null &&
-                firstFetchError != null
+                remoteGstBills == null && remoteTintLogs == null && firstFetchError != null
             ) {
                 _syncStatus.value = "Offline · $firstFetchError"
                 initRealtime(force = false)
@@ -509,71 +576,89 @@ class StockRepository(
 
             val pendingQueue = database.syncQueueDao().getAll()
 
-            // Reconcile Items (Purge records deleted remotely)
+            // Reconcile Items (Purge records deleted remotely unless protected by queued local ops)
             if (remoteItems != null) {
-                if (remoteItems.isNotEmpty()) {
-                    val localItemsMap = database.itemDao().getAllItemsList().associateBy { it.id }
-                    val mergedRemote = remoteItems.map { r ->
-                        val l = localItemsMap[r.id]
-                        if (l != null) {
-                            r.copy(
-                                price = if (r.price > 0.0) r.price else l.price,
-                                cost = if (r.cost > 0.0) r.cost else l.cost,
-                                shelfLocation = r.shelfLocation ?: l.shelfLocation,
-                                nfcTagId = r.nfcTagId ?: l.nfcTagId,
-                                secondaryUnit = r.secondaryUnit ?: l.secondaryUnit,
-                                conversionFactor = if (r.conversionFactor > 1.0) r.conversionFactor else l.conversionFactor,
-                                secondaryPrice = if (r.secondaryPrice > 0.0) r.secondaryPrice else l.secondaryPrice
-                            )
-                        } else r
-                    }
-                    database.itemDao().insertAll(mergedRemote)
+                val itemPendingOps = pendingQueue.filter {
+                    it.type in setOf("upsert", "upsertItems", "patch", "delete", "deleteBatch", "deleteAll")
                 }
-                val remoteItemIds = remoteItems.map { it.id }.toSet()
-                val pendingItemIds = pendingQueue
-                    .filter { it.type.contains("Item", ignoreCase = true) || it.type.contains("upsert", ignoreCase = true) }
+                val hasPendingDeleteAllItems = itemPendingOps.any { it.type == "deleteAll" }
+                val pendingItemIds = itemPendingOps
                     .flatMap { parsePendingIds(it.payloadJson) }
                     .toSet()
 
-                val localItems = database.itemDao().getAllItemsList()
-                for (local in localItems) {
-                    if (!remoteItemIds.contains(local.id) && !pendingItemIds.contains(local.id)) {
-                        database.itemDao().deleteById(local.id)
+                if (!hasPendingDeleteAllItems && remoteItems.isNotEmpty()) {
+                    val localItemsMap = database.itemDao().getAllItemsList().associateBy { it.id }
+                    val mergedRemote = remoteItems
+                        .filter { !pendingItemIds.contains(it.id) }
+                        .map { r ->
+                            val l = localItemsMap[r.id]
+                            if (l != null) {
+                                r.copy(
+                                    price = if (r.price > 0.0) r.price else l.price,
+                                    cost = if (r.cost > 0.0) r.cost else l.cost,
+                                    shelfLocation = r.shelfLocation ?: l.shelfLocation,
+                                    nfcTagId = r.nfcTagId ?: l.nfcTagId,
+                                    secondaryUnit = r.secondaryUnit ?: l.secondaryUnit,
+                                    conversionFactor = if (r.conversionFactor > 1.0) r.conversionFactor else l.conversionFactor,
+                                    secondaryPrice = if (r.secondaryPrice > 0.0) r.secondaryPrice else l.secondaryPrice
+                                )
+                            } else r
+                        }
+                    if (mergedRemote.isNotEmpty()) {
+                        database.itemDao().insertAll(mergedRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllItems && itemPendingOps.none { it.type == "delete" || it.type == "deleteBatch" }) {
+                    val remoteItemIds = remoteItems.map { it.id }.toSet()
+                    val localItems = database.itemDao().getAllItemsList()
+                    for (local in localItems) {
+                        if (!remoteItemIds.contains(local.id) && !pendingItemIds.contains(local.id)) {
+                            database.itemDao().deleteById(local.id)
+                        }
                     }
                 }
             }
             if (remoteTx != null && remoteTx.isNotEmpty()) database.transactionDao().insertAll(remoteTx)
 
-            // Reconcile Cashflow (Purge records deleted remotely)
+            // Reconcile Cashflow
             if (remoteCashflow != null) {
-                if (remoteCashflow.isNotEmpty()) {
-                    database.dailyCashflowDao().insertAll(remoteCashflow)
-                }
-                val remoteIds = remoteCashflow.map { it.id }.toSet()
-                val pendingCashflowIds = pendingQueue
-                    .filter { it.type.contains("Cashflow", ignoreCase = true) }
-                    .flatMap { parsePendingIds(it.payloadJson) }
-                    .toSet()
+                val cashflowPendingOps = pendingQueue.filter { it.type.contains("Cashflow", ignoreCase = true) }
+                val hasPendingDeleteAllCashflow = cashflowPendingOps.any { it.type == "deleteAllCashflow" }
+                val pendingCashflowIds = cashflowPendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
 
-                val localCashflows = database.dailyCashflowDao().getAllCashflowList()
-                for (local in localCashflows) {
-                    if (!remoteIds.contains(local.id) && !pendingCashflowIds.contains(local.id)) {
-                        database.dailyCashflowDao().deleteById(local.id)
+                if (!hasPendingDeleteAllCashflow && remoteCashflow.isNotEmpty()) {
+                    val safeRemote = remoteCashflow.filter { !pendingCashflowIds.contains(it.id) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.dailyCashflowDao().insertAll(safeRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllCashflow && cashflowPendingOps.none { it.type == "deleteCashflow" }) {
+                    val remoteIds = remoteCashflow.map { it.id }.toSet()
+                    val localCashflows = database.dailyCashflowDao().getAllCashflowList()
+                    for (local in localCashflows) {
+                        if (!remoteIds.contains(local.id) && !pendingCashflowIds.contains(local.id)) {
+                            database.dailyCashflowDao().deleteById(local.id)
+                        }
                     }
                 }
             }
 
             // Reconcile Quotations
             if (remoteQuotations != null) {
-                if (remoteQuotations.isNotEmpty()) {
-                    database.quotationDao().insertAll(remoteQuotations)
+                val quotePendingOps = pendingQueue.filter { it.type.contains("Quotation", ignoreCase = true) }
+                val hasPendingDeleteAllQuotes = quotePendingOps.any { it.type == "deleteAllQuotations" }
+                val pendingQuoteIds = quotePendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
+
+                if (!hasPendingDeleteAllQuotes && remoteQuotations.isNotEmpty()) {
+                    val safeRemote = remoteQuotations.filter { !pendingQuoteIds.contains(it.id) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.quotationDao().insertAll(safeRemote)
+                    }
                 }
                 val remoteIds = remoteQuotations.map { it.id }.toSet()
-                // Never delete local quotations when remote doesn't have them;
-                // instead upload any missing local records to Supabase so they are preserved
                 val localQuotations = database.quotationDao().getAllQuotationsList()
-                val missingFromRemote = localQuotations.filter { !remoteIds.contains(it.id) }
-                if (missingFromRemote.isNotEmpty()) {
+                val missingFromRemote = localQuotations.filter { !remoteIds.contains(it.id) && !pendingQuoteIds.contains(it.id) }
+                if (missingFromRemote.isNotEmpty() && !hasPendingDeleteAllQuotes) {
                     try {
                         supabaseClient.upsertQuotations(missingFromRemote)
                     } catch (e: Exception) {
@@ -584,38 +669,92 @@ class StockRepository(
 
             // Reconcile Ledger Accounts
             if (remoteLedgerAcc != null) {
-                if (remoteLedgerAcc.isNotEmpty()) {
-                    database.ledgerDao().insertAllAccounts(remoteLedgerAcc)
-                }
-                val remoteIds = remoteLedgerAcc.map { it.id }.toSet()
-                val pendingAccIds = pendingQueue
-                    .filter { it.type.contains("LedgerAcc", ignoreCase = true) }
-                    .flatMap { parsePendingIds(it.payloadJson) }
-                    .toSet()
+                val accPendingOps = pendingQueue.filter { it.type.contains("LedgerAcc", ignoreCase = true) }
+                val hasPendingDeleteAllAcc = accPendingOps.any { it.type == "deleteAllLedgerAccounts" }
+                val pendingAccIds = accPendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
 
-                val localAccounts = database.ledgerDao().getAllAccountsList()
-                for (local in localAccounts) {
-                    if (!remoteIds.contains(local.id) && !pendingAccIds.contains(local.id)) {
-                        database.ledgerDao().deleteAccountById(local.id)
+                if (!hasPendingDeleteAllAcc && remoteLedgerAcc.isNotEmpty()) {
+                    val safeRemote = remoteLedgerAcc.filter { !pendingAccIds.contains(it.id) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.ledgerDao().insertAllAccounts(safeRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllAcc && accPendingOps.none { it.type == "deleteLedgerAcc" }) {
+                    val remoteIds = remoteLedgerAcc.map { it.id }.toSet()
+                    val localAccounts = database.ledgerDao().getAllAccountsList()
+                    for (local in localAccounts) {
+                        if (!remoteIds.contains(local.id) && !pendingAccIds.contains(local.id)) {
+                            database.ledgerDao().deleteAccountById(local.id)
+                        }
                     }
                 }
             }
 
             // Reconcile Ledger Entries
             if (remoteLedgerEntries != null) {
-                if (remoteLedgerEntries.isNotEmpty()) {
-                    database.ledgerDao().insertAllEntries(remoteLedgerEntries)
-                }
-                val remoteIds = remoteLedgerEntries.map { it.id }.toSet()
-                val pendingEntryIds = pendingQueue
-                    .filter { it.type.contains("LedgerEntry", ignoreCase = true) }
-                    .flatMap { parsePendingIds(it.payloadJson) }
-                    .toSet()
+                val entryPendingOps = pendingQueue.filter { it.type.contains("LedgerEntry", ignoreCase = true) }
+                val hasPendingDeleteAllEntries = entryPendingOps.any { it.type == "deleteAllLedgerEntries" }
+                val pendingEntryIds = entryPendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
 
-                val localEntries = database.ledgerDao().getAllEntriesList()
-                for (local in localEntries) {
-                    if (!remoteIds.contains(local.id) && !pendingEntryIds.contains(local.id)) {
-                        database.ledgerDao().deleteEntryById(local.id)
+                if (!hasPendingDeleteAllEntries && remoteLedgerEntries.isNotEmpty()) {
+                    val safeRemote = remoteLedgerEntries.filter { !pendingEntryIds.contains(it.id) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.ledgerDao().insertAllEntries(safeRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllEntries && entryPendingOps.none { it.type == "deleteLedgerEntry" }) {
+                    val remoteIds = remoteLedgerEntries.map { it.id }.toSet()
+                    val localEntries = database.ledgerDao().getAllEntriesList()
+                    for (local in localEntries) {
+                        if (!remoteIds.contains(local.id) && !pendingEntryIds.contains(local.id)) {
+                            database.ledgerDao().deleteEntryById(local.id)
+                        }
+                    }
+                }
+            }
+
+            // Reconcile GST Bills
+            if (remoteGstBills != null) {
+                val gstPendingOps = pendingQueue.filter { it.type.contains("GstBill", ignoreCase = true) }
+                val hasPendingDeleteAllGst = gstPendingOps.any { it.type == "deleteAllGstBills" }
+                val pendingGstIds = gstPendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
+
+                if (!hasPendingDeleteAllGst && remoteGstBills.isNotEmpty()) {
+                    val safeRemote = remoteGstBills.filter { !pendingGstIds.contains(it.id) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.gstBillDao().insertAll(safeRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllGst && gstPendingOps.none { it.type == "deleteGstBills" }) {
+                    val remoteIds = remoteGstBills.map { it.id }.toSet()
+                    val localBills = database.gstBillDao().getAllGstBillsList()
+                    for (local in localBills) {
+                        if (!remoteIds.contains(local.id) && !pendingGstIds.contains(local.id)) {
+                            database.gstBillDao().deleteById(local.id)
+                        }
+                    }
+                }
+            }
+
+            // Reconcile Color Tint Logs
+            if (remoteTintLogs != null) {
+                val tintPendingOps = pendingQueue.filter { it.type.contains("ColorTint", ignoreCase = true) }
+                val hasPendingDeleteAllTint = tintPendingOps.any { it.type == "deleteAllColorTintLogs" }
+                val pendingTintIds = tintPendingOps.flatMap { parsePendingIds(it.payloadJson) }.toSet()
+
+                if (!hasPendingDeleteAllTint && remoteTintLogs.isNotEmpty()) {
+                    val safeRemote = remoteTintLogs.filter { !pendingTintIds.contains(it.tintRecordId) }
+                    if (safeRemote.isNotEmpty()) {
+                        database.colorTintDao().insertAll(safeRemote)
+                    }
+                }
+                if (!hasPendingDeleteAllTint && tintPendingOps.none { it.type == "deleteColorTintLogs" }) {
+                    val remoteIds = remoteTintLogs.map { it.tintRecordId }.toSet()
+                    val localLogs = database.colorTintDao().getAllTintLogsList()
+                    for (local in localLogs) {
+                        if (!remoteIds.contains(local.tintRecordId) && !pendingTintIds.contains(local.tintRecordId)) {
+                            database.colorTintDao().deleteById(local.tintRecordId)
+                        }
                     }
                 }
             }
@@ -667,7 +806,8 @@ class StockRepository(
         shelfLocation: String? = null,
         secondaryUnit: String? = null,
         conversionFactor: Double = 1.0,
-        secondaryPrice: Double = 0.0
+        secondaryPrice: Double = 0.0,
+        preserveExistingOptionalFields: Boolean = false
     ): Item = withContext(Dispatchers.IO) {
         val now = nowIso()
         if (id != null) {
@@ -690,12 +830,12 @@ class StockRepository(
                 price = price,
                 qty = newQty,
                 low = low,
-                imageUrl = imageUrl ?: existing?.imageUrl,
-                nfcTagId = nfcTagId ?: existing?.nfcTagId,
-                shelfLocation = shelfLocation ?: existing?.shelfLocation,
-                secondaryUnit = secondaryUnit ?: existing?.secondaryUnit,
-                conversionFactor = if (conversionFactor > 0) conversionFactor else existing?.conversionFactor ?: 1.0,
-                secondaryPrice = if (secondaryPrice > 0) secondaryPrice else existing?.secondaryPrice ?: 0.0,
+                imageUrl = if (preserveExistingOptionalFields) (imageUrl ?: existing?.imageUrl) else imageUrl,
+                nfcTagId = if (preserveExistingOptionalFields) (nfcTagId ?: existing?.nfcTagId) else nfcTagId,
+                shelfLocation = if (preserveExistingOptionalFields) (shelfLocation ?: existing?.shelfLocation) else shelfLocation,
+                secondaryUnit = if (preserveExistingOptionalFields) (secondaryUnit ?: existing?.secondaryUnit) else secondaryUnit,
+                conversionFactor = if (conversionFactor > 0) conversionFactor else if (preserveExistingOptionalFields) (existing?.conversionFactor ?: 1.0) else 1.0,
+                secondaryPrice = if (preserveExistingOptionalFields) (if (secondaryPrice > 0) secondaryPrice else existing?.secondaryPrice ?: 0.0) else secondaryPrice,
                 updatedAt = now
             )
             database.itemDao().insert(updated)
@@ -883,7 +1023,13 @@ class StockRepository(
         database.dailyCashflowDao().deleteAll()
         enqueueOp("deleteAllCashflow", "{}")
 
-        recordAudit("DELETE_ALL_DATA", "Cleared all inventory, quotation, ledger, and cashflow data")
+        database.gstBillDao().deleteAll()
+        enqueueOp("deleteAllGstBills", "{}")
+
+        database.colorTintDao().clearAll()
+        enqueueOp("deleteAllColorTintLogs", "{}")
+
+        recordAudit("DELETE_ALL_DATA", "Cleared all inventory, quotation, ledger, GST bill, tint log, and cashflow data")
 
         flushQueue()
     }
@@ -1213,6 +1359,26 @@ class StockRepository(
             }
         }
 
+        val allGstBills = database.gstBillDao().getAllGstBillsList()
+        if (allGstBills.isNotEmpty()) {
+            try {
+                supabaseClient.upsertGstBills(allGstBills)
+            } catch (e: Exception) {
+                Log.e(tag, "uploadAllToDatabase gst_bills failed", e)
+                errors.add("GST Bills: ${e.message}")
+            }
+        }
+
+        val allTintLogs = database.colorTintDao().getAllTintLogsList()
+        if (allTintLogs.isNotEmpty()) {
+            try {
+                supabaseClient.upsertColorTintLogs(allTintLogs)
+            } catch (e: Exception) {
+                Log.e(tag, "uploadAllToDatabase color_tint_logs failed", e)
+                errors.add("Tint Logs: ${e.message}")
+            }
+        }
+
         if (errors.isEmpty()) {
             _syncStatus.value = "Synced ✓"
         } else {
@@ -1350,13 +1516,35 @@ class StockRepository(
                         "deleteAllLedgerEntries" -> {
                             supabaseClient.deleteAllLedgerEntries()
                         }
+                        "upsertGstBills" -> {
+                            val bills = gstBillListAdapter.fromJson(op.payloadJson) ?: emptyList()
+                            supabaseClient.upsertGstBills(bills)
+                        }
+                        "deleteGstBills" -> {
+                            val ids = op.payloadJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            supabaseClient.deleteGstBills(ids)
+                        }
+                        "deleteAllGstBills" -> {
+                            supabaseClient.deleteAllGstBills()
+                        }
+                        "upsertColorTintLogs" -> {
+                            val logs = colorTintLogListAdapter.fromJson(op.payloadJson) ?: emptyList()
+                            supabaseClient.upsertColorTintLogs(logs)
+                        }
+                        "deleteColorTintLogs" -> {
+                            val ids = op.payloadJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            supabaseClient.deleteColorTintLogs(ids)
+                        }
+                        "deleteAllColorTintLogs" -> {
+                            supabaseClient.deleteAllColorTintLogs()
+                        }
                         "upsertStoreProfile" -> {
                             val json = JSONObject(op.payloadJson)
                             val profile = StoreProfileSyncCodec.parseFromObject(json)
                             if (profile != null) {
                                 val remote = runCatching { supabaseClient.fetchStoreProfile() }.getOrNull()
                                 val merged = StoreProfileSyncCodec.merge(remote, profile)
-                                supabaseClient.saveStoreProfile(merged)
+                                supabaseClient.saveStoreProfile(merged, authManager.currentUserEmail.value)
                                 lastKnownRemoteProfile = merged
                             }
                         }
@@ -1506,6 +1694,8 @@ class StockRepository(
 
     suspend fun saveGstBill(bill: com.example.data.model.GstBillRecord) = withContext(Dispatchers.IO) {
         database.gstBillDao().insert(bill)
+        enqueueOp("upsertGstBills", gstBillListAdapter.toJson(listOf(bill)))
+        flushQueue()
     }
 
     /**
@@ -1524,6 +1714,7 @@ class StockRepository(
         try {
             val now = nowIso()
             database.gstBillDao().insert(bill)
+            enqueueOp("upsertGstBills", gstBillListAdapter.toJson(listOf(bill)))
 
             var deductedLineCount = 0
             if (deductStock && lineItems.isNotEmpty()) {
@@ -1623,6 +1814,8 @@ class StockRepository(
 
     suspend fun deleteGstBill(id: String) = withContext(Dispatchers.IO) {
         database.gstBillDao().deleteById(id)
+        enqueueOp("deleteGstBills", id)
+        flushQueue()
     }
 
     suspend fun convertQuotationToGstBill(
@@ -1637,16 +1830,13 @@ class StockRepository(
             val invNumber = invoiceNo?.ifBlank { null } ?: "GST-${quotation.quotationNo}"
             val quoteItems = com.example.util.InvoicePrintManager.parseLineItems(quotation.itemsJson)
 
-            // Map quotation line items into GST bill line items
-            val gstLineItems = quoteItems.mapIndexed { idx, qItem ->
+            // Map quotation line items into GST bill line items and proportionally distribute discount
+            val rawGstLineItems = quoteItems.mapIndexed { idx, qItem ->
                 val matched = if (qItem.itemId != null) database.itemDao().getItemByIdOnce(qItem.itemId) else null
                 val effectiveRate = if (qItem.qty > 0) {
                     qItem.total / qItem.qty
                 } else qItem.unitPrice
                 val taxRate = quotation.taxPercent
-                val taxableAmount = effectiveRate * qItem.qty
-                val taxAmt = taxableAmount * (taxRate / 100.0)
-                val totalAmt = taxableAmount + taxAmt
 
                 com.example.data.model.GstBillLineItem(
                     id = qItem.itemId ?: "row_$idx",
@@ -1655,14 +1845,19 @@ class StockRepository(
                     qty = qItem.qty,
                     rate = effectiveRate,
                     taxRatePercent = taxRate,
-                    taxableAmount = taxableAmount,
-                    taxAmount = taxAmt,
-                    totalAmount = totalAmt,
+                    taxableAmount = 0.0,
+                    taxAmount = 0.0,
+                    totalAmount = 0.0,
                     unit = qItem.unit.ifBlank { matched?.unit ?: "pcs" },
                     subtitle = qItem.type,
                     imageUrl = matched?.imageUrl
                 )
             }
+
+            val gstLineItems = com.example.util.InvoicePrintManager.distributeDiscountAcrossGstLines(
+                lines = rawGstLineItems,
+                discount = quotation.discount
+            )
 
             val taxableTotal = gstLineItems.sumOf { it.taxableAmount }
             val totalTaxAmount = gstLineItems.sumOf { it.taxAmount }
@@ -1671,7 +1866,7 @@ class StockRepository(
             val gstBill = com.example.data.model.GstBillRecord(
                 id = UUID.randomUUID().toString(),
                 invoiceNo = invNumber,
-                invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
+                invoiceDate = DateTimeHelper.localDateKey(),
                 customerName = quotation.customerName,
                 customerPhone = quotation.customerPhone,
                 customerGstin = customerGstin,
@@ -1691,8 +1886,9 @@ class StockRepository(
                 createdAt = now
             )
 
-            // Save GST bill record to local database
+            // Save GST bill record to local database & queue for Supabase sync
             database.gstBillDao().insert(gstBill)
+            enqueueOp("upsertGstBills", gstBillListAdapter.toJson(listOf(gstBill)))
 
             // Mark Quotation as converted
             val updatedNotes = if (quotation.notes.isNotBlank()) {
@@ -1801,13 +1997,14 @@ class StockRepository(
             }
 
             val now = nowIso()
+            val normalizedDate = DateTimeHelper.normalizeDateToIso(date, DateTimeHelper.localDateKey())
             val entry = com.example.data.model.LedgerEntry(
                 id = UUID.randomUUID().toString(),
                 accountId = accountId,
                 type = type,
                 amount = amount,
                 balanceAfter = newBalance,
-                date = date,
+                date = normalizedDate,
                 description = description,
                 billRef = billRef,
                 createdAt = now
@@ -1832,9 +2029,12 @@ class StockRepository(
         updatedEntry: com.example.data.model.LedgerEntry
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            database.ledgerDao().insertEntry(updatedEntry)
-            enqueueOp("upsertLedgerEntry", ledgerEntryListAdapter.toJson(listOf(updatedEntry)))
-            recalculateAccountBalanceInternal(updatedEntry.accountId)
+            val normalized = updatedEntry.copy(
+                date = DateTimeHelper.normalizeDateToIso(updatedEntry.date, DateTimeHelper.localDateKey())
+            )
+            database.ledgerDao().insertEntry(normalized)
+            enqueueOp("upsertLedgerEntry", ledgerEntryListAdapter.toJson(listOf(normalized)))
+            recalculateAccountBalanceInternal(normalized.accountId)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(tag, "Failed to update ledger entry", e)
@@ -1965,13 +2165,18 @@ class StockRepository(
             signatureUrl = sigUrl,
             qrCodeUrl = qrUrl,
             festivalConfigJson = festivalPreferenceManager.getRawJsonOrNull(),
-            userRolesJson = authManager.getUserRolesJsonOrNull(),
             updatedAt = System.currentTimeMillis()
         )
     }
 
+    private fun sanitizeHttpsImageUrl(raw: String?): String? {
+        val trimmed = raw?.trim() ?: return null
+        if (trimmed.isEmpty()) return ""
+        return if (trimmed.startsWith("https://", ignoreCase = true)) trimmed else null
+    }
+
     private suspend fun syncUnsyncedLocalProfileMediaIfNeeded(remoteProfile: RemoteStoreProfile?) {
-        if (!supabaseClient.isConfigured()) return
+        if (!supabaseClient.isConfigured() || !authManager.isAdmin.value) return
         val bank = bankingPreferenceManager.currentBankingInfo.value
         var uploadedSigUrl: String? = null
         var uploadedQrUrl: String? = null
@@ -2019,15 +2224,31 @@ class StockRepository(
         if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity)) {
             val snapshot = buildLocalStoreProfileSnapshot()
             val merged = StoreProfileSyncCodec.merge(remoteProfile, snapshot)
-            if (supabaseClient.saveStoreProfile(merged)) {
+            if (supabaseClient.saveStoreProfile(merged, authManager.currentUserEmail.value)) {
                 lastKnownRemoteProfile = merged
             }
         }
     }
 
     private suspend fun applyRemoteStoreProfile(remote: RemoteStoreProfile) {
-        lastKnownRemoteProfile = StoreProfileSyncCodec.merge(lastKnownRemoteProfile, remote)
-        logoPreferenceManager.applyRemoteUrls(remote.bannerUrl, remote.logoUrl)
+        val safeBannerUrl = sanitizeHttpsImageUrl(remote.bannerUrl)
+        val safeLogoUrl = sanitizeHttpsImageUrl(remote.logoUrl)
+        val safeSigUrl = sanitizeHttpsImageUrl(remote.signatureUrl)
+        val safeQrUrl = sanitizeHttpsImageUrl(remote.qrCodeUrl)
+        val safeFestivalJson = remote.festivalConfigJson?.let { raw ->
+            FestivalStudioCodec.fromJsonString(raw)?.let { parsed ->
+                FestivalStudioCodec.toJsonString(parsed)
+            }
+        }
+        val sanitizedRemote = remote.copy(
+            bannerUrl = safeBannerUrl,
+            logoUrl = safeLogoUrl,
+            signatureUrl = safeSigUrl,
+            qrCodeUrl = safeQrUrl,
+            festivalConfigJson = safeFestivalJson
+        )
+        lastKnownRemoteProfile = StoreProfileSyncCodec.merge(lastKnownRemoteProfile, sanitizedRemote)
+        logoPreferenceManager.applyRemoteUrls(safeBannerUrl, safeLogoUrl)
         storeProfilePreferenceManager.applyRemoteStoreIdentity(
             storeName = remote.storeName,
             supervisorName = remote.supervisorName,
@@ -2042,44 +2263,41 @@ class StockRepository(
             branchName = remote.branchName,
             upiId = remote.upiId
         )
-        festivalPreferenceManager.applyRemoteJson(remote.festivalConfigJson)
-        authManager.applyRemoteUserRoles(remote.userRolesJson, remote.updatedAt)
+        festivalPreferenceManager.applyRemoteJson(safeFestivalJson)
         authManager.refreshCurrentUserRole()
 
         val currentBank = bankingPreferenceManager.currentBankingInfo.value
-        val sigUrl = remote.signatureUrl
-        if (sigUrl != null) {
-            if (sigUrl.isBlank()) {
+        if (safeSigUrl != null) {
+            if (safeSigUrl.isBlank()) {
                 if (currentBank.signaturePath != null || !currentBank.signatureUrl.isNullOrBlank()) {
                     bankingPreferenceManager.clearSignature(markClearedForSync = false)
                 }
             } else {
                 val localSigFileMissing = currentBank.signaturePath.isNullOrBlank() || !File(currentBank.signaturePath).exists()
-                if (sigUrl != currentBank.signatureUrl || localSigFileMissing) {
-                    val bytes = supabaseClient.downloadImageBytes(sigUrl)
+                if (safeSigUrl != currentBank.signatureUrl || localSigFileMissing) {
+                    val bytes = supabaseClient.downloadImageBytes(safeSigUrl)
                     if (bytes != null && bytes.isNotEmpty()) {
-                        bankingPreferenceManager.saveSignatureFromBytes(bytes, sigUrl)
+                        bankingPreferenceManager.saveSignatureFromBytes(bytes, safeSigUrl)
                     } else {
-                        bankingPreferenceManager.setSignatureCloudUrl(sigUrl)
+                        bankingPreferenceManager.setSignatureCloudUrl(safeSigUrl)
                     }
                 }
             }
         }
 
-        val qrUrl = remote.qrCodeUrl
-        if (qrUrl != null) {
-            if (qrUrl.isBlank()) {
+        if (safeQrUrl != null) {
+            if (safeQrUrl.isBlank()) {
                 if (currentBank.qrCodePath != null || !currentBank.qrCodeUrl.isNullOrBlank()) {
                     bankingPreferenceManager.clearQrCode(markClearedForSync = false)
                 }
             } else {
                 val localQrFileMissing = currentBank.qrCodePath.isNullOrBlank() || !File(currentBank.qrCodePath).exists()
-                if (qrUrl != currentBank.qrCodeUrl || localQrFileMissing) {
-                    val bytes = supabaseClient.downloadImageBytes(qrUrl)
+                if (safeQrUrl != currentBank.qrCodeUrl || localQrFileMissing) {
+                    val bytes = supabaseClient.downloadImageBytes(safeQrUrl)
                     if (bytes != null && bytes.isNotEmpty()) {
-                        bankingPreferenceManager.saveQrCodeFromBytes(bytes, qrUrl)
+                        bankingPreferenceManager.saveQrCodeFromBytes(bytes, safeQrUrl)
                     } else {
-                        bankingPreferenceManager.setQrCodeCloudUrl(qrUrl)
+                        bankingPreferenceManager.setQrCodeCloudUrl(safeQrUrl)
                     }
                 }
             }
@@ -2096,7 +2314,7 @@ class StockRepository(
         val merged = StoreProfileSyncCodec.merge(existingRemote, localSnapshot)
         lastKnownRemoteProfile = merged
         if (isOnline()) {
-            val saved = supabaseClient.saveStoreProfile(merged)
+            val saved = supabaseClient.saveStoreProfile(merged, authManager.currentUserEmail.value)
             if (saved) {
                 _syncStatus.value = "Synced ✓"
                 return
@@ -2244,14 +2462,6 @@ class StockRepository(
         )
         pushStoreProfileMerged(snapshot)
         !uploadFailed
-    }
-
-    suspend fun saveAndSyncUserRoles(rolesJson: String, updatedAt: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
-        val snapshot = buildLocalStoreProfileSnapshot().copy(
-            userRolesJson = rolesJson,
-            updatedAt = updatedAt
-        )
-        pushStoreProfileMerged(snapshot)
     }
 
     suspend fun getProcessedTintRecordIds(): Set<String> = withContext(Dispatchers.IO) {
@@ -2422,6 +2632,7 @@ class StockRepository(
 
             if (newTintLogs.isNotEmpty()) {
                 database.colorTintDao().insertAll(newTintLogs)
+                enqueueOp("upsertColorTintLogs", colorTintLogListAdapter.toJson(newTintLogs))
             }
 
             val prefs = context.getSharedPreferences("tint_machine_prefs", Context.MODE_PRIVATE)

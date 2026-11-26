@@ -71,6 +71,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +98,7 @@ import com.example.data.model.Item
 import com.example.data.remote.UpdateStatus
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.SpreadsheetSanitizer
 import com.example.util.XlsExporter
 import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +129,23 @@ fun BankingAndSignatureSubScreen(
     onBack: () -> Unit
 ) {
     BackHandler { onBack() }
+    val isAdmin by viewModel.isAdmin.collectAsState()
+    if (!isAdmin) {
+        LaunchedEffect(Unit) { onBack() }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Admin access required for Banking & Signature settings.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -1558,7 +1577,7 @@ fun SettingsExportCsvDialog(
             listOf(
                 i.code, i.barcode, i.name, i.cost.toString(), i.price.toString(),
                 i.type, i.brand, i.size, i.unit, i.mrp?.toString() ?: "", i.qty.toString(), i.aliases
-            ).joinToString(",") { "\"${it.replace("\"", "\"\"")}\"" }
+            ).joinToString(",") { SpreadsheetSanitizer.csvEscape(it) }
         }
         (listOf(headers.joinToString(",")) + rows).joinToString("\n")
     }

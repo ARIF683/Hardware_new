@@ -164,7 +164,9 @@ class SecurityReviewFixesTest {
             baseUrl = "https://example.supabase.co",
             apiKey = "test-anon-key",
             okHttpClient = okHttp
-        )
+        ).apply {
+            configureAuth(accessTokenProvider = { "test-jwt" })
+        }
 
         val result = client.uploadImageToCloudinary(byteArrayOf(1, 2, 3, 4), "test.jpg")
         assertTrue("Expected failure instead of silent data: base64 fallback", result.isFailure)

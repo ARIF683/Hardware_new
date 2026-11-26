@@ -18,6 +18,24 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+object SpreadsheetSanitizer {
+    fun sanitizeFormulaText(value: String): String {
+        if (value.isEmpty()) return ""
+        val first = value[0]
+        val trimmedFirst = value.trimStart().firstOrNull()
+        val isDangerous = first == '=' || first == '+' || first == '-' || first == '@' ||
+            first == '\t' || first == '\r' ||
+            trimmedFirst == '=' || trimmedFirst == '+' || trimmedFirst == '-' || trimmedFirst == '@'
+        return if (isDangerous) "'$value" else value
+    }
+
+    fun csvEscape(value: String): String {
+        val safe = sanitizeFormulaText(value)
+        val cleaned = safe.replace("\"", "\"\"")
+        return "\"$cleaned\""
+    }
+}
+
 /**
  * Generates native multi-sheet Excel SpreadsheetML (.xls) files with formatting,
  * typed numeric cells, and summary totals—requiring zero external libraries or storage permissions.
@@ -497,7 +515,8 @@ object XlsExporter {
         when (cell) {
             is XlsCell.Text -> {
                 val styleAttr = if (isSummary) """ ss:StyleID="TotalText"""" else ""
-                sb.appendLine("""        <Cell$styleAttr><Data ss:Type="String">${escapeXml(cell.value)}</Data></Cell>""")
+                val safeText = SpreadsheetSanitizer.sanitizeFormulaText(cell.value)
+                sb.appendLine("""        <Cell$styleAttr><Data ss:Type="String">${escapeXml(safeText)}</Data></Cell>""")
             }
             is XlsCell.Number -> {
                 val safeNum = if (cell.value.isFinite()) cell.value else 0.0

@@ -4,8 +4,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Full singleton store & banking profile synced across devices via Supabase
- * (`purchases` sentinel row with client_id = PROFILE_CLIENT_ID and supplier = PROFILE_SUPPLIER).
+ * Full singleton store & banking profile synced across devices via the dedicated
+ * Supabase `store_profile` table (id = PROFILE_CLIENT_ID).
+ * Note: Role/privilege data is NEVER serialized or accepted in StoreProfileSyncCodec.
  *
  * Nullable string semantics:
  * - null: field not present / not specified (do not overwrite target during partial updates)
@@ -28,7 +29,6 @@ data class RemoteStoreProfile(
     val signatureUrl: String? = null,
     val qrCodeUrl: String? = null,
     val festivalConfigJson: String? = null,
-    val userRolesJson: String? = null,
     val updatedAt: Long = 0L
 )
 
@@ -62,7 +62,6 @@ object StoreProfileSyncCodec {
             signatureUrl = first.optPresentString("signatureUrl"),
             qrCodeUrl = first.optPresentString("qrCodeUrl"),
             festivalConfigJson = first.optPresentString("festivalConfigJson"),
-            userRolesJson = first.optPresentString("userRolesJson"),
             updatedAt = first.optLong("updatedAt", 0L)
         )
     }
@@ -95,7 +94,23 @@ object StoreProfileSyncCodec {
         return parseFromObject(first)
     }
 
+    fun parseFromStoreProfileRow(row: JSONObject?): RemoteStoreProfile? {
+        if (row == null) return null
+        val rawProfile = row.opt("profile_json") ?: row.opt("profileJson")
+        val parsed = parseFromLines(rawProfile)
+        if (parsed != null) {
+            val rowUpdatedAt = row.optLong("updated_at", row.optLong("updatedAt", 0L))
+            return if (parsed.updatedAt <= 0L && rowUpdatedAt > 0L) {
+                parsed.copy(updatedAt = rowUpdatedAt)
+            } else {
+                parsed
+            }
+        }
+        return null
+    }
+
     fun toJsonObject(profile: RemoteStoreProfile): JSONObject {
+        val ts = if (profile.updatedAt > 0L) profile.updatedAt else System.currentTimeMillis()
         return JSONObject().apply {
             profile.bannerUrl?.let { put("bannerUrl", it) }
             profile.logoUrl?.let {
@@ -115,26 +130,19 @@ object StoreProfileSyncCodec {
             profile.signatureUrl?.let { put("signatureUrl", it) }
             profile.qrCodeUrl?.let { put("qrCodeUrl", it) }
             profile.festivalConfigJson?.let { put("festivalConfigJson", it) }
-            profile.userRolesJson?.let { put("userRolesJson", it) }
-            if (profile.updatedAt > 0L) {
-                put("updatedAt", profile.updatedAt)
-            } else {
-                put("updatedAt", System.currentTimeMillis())
-            }
+            put("updatedAt", ts)
         }
     }
 
-    fun toPurchasesPayload(profile: RemoteStoreProfile, billDate: String): JSONObject {
-        val linesArr = JSONArray().apply {
-            put(toJsonObject(profile))
-        }
+    fun toStoreProfilePayload(profile: RemoteStoreProfile, updatedBy: String? = null): JSONObject {
+        val profileObj = toJsonObject(profile)
         return JSONObject().apply {
-            put("client_id", PROFILE_CLIENT_ID)
-            put("supplier", PROFILE_SUPPLIER)
-            put("bill_no", "CONFIG")
-            put("bill_date", billDate)
-            put("total", 0)
-            put("lines", linesArr)
+            put("id", PROFILE_CLIENT_ID)
+            put("profile_json", profileObj.toString())
+            put("updated_at", profileObj.optLong("updatedAt", System.currentTimeMillis()))
+            if (!updatedBy.isNullOrBlank()) {
+                put("updated_by", updatedBy.trim().lowercase())
+            }
         }
     }
 
@@ -160,7 +168,6 @@ object StoreProfileSyncCodec {
             signatureUrl = override.signatureUrl ?: base.signatureUrl,
             qrCodeUrl = override.qrCodeUrl ?: base.qrCodeUrl,
             festivalConfigJson = override.festivalConfigJson ?: base.festivalConfigJson,
-            userRolesJson = override.userRolesJson ?: base.userRolesJson,
             updatedAt = maxOf(base.updatedAt, override.updatedAt)
         )
     }

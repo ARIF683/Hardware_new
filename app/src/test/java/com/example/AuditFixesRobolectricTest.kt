@@ -131,7 +131,9 @@ class AuditFixesRobolectricTest {
             baseUrl = "https://example.supabase.co",
             apiKey = "test-anon-key",
             okHttpClient = okHttp
-        )
+        ).apply {
+            configureAuth(accessTokenProvider = { "test-jwt" })
+        }
     }
 
     // ------------------------------------------------------------------
@@ -147,7 +149,7 @@ class AuditFixesRobolectricTest {
                 req.url.encodedPath.endsWith("/transactions") -> 200 to "[]"
                 req.url.encodedPath.endsWith("/quotations") -> 200 to "[]"
                 req.url.encodedPath.endsWith("/daily_cashflow") -> 200 to "[]"
-                req.url.encodedPath.endsWith("/store_profiles") -> 200 to "[]"
+                req.url.encodedPath.endsWith("/store_profile") -> 200 to "[]"
                 else -> 200 to "[]"
             }
         }
@@ -684,6 +686,7 @@ class AuditFixesRobolectricTest {
                 )
             )
         }
+        AuthManager.seedTestSessionForTest(context, "owner@store.com", isAdmin = true)
         val vm = StockViewModel(context)
         vm.saveStoreIdentity(
             storeName = "Metro Hardware",

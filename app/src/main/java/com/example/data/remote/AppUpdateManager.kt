@@ -61,24 +61,29 @@ class AppUpdateManager(
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
 
+        private val SHA256_HEX_REGEX = Regex("^[a-fA-F0-9]{64}$")
+
         internal fun isAllowedDownloadUrl(url: String, allowRedirectHost: Boolean = false): Boolean {
             return try {
                 val trimmed = url.trim()
+                if (trimmed.contains("..") || trimmed.contains("\\")) return false
                 val uri = URI(trimmed)
                 if (!uri.scheme.equals("https", ignoreCase = true)) return false
                 val host = uri.host?.lowercase() ?: return false
+                val normalizedPath = uri.normalize().path.orEmpty()
+                if (normalizedPath.contains("..")) return false
 
-                val exactPrefix = "https://github.com/ARIF683/Hardware_new/releases/download/"
-                val matchesPrefix = trimmed.startsWith(exactPrefix, ignoreCase = false)
+                val isExactGitHubRelease = (host == "github.com") &&
+                    normalizedPath.startsWith("/ARIF683/Hardware_new/releases/download/")
 
                 if (allowRedirectHost) {
-                    matchesPrefix ||
+                    isExactGitHubRelease ||
                         host == "objects.githubusercontent.com" ||
                         host.endsWith(".objects.githubusercontent.com") ||
                         host == "release-assets.githubusercontent.com" ||
                         host.endsWith(".release-assets.githubusercontent.com")
                 } else {
-                    matchesPrefix
+                    isExactGitHubRelease
                 }
             } catch (_: Exception) {
                 false
@@ -241,14 +246,21 @@ class AppUpdateManager(
                 return@withContext
             }
 
+            val resolvedExpectedHash = (expectedSha256?.takeIf { it.isNotBlank() }
+                ?: (status.value as? UpdateStatus.Available)?.info?.expectedSha256)
+                ?.trim()
+                ?.lowercase()
+
+            if (resolvedExpectedHash.isNullOrBlank() || !SHA256_HEX_REGEX.matches(resolvedExpectedHash)) {
+                _status.value = UpdateStatus.Error("Update rejected: release is missing a valid SHA-256 checksum.")
+                return@withContext
+            }
+
             val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
             val apkFile = File(updatesDir, "StockManager_update.apk")
             if (apkFile.exists()) {
                 apkFile.delete()
             }
-
-            val resolvedExpectedHash = expectedSha256?.takeIf { it.isNotBlank() }
-                ?: (status.value as? UpdateStatus.Available)?.info?.expectedSha256
 
             val request = Request.Builder()
                 .url(downloadUrl)
@@ -285,13 +297,11 @@ class AppUpdateManager(
                     }
                 }
 
-                if (!resolvedExpectedHash.isNullOrBlank()) {
-                    val actualHash = computeSha256(apkFile)
-                    if (!actualHash.equals(resolvedExpectedHash, ignoreCase = true)) {
-                        apkFile.delete()
-                        _status.value = UpdateStatus.Error("APK integrity check failed (SHA-256 mismatch)")
-                        return@withContext
-                    }
+                val actualHash = computeSha256(apkFile)
+                if (!actualHash.equals(resolvedExpectedHash, ignoreCase = true)) {
+                    apkFile.delete()
+                    _status.value = UpdateStatus.Error("APK integrity check failed (SHA-256 mismatch)")
+                    return@withContext
                 }
 
                 _status.value = UpdateStatus.ReadyToInstall(apkFile)

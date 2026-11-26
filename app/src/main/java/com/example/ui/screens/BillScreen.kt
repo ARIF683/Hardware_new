@@ -1067,15 +1067,20 @@ fun BillScreen(viewModel: StockViewModel) {
                 }
 
                 // Row Items
-                itemsIndexed(rows) { index, row ->
+                itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                    val rowId = row.id
                     BillRowEditor(
                         index = index,
                         row = row,
                         allItems = allItems,
-                        onUpdate = { updated -> rows[index] = updated },
+                        onUpdate = { updated ->
+                            val curIdx = rows.indexOfFirst { it.id == rowId }
+                            if (curIdx >= 0) rows[curIdx] = updated
+                        },
                         onDelete = {
-                            if (rows.size > 1) {
-                                rows.removeAt(index)
+                            val curIdx = rows.indexOfFirst { it.id == rowId }
+                            if (curIdx >= 0 && rows.size > 1) {
+                                rows.removeAt(curIdx)
                             }
                         }
                     )
@@ -1596,8 +1601,8 @@ fun BillRowEditor(
 ) {
     val context = LocalContext.current
     val ext = LocalExtendedColors.current
-    var showItemPicker by remember { mutableStateOf(false) }
-    var pickerField by remember { mutableStateOf<String?>(null) } // "type", "brand", "size", "unit"
+    var showItemPicker by remember(row.id) { mutableStateOf(false) }
+    var pickerField by remember(row.id) { mutableStateOf<String?>(null) } // "type", "brand", "size", "unit"
 
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -1820,22 +1825,22 @@ fun BillRowEditor(
 
             // Rate and Quantity + Multi-Unit Conversion (raw strings preserve trailing decimals / zero backspaces)
             fun formatBillNum(v: Double): String = if (v <= 0.0) "" else if (v % 1.0 == 0.0) v.toLong().toString() else java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString()
-            var rateText by remember { mutableStateOf(formatBillNum(row.rate)) }
-            LaunchedEffect(row.rate) {
+            var rateText by remember(row.id) { mutableStateOf(formatBillNum(row.rate)) }
+            LaunchedEffect(row.id, row.rate) {
                 val parsed = rateText.trim().toDoubleOrNull()
                 if (parsed != row.rate && !(rateText.isBlank() && row.rate == 0.0)) {
                     rateText = formatBillNum(row.rate)
                 }
             }
-            var qtyText by remember { mutableStateOf(formatBillNum(row.qty)) }
-            LaunchedEffect(row.qty) {
+            var qtyText by remember(row.id) { mutableStateOf(formatBillNum(row.qty)) }
+            LaunchedEffect(row.id, row.qty) {
                 val parsed = qtyText.trim().toDoubleOrNull()
                 if (parsed != row.qty && !(qtyText.isBlank() && row.qty == 0.0)) {
                     qtyText = formatBillNum(row.qty)
                 }
             }
-            var sellingPriceText by remember { mutableStateOf(formatBillNum(row.sellingPrice)) }
-            LaunchedEffect(row.sellingPrice) {
+            var sellingPriceText by remember(row.id) { mutableStateOf(formatBillNum(row.sellingPrice)) }
+            LaunchedEffect(row.id, row.sellingPrice) {
                 val parsed = sellingPriceText.trim().toDoubleOrNull()
                 if (parsed != row.sellingPrice && !(sellingPriceText.isBlank() && row.sellingPrice == 0.0)) {
                     sellingPriceText = formatBillNum(row.sellingPrice)

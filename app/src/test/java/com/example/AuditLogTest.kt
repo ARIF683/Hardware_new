@@ -85,11 +85,7 @@ class AuditLogTest {
     }
 
     private fun seedSession(email: String, isAdmin: Boolean) {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", email)
-            .putBoolean("is_admin", isAdmin)
-            .commit()
+        AuthManager.seedTestSessionForTest(app, email, isAdmin)
     }
 
     @Test
@@ -206,7 +202,9 @@ class AuditLogTest {
             baseUrl = "https://example.supabase.co",
             apiKey = "test-anon-key",
             okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
-        )
+        ).apply {
+            configureAuth(accessTokenProvider = { "test-jwt" })
+        }
 
         client.insertAuditLog(
             AuditLogRecord(

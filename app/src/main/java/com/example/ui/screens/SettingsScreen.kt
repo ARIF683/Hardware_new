@@ -173,6 +173,8 @@ fun SettingsScreen(viewModel: StockViewModel) {
         if (!isAdmin) {
             showFestivalStudioDialog = false
             showAdminUserManagementDialog = false
+            showBankingScreen = false
+            showProfileEditDialog = false
         }
     }
 
@@ -418,9 +420,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
-                                logoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                if (isAdmin) {
+                                    logoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                } else {
+                                    viewModel.showToast("Admin access required to update store logo")
+                                }
                             }
                             .testTag("settings_logo_avatar"),
                         contentAlignment = Alignment.Center
@@ -494,9 +500,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                                         .background(MaterialTheme.colorScheme.surfaceVariant)
                                         .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
                                         .clickable {
-                                            logoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
+                                            if (isAdmin) {
+                                                logoPickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            } else {
+                                                viewModel.showToast("Admin access required to update store logo")
+                                            }
                                         }
                                 ) {
                                     if (!customLogoUrl.isNullOrBlank()) {
@@ -597,7 +607,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable { showProfileEditDialog = true }
+                                .clickable {
+                                    if (isAdmin) {
+                                        showProfileEditDialog = true
+                                    } else {
+                                        viewModel.showToast("Admin access required to edit store profile")
+                                    }
+                                }
                                 .testTag("settings_edit_profile_button")
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -808,7 +824,13 @@ fun SettingsScreen(viewModel: StockViewModel) {
                     } else {
                         "INR (₹) • Bank, Signature & Payment QR"
                     },
-                    onClick = { showBankingScreen = true },
+                    onClick = {
+                        if (isAdmin) {
+                            showBankingScreen = true
+                        } else {
+                            viewModel.showToast("Admin access required to manage banking details")
+                        }
+                    },
                     testTag = "settings_banking_row",
                     trailingContent = {
                         Icon(
@@ -1493,7 +1515,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
     }
 
     // ==================== DIALOGS ====================
-    if (showProfileEditDialog) {
+    if (showProfileEditDialog && isAdmin) {
         SettingsProfileEditDialog(
             initialStoreName = storeIdentity.storeName.ifBlank { effectiveStoreTitle },
             initialName = supervisorName,
@@ -1685,10 +1707,15 @@ fun SettingsScreen(viewModel: StockViewModel) {
     }
 
     if (showLogoutDialog) {
+        val logoutMessage = if (pendingCount > 0) {
+            "You have $pendingCount unsynced change(s) pending upload. Signing out clears local cache and discards unsynced changes."
+        } else {
+            "You'll need to enter the password again to unlock the terminal."
+        }
         SimpleConfirmDialog(
             title = "Sign Out",
-            message = "You'll need to enter the password again to unlock the terminal.",
-            confirmText = "Sign Out",
+            message = logoutMessage,
+            confirmText = if (pendingCount > 0) "Discard & Sign Out" else "Sign Out",
             isDanger = true,
             onConfirm = {
                 viewModel.authManager.logout()

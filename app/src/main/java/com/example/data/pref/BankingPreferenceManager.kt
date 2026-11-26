@@ -31,6 +31,8 @@ class BankingPreferenceManager(private val context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("banking_signature_pref", Context.MODE_PRIVATE)
 
     companion object {
+        private const val MAX_REMOTE_IMAGE_BYTES = 5 * 1024 * 1024
+        private const val MAX_IMAGE_DIM_PX = 4096
         private var isInitialized = false
         private val _bankingInfo = MutableStateFlow(BankingInfo())
         val bankingInfo: StateFlow<BankingInfo> = _bankingInfo.asStateFlow()
@@ -167,8 +169,9 @@ class BankingPreferenceManager(private val context: Context) {
         try {
             val destinationFile = File(context.filesDir, "gst_signature.png")
             context.contentResolver.openInputStream(uri)?.use { input ->
-                val original = BitmapFactory.decodeStream(input)
-                    ?: return@withContext Result.failure(Exception("Could not decode signature image"))
+                val rawBytes = input.readBytes()
+                val original = decodeBoundedBitmap(rawBytes, maxTargetDim = 1200)
+                    ?: return@withContext Result.failure(Exception("Could not decode signature image or image exceeds size limits"))
 
                 val maxDim = 600
                 val scale = if (original.width > maxDim || original.height > maxDim) {
@@ -193,10 +196,33 @@ class BankingPreferenceManager(private val context: Context) {
         }
     }
 
+    internal fun decodeBoundedBitmap(bytes: ByteArray, maxTargetDim: Int = MAX_IMAGE_DIM_PX): Bitmap? {
+        if (bytes.isEmpty() || bytes.size > MAX_REMOTE_IMAGE_BYTES) return null
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOpts)
+        if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0 ||
+            boundsOpts.outWidth > MAX_IMAGE_DIM_PX || boundsOpts.outHeight > MAX_IMAGE_DIM_PX
+        ) {
+            return null
+        }
+        var sampleSize = 1
+        while (boundsOpts.outWidth / sampleSize > maxTargetDim || boundsOpts.outHeight / sampleSize > maxTargetDim) {
+            sampleSize *= 2
+        }
+        val decodeOpts = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+    }
+
     suspend fun saveSignatureFromBytes(bytes: ByteArray, remoteUrl: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: return@withContext Result.failure(Exception("Could not decode remote signature image"))
+            if (!remoteUrl.trim().startsWith("https://", ignoreCase = true)) {
+                return@withContext Result.failure(Exception("Untrusted signature URL blocked"))
+            }
+            val decoded = decodeBoundedBitmap(bytes, maxTargetDim = 1200)
+                ?: return@withContext Result.failure(Exception("Signature image invalid or exceeds size/dimension limits"))
             val destinationFile = File(context.filesDir, "gst_signature.png")
             FileOutputStream(destinationFile).use { out ->
                 decoded.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -217,8 +243,9 @@ class BankingPreferenceManager(private val context: Context) {
         try {
             val destinationFile = File(context.filesDir, "gst_upi_qr.png")
             context.contentResolver.openInputStream(uri)?.use { input ->
-                val original = BitmapFactory.decodeStream(input)
-                    ?: return@withContext Result.failure(Exception("Could not decode QR code image"))
+                val rawBytes = input.readBytes()
+                val original = decodeBoundedBitmap(rawBytes, maxTargetDim = 1200)
+                    ?: return@withContext Result.failure(Exception("Could not decode QR code image or image exceeds size limits"))
 
                 val maxDim = 600
                 val scale = if (original.width > maxDim || original.height > maxDim) {
@@ -251,8 +278,11 @@ class BankingPreferenceManager(private val context: Context) {
 
     suspend fun saveQrCodeFromBytes(bytes: ByteArray, remoteUrl: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: return@withContext Result.failure(Exception("Could not decode remote QR image"))
+            if (!remoteUrl.trim().startsWith("https://", ignoreCase = true)) {
+                return@withContext Result.failure(Exception("Untrusted QR image URL blocked"))
+            }
+            val decoded = decodeBoundedBitmap(bytes, maxTargetDim = 1200)
+                ?: return@withContext Result.failure(Exception("QR image invalid or exceeds size/dimension limits"))
             val whiteBg = Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(whiteBg)
             canvas.drawColor(Color.WHITE)
@@ -316,11 +346,19 @@ class BankingPreferenceManager(private val context: Context) {
         _bankingInfo.value = _bankingInfo.value.copy(qrCodePath = null, qrCodeUrl = nextUrl)
     }
 
+    fun clearAllLocalState() {
+        File(context.filesDir, "gst_signature.png").takeIf { it.exists() }?.delete()
+        File(context.filesDir, "gst_upi_qr.png").takeIf { it.exists() }?.delete()
+        prefs.edit().clear().apply()
+        _bankingInfo.value = BankingInfo()
+    }
+
     fun getSignatureBitmap(): Bitmap? {
         val path = _bankingInfo.value.signaturePath ?: prefs.getString("signature_path", null)
         if (path != null && File(path).exists()) {
             return try {
-                BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
+                val bytes = File(path).readBytes()
+                decodeBoundedBitmap(bytes, maxTargetDim = 1200)
             } catch (e: Exception) {
                 null
             }
@@ -332,7 +370,8 @@ class BankingPreferenceManager(private val context: Context) {
         val path = _bankingInfo.value.qrCodePath ?: prefs.getString("qr_code_path", null)
         if (path != null && File(path).exists()) {
             return try {
-                BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
+                val bytes = File(path).readBytes()
+                decodeBoundedBitmap(bytes, maxTargetDim = 1200)
             } catch (e: Exception) {
                 null
             }

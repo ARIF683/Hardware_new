@@ -1,0 +1,139 @@
+Please fix the following verified security vulnerabilities, database exploitation risks, and data/logic bugs across the Android codebase. Keep all existing Robolectric/Compose tests passing and add unit/Compose tests verifying every fix. Also provide the accompanying Supabase SQL/RLS migration script for the backend changes.
+
+================================================================
+PART 1: SECURITY & DATABASE EXPLOITATION FIXES
+================================================================
+
+1. Fix Client-Controlled Admin Privilege Escalation (`AuthManager.kt`, `StockRepository.kt`, `StoreProfileSync.kt`, `StockViewModel.kt`)
+- Problem:
+  - `AuthManager.kt` reads and writes `is_admin` directly from/to `app_users` via PostgREST (`pushRemoteUserUpsert`, `fetchRemoteAppUsersBlocking`), and during `signUpEmailPassword()` calls `app_users` using `Bearer $apiKey` (the `anon` key) before the user verifies their email or gets a JWT. Any attacker extracting `SUPABASE_URL` & `SUPABASE_KEY` from the APK can enumerate emails or attempt to upsert `is_admin = true`.
+  - `StockRepository.applyRemoteStoreProfile()` also passes `remote.userRolesJson` from the `purchases` sentinel row (`__STORE_PROFILE__`) into `authManager.applyRemoteUserRoles(...)`. Anyone who can write to `purchases` can inject `isAdmin = true` with a newer `updatedAt` and elevate themselves locally whenever `app_users` is offline/unavailable.
+- Fix:
+  - Remove `userRolesJson` from `StoreProfileSyncCodec` / `RemoteStoreProfile` / `StockRepository.applyRemoteStoreProfile()` so the `purchases` table can NEVER grant or modify user roles.
+  - Remove `anon` (`apiKey`) calls to `app_users` inside `signUpEmailPassword()`. Let a Supabase server trigger (`AFTER INSERT ON auth.users`) create default `is_admin = false` user rows instead.
+  - Determine admin privileges exclusively from server-verified `app_metadata` (`AuthManager.isMetadataAdmin`) and server-protected `app_users` (never client-mutable `user_metadata` or `purchases`).
+  - Gate `StockViewModel.deleteItem()` and `StockViewModel.deleteSelectedItems()` with `if (!isAdmin.value)` just like `deleteAllItems()` and `clearTransactionHistory()`.
+
+2. Fail Closed on Missing JWT & Restrict Supabase Exposure (`SupabaseClient.kt`, `AuthManager.kt`)
+- Problem:
+  - `SupabaseClient.activeBearerToken()` falls back to `Bearer $apiKey` (`anon` key) when the user access token is blank.
+  - Combined with open self-signup in `AuthGateScreen.kt` and unscoped table queries (`items`, `transactions`, `daily_cashflow`, `quotations`, `ledger_accounts`, `ledger_entries`, `purchases`, `audit_logs`), any outsider who signs up (or uses `anon` if RLS is permissive) can read/overwrite/wipe all store data.
+- Fix:
+  - In `SupabaseClient.activeBearerToken()`, throw/fail closed on authenticated REST/Realtime calls if no valid user JWT is present instead of falling back to `apiKey`.
+  - Generate an accompanying `supabase_security_rls.sql` file enforcing RLS on EVERY table (`items`, `transactions`, `purchases`, `daily_cashflow`, `quotations`, `ledger_accounts`, `ledger_entries`, `audit_logs`, `app_users`, `store_profile`):
+    - Zero `anon` read/write policies on all tables.
+    - Require user membership (`EXISTS (SELECT 1 FROM public.app_users WHERE email = auth.jwt()->>'email')`) in all `USING` / `WITH CHECK` policies so random public signups cannot access store data.
+    - Make `audit_logs` append-only for staff (`INSERT` only, `SELECT` for admins only, deny `UPDATE` and `DELETE` for all clients).
+    - Block non-admins from setting `is_admin = true` or modifying other rows in `app_users` via RLS + a `BEFORE INSERT OR UPDATE` trigger.
+
+3. Gate Banking, UPI QR, Signature & Store Branding Behind Admin (`SettingsScreen.kt`, `HomeScreen.kt`, `BillingHubScreen.kt`, `StockViewModel.kt`, `StockRepository.kt`)
+- Problem:
+  - In `SettingsScreen.kt`, "Currency, GST & Banking" (`showBankingScreen = true`) is accessible to non-admin staff, and tapping the avatar/banner in `HomeScreen.kt` / `BillingHubScreen.kt` calls `updateStoreLogo()` / `updateStoreBanner()` without an `isAdmin` check.
+  - Any staff user (or anyone writing to `purchases` client_id `00000000-0000-0000-0000-000000000001`) can swap the store's `upiId`, `accountNumber`, `ifscCode`, and `qrCodeUrl`, diverting customer payments across all store devices via Realtime.
+- Fix:
+  - Require `isAdmin == true` in UI and `StockViewModel` for opening/saving Banking & Signature settings, store identity, and store logo/banner uploads.
+  - Migrate store profile & banking storage out of `purchases` into a dedicated `store_profile` table whose Supabase RLS allows `SELECT` for authorized users and `INSERT`/`UPDATE`/`DELETE` strictly for admins.
+
+4. Harden Local Token Storage, Cross-User Logout Cleanup & Account Deletion (`SecureTokenStore.kt`, `AuthManager.kt`, `SupabaseAccountOperations.kt`)
+- Problem:
+  - `SecureTokenStore.kt` falls back to unencrypted `"jvm:" + Base64` if Android Keystore fails and accepts `"jvm:"` on real devices.
+  - `KEY_AUTHED`, `KEY_ADMIN`, `KEY_CURRENT_USER_EMAIL`, and `KEY_REGISTERED_USERS` live in plaintext `SharedPreferences` (`stock_manager_auth.xml`), and deleting `auth_security_state_enc` resets local brute-force lockouts.
+  - `AuthManager.logout()` does NOT clear Room tables (`items`, `audit_logs`, `sync_queue`, `ledger_*`, `gst_bills`) or `gemini_prefs` / `banking_signature_pref`, leaking cached data and flushing the previous user's `sync_queue` under the next user's JWT on shared devices.
+  - `SupabaseAccountOperations.confirmDeleteAccountWithOtp()` deletes the `app_users` row *before* calling `rpc/delete_user_account`. If the RPC fails, `app_users` is deleted while the auth user remains active.
+- Fix:
+  - Restrict the `"jvm:"` fallback in `SecureTokenStore.kt` strictly to Robolectric unit tests (`Build.FINGERPRINT.equals("robolectric", ignoreCase = true)`); fail safely on production Keystore errors instead of writing plaintext.
+  - Store `KEY_AUTHED`, `KEY_ADMIN`, `KEY_CURRENT_USER_EMAIL`, and `KEY_REGISTERED_USERS` inside `SecureTokenStore` (encrypted) and verify an active encrypted refresh/access token exists before treating a session as authenticated.
+  - On `logout()` (and when `currentUserEmail` changes between sessions), clear Room database tables and sensitive cached preferences (`gemini_prefs`, `banking_signature_pref`). Warn the user if `sync_queue` has pending items before signing out.
+  - In `confirmDeleteAccountWithOtp()`, execute `rpc/delete_user_account` first and handle `app_users` cleanup inside that server-side SQL function transaction.
+
+5. Prevent Spreadsheet Formula Injection & PDF Path Traversal (`XlsExporter.kt`, `InvoicePrintManager.kt`, `TransactionsDialogsAndStockMovement.kt`)
+- Problem:
+  - `XlsExporter`, `InvoicePrintManager.exportGstr1CsvAndShare()`, and `StockMovementContent` CSV export do not neutralize cell values starting with `=`, `+`, `-`, `@`, `\t`, or `\r`.
+  - `InvoicePrintManager.createQuotationPdf()` and `createLedgerStatementPdf()` interpolate `quotation.quotationNo` and `account.name` into `File(outputDir, ...)` without sanitizing `..` or `/` characters.
+- Fix:
+  - Prefix any exported text value starting with `=`, `+`, `-`, `@`, `\t`, or `\r` with `'` in CSV exports (and sanitize text cells in `XlsExporter` or strip dangerous formula prefixes).
+  - Sanitize `quotation.quotationNo` and `account.name` with `replace(Regex("[^a-zA-Z0-9_-]"), "_")` and verify `outputFile.canonicalPath.startsWith(outputDir.canonicalPath)` before writing PDFs.
+
+6. Harden OTA Verification, Remote Image Decoding & Gemini Key Architecture (`AppUpdateManager.kt`, `StockRepository.kt`, `SupabaseClient.kt`, `GeminiBillScanner.kt`)
+- Problem:
+  - `AppUpdateManager.downloadAndInstall()` skips SHA-256 verification whenever `resolvedExpectedHash` is null/blank, and `isAllowedDownloadUrl()` checks `startsWith()` without normalizing `..` path segments.
+  - `StoreProfileSync` / `SupabaseClient.downloadImageBytes()` fetches remote URLs and decodes bytes via `BitmapFactory.decodeByteArray` without enforcing `https://` validation on all `RemoteStoreProfile` URLs, `inJustDecodeBounds` dimension limits, or max byte size.
+  - Embedding `GEMINI_API_KEY` in `BuildConfig` exposes it in the APK.
+- Fix:
+  - Require a valid SHA-256 checksum on OTA updates (fail if absent) and normalize `uri.normalize().path` in `isAllowedDownloadUrl()`.
+  - Validate `https://` URLs and sanitize `festivalConfigJson` in `applyRemoteStoreProfile()`, and enforce max download size (e.g., <= 5 MB) and image bounds checks before decoding bitmaps.
+  - Proxy Gemini Bill Scanner calls through a JWT-authenticated Supabase Edge Function (similar to `sign-cloudinary-upload`) instead of embedding `GEMINI_API_KEY` in `BuildConfig` (keep user-entered custom key option as fallback if needed).
+
+================================================================
+PART 2: CRITICAL DATA-LOSS, SYNC & BUSINESS LOGIC BUGS
+================================================================
+
+7. Add Pagination to Cashflow, Ledger & Quotation Fetches (`SupabaseClient.kt`, `StockRepository.kt`)
+- Problem:
+  - `fetchAllItems()` paginates in chunks of 1000 (`offset += 1000`), but `fetchAllCashflow()` (`limit=2000`), `fetchAllLedgerAccounts()` (`limit=1000`), `fetchAllLedgerEntries()` (`limit=5000`), and `fetchAllQuotations()` (`limit=1000`) fetch only a single page.
+  - `StockRepository.loadFromRemote()` deletes any local `daily_cashflow`, `ledger_accounts`, or `ledger_entries` row missing from the remote result. Once a store exceeds 2,000 cashflow or 5,000 ledger entries, older records are silently wiped locally.
+- Fix:
+  - Paginate `fetchAllCashflow()`, `fetchAllLedgerAccounts()`, `fetchAllLedgerEntries()`, and `fetchAllQuotations()` using `offset += pageSize` loops until `page.size < pageSize`.
+  - Also chunk `SupabaseClient.deleteItems(ids)` and `upsertItems(items)` into batches of 150 items to prevent HTTP 414 (URI Too Long) or request timeouts on large imports/deletes.
+
+8. Prevent Offline Deletes from Resurfacing on `loadFromRemote()` (`StockRepository.kt`)
+- Problem:
+  - `loadFromRemote()` fetches remote data and writes it into Room *before* calling `flushQueue()` at the end. Furthermore, `parsePendingIds()` does not split comma-separated `"deleteBatch"` IDs, and `pendingItemIds` ignores `"delete"`, `"deleteAll"`, and `"patch"` ops.
+- Fix:
+  - When online, call `flushQueue()` **before** pulling and reconciling remote tables in `loadFromRemote()`, and abort reconciliation deletions if pending queue items remain un-flushed.
+  - Fix `parsePendingIds()` to split comma-separated IDs for `"deleteBatch"`.
+
+9. Allow Clearing Optional Item Fields (`StockRepository.kt`, `ItemFormDialog.kt`)
+- Problem:
+  - In `StockRepository.saveItem()`, `imageUrl = imageUrl ?: existing?.imageUrl`, `nfcTagId = nfcTagId ?: existing?.nfcTagId`, `shelfLocation = shelfLocation ?: existing?.shelfLocation`, `secondaryUnit = secondaryUnit ?: existing?.secondaryUnit`, and `secondaryPrice = if (secondaryPrice > 0) secondaryPrice else existing?.secondaryPrice ?: 0.0`.
+  - Removing a photo ("Remove" sets `imageUrl = null`) or clearing shelf location, NFC tag, secondary unit, or wholesale price in `ItemFormDialog.kt` silently reverts to the old database value on Save.
+- Fix:
+  - When saving from `ItemFormDialog` (or passing `preserveExistingOptionalFields: Boolean = false`), explicitly overwrite optional fields with the submitted `null` / `0.0` values instead of falling back to `existing`. Keep `updateItemPackaging` / `updateItem` safe without dropping fields.
+
+10. Fix Duplicate GST Bills, Double Deductions, Missing Estimate Discount & Empty Rows (`GstCalculatorScreen.kt`, `StockRepository.kt`)
+- Problem:
+  - In `GstCalculatorScreen.kt`, both `"🖨️ PDF"` and `"Save"` generate a fresh `UUID.randomUUID()` and call `viewModel.completePosOrGstSale(...)`. Tapping `"🖨️ PDF"` and then `"Save"` (or tapping `"PDF"` twice) saves duplicate `GstBillRecord`s, deducts stock twice, and logs duplicate `SALE` cashflow rows.
+  - When opened via `openGstCalculatorWithQuotation(q)`, `LaunchedEffect(prefilledQuotation)` ignores `q.discount` (same in `StockRepository.convertQuotationToGstBill()`).
+  - When opened directly (`prefilledQuotation == null`), `rows` starts empty (0 rows) instead of 1 blank row.
+- Fix:
+  - Track a `savedBillId` state for the active invoice session; once saved/finalized, subsequent `"PDF"` or `"Save"` taps reuse/update the existing record (e.g., attach `pdfPath`) without re-deducting stock or re-logging `daily_cashflow`.
+  - Apply `prefilledQuotation.discount` when converting Estimates to GST Invoices.
+  - Initialize `rows` with 1 blank `GstInvoiceRow` when `prefilledQuotation == null`.
+
+11. Fix POS Discount Mismatch in Saved `GstBillRecord.itemsJson` (`QuickBillingPosScreen.kt`)
+- Problem:
+  - `QuickBillingPosScreen.finalizeAndSaveBill()` deducts `discount` from `taxableTotal` and computes `taxAmount` on `(cartSubtotal - discount)`, but saves un-discounted `c.qty * c.customPrice` into `gstLineItems` (`bill.itemsJson`). Viewing or printing the invoice from `GstBillsTabContent` shows line items that do not sum to `bill.grandTotal`.
+- Fix:
+  - Proportionally distribute bill-level `discount` across `gstLineItems` (or store discounted taxable/tax/total amounts per line item) so `gstLineItems.sumOf { it.totalAmount }` reconciles with `bill.grandTotal`.
+
+12. Key `BillRowEditor` States in `BillScreen.kt`
+- Problem:
+  - `itemsIndexed(rows)` in `BillScreen.kt` omits `key = { _, row -> row.id }`, and `BillRowEditor` declares `rateText`, `qtyText`, and `sellingPriceText` using unkeyed `remember { mutableStateOf(...) }`. Deleting a row leaves stale remembered text on shifted rows.
+- Fix:
+  - Add `key = { _, row -> row.id }` to `itemsIndexed(rows)` and use `remember(row.id)` for `rateText`, `qtyText`, and `sellingPriceText`.
+
+13. Sync `gst_bills` and `color_tint_logs` to Supabase (`AppDatabase.kt`, `SupabaseClient.kt`, `StockRepository.kt`)
+- Problem:
+  - `gst_bills` and `color_tint_logs` exist only in local Room and are never synced to Supabase, causing complete loss of saved GST invoices and tint logs on reinstall or device switch.
+- Fix:
+  - Add Supabase fetch/upsert/delete endpoints and offline `sync_queue` handlers for `gst_bills` and `color_tint_logs` (plus SQL table definitions & RLS in `supabase_security_rls.sql`).
+
+14. Normalize Manual Dates & Fix Khata PDF Ordering (`TransactionsScreen.kt`, `LedgerScreen.kt`, `StockViewModel.kt`, `StockRepository.kt`, `InvoicePrintManager.kt`)
+- Problem:
+  - `AddEditCashflowDialog` and `AddLedgerEntryDialog` / `EditLedgerEntryDialog` do not normalize user-typed dates to `"yyyy-MM-dd"`, breaking `TransactionsScreen`'s monthly filter (`startsWith("yyyy-MM")`) and `LedgerDao`'s lexicographical `ORDER BY date ASC` balance recalculation.
+  - `LedgerAccountDetailScreen` passes newest-first `entries` into `createLedgerStatementPdf()`, printing running balances in reverse order.
+- Fix:
+  - Normalize dates via `DateTimeHelper.normalizeDateToIso()` in `StockViewModel.addDailyCashflow()`, `updateDailyCashflow()`, `StockRepository.addLedgerEntry()`, and `updateLedgerEntry()`.
+  - Sort `entries` chronologically (`sortedWith(compareBy({ it.date }, { it.createdAt }))`) before generating the Khata statement PDF.
+
+15. Fix Daily Reminder Alarm Re-Arm Race Before 19:00 (`DailyReminderReceiver.kt`, `DailyReminderScheduler.kt`)
+- Problem:
+  - In `DailyReminderReceiver.onReceive`, `DailyReminderScheduler.showReminderNotification(context)` runs first (calling `scheduleNextDay` if already fired today), and then `DailyReminderScheduler.scheduleNext(context)` runs unconditionally afterward. An early OS wakeup (e.g., `18:59:55`) causes `scheduleNext()` to overwrite tomorrow's alarm back to `19:00` *today*.
+- Fix:
+  - Replace `DailyReminderScheduler.scheduleNext(context)` in `DailyReminderReceiver.ACTION_DAILY_REMINDER` with `DailyReminderScheduler.scheduleNextDay(context)` (or only reschedule for tomorrow after `showReminderNotification`).
+
+16. Fix Estimate Profit Calculation (`QuotationScreen.kt`)
+- Problem:
+  - `QuotationFormDialog` computes `totalEstimateProfit = grandTotal - totalEstimateCost`, which includes GST tax in profit (unlike `QuickBillingPosScreen`, which uses `taxableTotal - totalCost`).
+- Fix:
+  - Compute `totalEstimateProfit = afterDiscount - totalEstimateCost` (excluding `taxAmount`).

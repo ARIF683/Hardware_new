@@ -79,6 +79,8 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("GEMINI_API_KEY")
+  ignoreList.add("GEMINI_KEY")
 }
 
 // Some unused dependencies are commented out below instead of being removed.

@@ -51,7 +51,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             withContext(Dispatchers.Main) {
                                 auth.saveLastSignedInEmail(clean)
@@ -146,7 +146,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             auth.resetAuthFailures()
                             auth.completeSessionBlocking(clean)
@@ -272,7 +272,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             withContext(Dispatchers.Main) {
                                 auth.startOtpExpiryTimer()
@@ -377,7 +377,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             auth.resetAuthFailures()
                             auth.completeEmailChangeLocally(oldEmail, cleanNew, "")
@@ -478,7 +478,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             withContext(Dispatchers.Main) {
                                 auth.startOtpExpiryTimer()
@@ -565,7 +565,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         }
                         return@withLock
                     }
-                    if (!auth.isSupabaseConfigured()) {
+                    if (!auth.isSupabaseConfigured() || auth.allowOfflineTestFallback()) {
                         if (auth.allowOfflineTestFallback()) {
                             auth.resetAuthFailures()
                             auth.completeAccountDeletionLocally(activeEmail)
@@ -621,21 +621,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         return@withLock
                     }
 
-                    // 2. Remove row from app_users if RLS permits
-                    try {
-                        val encodedEmail = URLEncoder.encode(activeEmail, "UTF-8")
-                        val deleteRowReq = Request.Builder()
-                            .url("${supabaseBaseUrl()}/rest/v1/app_users?email=eq.$encodedEmail")
-                            .addHeader("apikey", supabaseApiKey())
-                            .addHeader("Authorization", "Bearer $verifiedToken")
-                            .delete()
-                            .build()
-                        auth.httpClient.newCall(deleteRowReq).execute().close()
-                    } catch (e: Exception) {
-                        android.util.Log.w("SupabaseAccountOps", "Failed removing app_users row prior to RPC deletion", e)
-                    }
-
-                    // 3. Delete authenticated user via Supabase RPC delete_user_account()
+                    // 2. Atomically remove app_users row + auth user via Supabase RPC delete_user_account()
                     val rpcReq = Request.Builder()
                         .url("${supabaseBaseUrl()}/rest/v1/rpc/delete_user_account")
                         .addHeader("apikey", supabaseApiKey())

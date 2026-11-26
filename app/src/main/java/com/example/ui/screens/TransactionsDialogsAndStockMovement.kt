@@ -232,9 +232,15 @@ fun StockMovementContent(
                                     val csvBuilder = StringBuilder()
                                     csvBuilder.append("DateTime,Item Name,Direction,Qty,Unit,Balance,Note\n")
                                     filteredLogs.forEach { tx ->
-                                        val cleanName = tx.itemName.replace("\"", "\"\"")
-                                        val cleanNote = tx.note.replace("\"", "\"\"")
-                                        csvBuilder.append("\"${tx.createdAt}\",\"$cleanName\",\"${tx.action.uppercase()}\",${tx.qty},\"${tx.unit}\",${tx.balance},\"$cleanNote\"\n")
+                                        csvBuilder.append(
+                                            "${com.example.util.SpreadsheetSanitizer.csvEscape(tx.createdAt)}," +
+                                                "${com.example.util.SpreadsheetSanitizer.csvEscape(tx.itemName)}," +
+                                                "${com.example.util.SpreadsheetSanitizer.csvEscape(tx.action.uppercase())}," +
+                                                "${tx.qty}," +
+                                                "${com.example.util.SpreadsheetSanitizer.csvEscape(tx.unit)}," +
+                                                "${tx.balance}," +
+                                                "${com.example.util.SpreadsheetSanitizer.csvEscape(tx.note)}\n"
+                                        )
                                     }
                                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/csv"

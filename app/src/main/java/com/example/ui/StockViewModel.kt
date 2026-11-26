@@ -203,6 +203,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val customLogoUrl: StateFlow<String?> = logoPreferenceManager.customLogoUrl
 
     fun selectLogo(logo: AppLogoStyle) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         logoPreferenceManager.selectLogo(logo)
         logoPreferenceManager.saveCustomLogoUrl(null)
         viewModelScope.launch {
@@ -216,6 +220,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateStoreBanner(url: String?) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         logoPreferenceManager.saveBannerUrl(url)
         viewModelScope.launch {
             try {
@@ -228,6 +236,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateStoreLogo(url: String?) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         logoPreferenceManager.saveCustomLogoUrl(url)
         viewModelScope.launch {
             try {
@@ -448,12 +460,6 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
             }
             editor.apply()
         }
-        // Sync user/admin role changes across devices via store profile backup + Supabase app_users
-        authManager.onRolesChangedListener = { rolesJson, updatedAt ->
-            viewModelScope.launch {
-                repository.saveAndSyncUserRoles(rolesJson, updatedAt)
-            }
-        }
         // Trigger initial remote load only when authenticated; otherwise wait for login
         viewModelScope.launch {
             if (authManager.isAuthed.value) {
@@ -491,6 +497,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         config: FestivalStudioConfig,
         localBannerUris: Map<Int, android.net.Uri> = emptyMap()
     ) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         viewModelScope.launch {
             isAnnouncementDismissed.value = false
             val uploadOk = repository.saveAndSyncFestivalStudio(config, localBannerUris)
@@ -803,7 +813,12 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                     low = item.low,
                     aliases = item.aliases,
                     openingQty = item.qty,
-                    imageUrl = item.imageUrl
+                    imageUrl = item.imageUrl,
+                    nfcTagId = item.nfcTagId,
+                    shelfLocation = item.shelfLocation,
+                    secondaryUnit = item.secondaryUnit,
+                    conversionFactor = item.conversionFactor,
+                    secondaryPrice = item.secondaryPrice
                 )
             } catch (e: Exception) {
                 Log.e("StockViewModel", "Failed to update item", e)
@@ -895,6 +910,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteItem(id: String) {
+        if (!isAdmin.value) {
+            showToast("Admin access required to delete items")
+            return
+        }
         viewModelScope.launch {
             repository.deleteItem(id)
             if (_currentScreen.value is CurrentScreen.ItemDetail) {
@@ -905,6 +924,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteSelectedItems() {
+        if (!isAdmin.value) {
+            showToast("Admin access required to delete items")
+            return
+        }
         val ids = selectedItemIds.value.toList()
         if (ids.isEmpty()) return
         viewModelScope.launch {
@@ -1304,7 +1327,7 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val cleanTitle = title.trim()
             val cleanCategory = category.trim().ifBlank { cleanTitle.ifBlank { if (type.uppercase() == "SALE") "Counter Sale" else "General Expense" } }
-            val cleanDate = date.trim().ifBlank { DateTimeHelper.localDateKey() }
+            val cleanDate = DateTimeHelper.normalizeDateToIso(date)
 
             val record = DailyCashflowRecord(
                 id = java.util.UUID.randomUUID().toString(),
@@ -1328,7 +1351,8 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateDailyCashflow(record: DailyCashflowRecord) {
         viewModelScope.launch {
-            val res = repository.updateDailyCashflow(record)
+            val normalized = record.copy(date = DateTimeHelper.normalizeDateToIso(record.date))
+            val res = repository.updateDailyCashflow(normalized)
             if (res.isSuccess) {
                 showToast("Transaction updated ✓")
             } else {
@@ -1442,6 +1466,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         roleTitle: String,
         location: String
     ) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         viewModelScope.launch {
             repository.saveAndSyncStoreIdentity(storeName, supervisorName, roleTitle, location)
             showToast("Store & terminal profile saved & synced!")
@@ -1456,6 +1484,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         branchName: String,
         upiId: String
     ) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         viewModelScope.launch {
             repository.saveAndSyncBankDetails(
                 bankName, accountHolder, accountNumber, ifscCode, branchName, upiId
@@ -1465,6 +1497,11 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveSignatureFromUri(uri: android.net.Uri, onResult: (Boolean) -> Unit = {}) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            onResult(false)
+            return
+        }
         viewModelScope.launch {
             val res = repository.saveAndSyncSignature(uri)
             if (res.isSuccess) {
@@ -1478,6 +1515,11 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveQrCodeFromUri(uri: android.net.Uri, onResult: (Boolean) -> Unit = {}) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            onResult(false)
+            return
+        }
         viewModelScope.launch {
             val res = repository.saveAndSyncQrCode(uri)
             if (res.isSuccess) {
@@ -1491,6 +1533,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearSignature() {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         viewModelScope.launch {
             repository.clearAndSyncSignature()
             showToast("Signature removed & synced")
@@ -1498,6 +1544,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearQrCode() {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
         viewModelScope.launch {
             repository.clearAndSyncQrCode()
             showToast("QR code removed & synced")

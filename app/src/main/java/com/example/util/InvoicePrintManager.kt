@@ -52,6 +52,21 @@ import java.util.UUID
 
 object InvoicePrintManager {
 
+    internal fun safePdfOutputFile(
+        outputDir: File,
+        prefix: String,
+        unsafeIdentifier: String,
+        fallbackSlug: String
+    ): File {
+        outputDir.mkdirs()
+        val safeSlug = unsafeIdentifier.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { fallbackSlug }
+        val outputFile = File(outputDir, "${prefix}_${safeSlug}.pdf")
+        require(outputFile.canonicalPath.startsWith(outputDir.canonicalPath + File.separator)) {
+            "Unsafe output path for $prefix PDF"
+        }
+        return outputFile
+    }
+
     private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
     private val lineItemListAdapter = moshi.adapter<List<QuotationLineItem>>(
         Types.newParameterizedType(List::class.java, QuotationLineItem::class.java)
@@ -448,13 +463,60 @@ object InvoicePrintManager {
         drawFooter(canvas, currentPage)
         pdfDoc.finishPage(page)
 
-        val outputDir = File(context.cacheDir, "invoices").apply { mkdirs() }
-        val outputFile = File(outputDir, "Quotation_${quotation.quotationNo}.pdf")
+        val outputFile = safePdfOutputFile(
+            outputDir = File(context.cacheDir, "invoices"),
+            prefix = "Quotation",
+            unsafeIdentifier = quotation.quotationNo,
+            fallbackSlug = "Estimate"
+        )
         FileOutputStream(outputFile).use { out ->
             pdfDoc.writeTo(out)
         }
         pdfDoc.close()
         return outputFile
+    }
+
+    /**
+     * Proportionally distributes a bill-level discount across GST line items so that
+     * sum(taxableAmount), sum(taxAmount), and sum(totalAmount) reconcile cleanly with bill totals.
+     */
+    fun distributeDiscountAcrossGstLines(
+        lines: List<GstBillLineItem>,
+        discount: Double
+    ): List<GstBillLineItem> {
+        if (lines.isEmpty()) return emptyList()
+        val rawSubtotals = lines.map { (it.qty * it.rate).coerceAtLeast(0.0) }
+        val totalRaw = rawSubtotals.sum()
+        val clampedDiscount = discount.coerceIn(0.0, totalRaw)
+        if (totalRaw <= 0.0 || clampedDiscount <= 0.0) {
+            return lines.mapIndexed { idx, line ->
+                val raw = rawSubtotals[idx]
+                val tax = raw * (line.taxRatePercent / 100.0)
+                line.copy(
+                    taxableAmount = raw,
+                    taxAmount = tax,
+                    totalAmount = raw + tax
+                )
+            }
+        }
+        val targetTaxableTotal = (totalRaw - clampedDiscount).coerceAtLeast(0.0)
+        val scale = targetTaxableTotal / totalRaw
+        var assignedTaxable = 0.0
+        return lines.mapIndexed { idx, line ->
+            val taxable = if (idx == lines.lastIndex) {
+                (targetTaxableTotal - assignedTaxable).coerceAtLeast(0.0)
+            } else {
+                val weighted = kotlin.math.round((rawSubtotals[idx] * scale) * 100.0) / 100.0
+                assignedTaxable += weighted
+                weighted
+            }
+            val tax = taxable * (line.taxRatePercent / 100.0)
+            line.copy(
+                taxableAmount = taxable,
+                taxAmount = tax,
+                totalAmount = taxable + tax
+            )
+        }
     }
 
     /**
@@ -539,7 +601,14 @@ object InvoicePrintManager {
         val linePaint = Paint().apply { color = Color.rgb(241, 245, 249); strokeWidth = 1f }
         val rightTextPaint = Paint(textPaint).apply { textAlign = Paint.Align.RIGHT }
 
-        entries.forEachIndexed { index, entry ->
+        val chronologicalEntries = entries.sortedWith(
+            compareBy(
+                { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
+                { it.createdAt }
+            )
+        )
+
+        chronologicalEntries.forEachIndexed { index, entry ->
             canvas.drawText(entry.date, 46f, y + 2f, subPaint)
             val desc = entry.description.ifEmpty { if (entry.billRef.isNotEmpty()) "Bill #${entry.billRef}" else "Payment" }
             canvas.drawText(desc.take(28), 130f, y + 2f, textPaint)
@@ -559,8 +628,12 @@ object InvoicePrintManager {
         }
 
         pdfDoc.finishPage(page)
-        val outputDir = File(context.cacheDir, "statements").apply { mkdirs() }
-        val outputFile = File(outputDir, "Ledger_${account.name.replace(" ", "_")}.pdf")
+        val outputFile = safePdfOutputFile(
+            outputDir = File(context.cacheDir, "statements"),
+            prefix = "Ledger",
+            unsafeIdentifier = account.name,
+            fallbackSlug = "Account"
+        )
         FileOutputStream(outputFile).use { out -> pdfDoc.writeTo(out) }
         pdfDoc.close()
         return outputFile
@@ -1190,9 +1263,12 @@ object InvoicePrintManager {
         drawFooter(canvas, currentPage)
         pdfDoc.finishPage(page)
 
-        val cleanInvNo = invoiceNo.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val outputDir = File(context.cacheDir, "invoices").apply { mkdirs() }
-        val outputFile = File(outputDir, "GST_Invoice_$cleanInvNo.pdf")
+        val outputFile = safePdfOutputFile(
+            outputDir = File(context.cacheDir, "invoices"),
+            prefix = "GST_Invoice",
+            unsafeIdentifier = invoiceNo,
+            fallbackSlug = "Invoice"
+        )
         FileOutputStream(outputFile).use { out ->
             pdfDoc.writeTo(out)
         }
@@ -1349,10 +1425,7 @@ object InvoicePrintManager {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val csvFile = File(exportDir, "GSTR1_Report_$stamp.csv")
 
-        fun csvEscape(value: String): String {
-            val cleaned = value.replace("\"", "\"\"")
-            return "\"$cleaned\""
-        }
+        fun csvEscape(value: String): String = SpreadsheetSanitizer.csvEscape(value)
 
         val sb = StringBuilder()
         sb.appendLine("Store,${csvEscape(storeName)}")

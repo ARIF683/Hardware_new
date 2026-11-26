@@ -192,6 +192,9 @@ interface ColorTintDao {
     @Query("SELECT * FROM color_tint_logs ORDER BY tint_timestamp DESC")
     fun getAllTintLogs(): Flow<List<com.example.data.model.ColorTintLog>>
 
+    @Query("SELECT * FROM color_tint_logs ORDER BY tint_timestamp DESC")
+    suspend fun getAllTintLogsList(): List<com.example.data.model.ColorTintLog>
+
     @Query("SELECT * FROM color_tint_logs ORDER BY tint_timestamp DESC LIMIT :limit")
     fun getRecentTintLogs(limit: Int = 100): Flow<List<com.example.data.model.ColorTintLog>>
 
@@ -206,6 +209,9 @@ interface ColorTintDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(logs: List<com.example.data.model.ColorTintLog>)
+
+    @Query("DELETE FROM color_tint_logs WHERE tint_record_id = :id")
+    suspend fun deleteById(id: String)
 
     @Query("DELETE FROM color_tint_logs")
     suspend fun clearAll()

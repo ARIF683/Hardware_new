@@ -14,7 +14,7 @@ class DailyReminderReceiver : BroadcastReceiver() {
         when (intent?.action) {
             DailyReminderScheduler.ACTION_DAILY_REMINDER -> {
                 DailyReminderScheduler.showReminderNotification(context)
-                DailyReminderScheduler.scheduleNext(context)
+                DailyReminderScheduler.scheduleNextDay(context)
             }
             DailyReminderScheduler.ACTION_QUICK_ADD_SALE -> {
                 val input = RemoteInput.getResultsFromIntent(intent)

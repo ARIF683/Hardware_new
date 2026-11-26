@@ -358,8 +358,9 @@ fun QuickBillingPosScreen(
         val invoiceNo = viewModel.consumeNextInvoiceNo()
         val invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
-        val gstLineItems = cartItems.map { c ->
-            val tAmt = (c.qty * c.customPrice) * (c.customTaxRate / 100.0)
+        val rawGstLines = cartItems.map { c ->
+            val rawTaxable = c.qty * c.customPrice
+            val tAmt = rawTaxable * (c.customTaxRate / 100.0)
             GstBillLineItem(
                 id = c.item.id,
                 name = c.item.name,
@@ -367,14 +368,18 @@ fun QuickBillingPosScreen(
                 qty = c.qty,
                 rate = c.customPrice,
                 taxRatePercent = c.customTaxRate,
-                taxableAmount = c.qty * c.customPrice,
+                taxableAmount = rawTaxable,
                 taxAmount = tAmt,
-                totalAmount = (c.qty * c.customPrice) + tAmt,
+                totalAmount = rawTaxable + tAmt,
                 unit = c.item.unit.ifBlank { "pcs" },
                 subtitle = "Type: ${c.item.type}",
                 imageUrl = c.item.imageUrl
             )
         }
+        val gstLineItems = InvoicePrintManager.distributeDiscountAcrossGstLines(rawGstLines, discount)
+        val reconciledTaxable = gstLineItems.sumOf { it.taxableAmount }
+        val reconciledTax = gstLineItems.sumOf { it.taxAmount }
+        val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
 
         val billRecord = GstBillRecord(
             id = UUID.randomUUID().toString(),
@@ -387,9 +392,9 @@ fun QuickBillingPosScreen(
             storeGstin = "27AABCS1234F1Z5",
             isInterState = false,
             itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
-            taxableTotal = taxableTotal,
-            totalTaxAmount = taxAmount,
-            grandTotal = grandTotal,
+            taxableTotal = reconciledTaxable,
+            totalTaxAmount = reconciledTax,
+            grandTotal = reconciledGrandTotal,
             transporterId = paymentMode, // Tag payment mode
             vehicleNo = "",
             quotationId = prefilledQuotation?.id,

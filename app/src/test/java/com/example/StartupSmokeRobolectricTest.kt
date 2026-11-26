@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.auth.AuthManager
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,10 +37,7 @@ class StartupSmokeRobolectricTest {
     @Test
     fun `authenticated screens render billing pos estimate and gst calculator`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean("is_authed", true)
-            .commit()
+        AuthManager.seedTestSessionForTest(context, "test@store.com", isAdmin = true)
 
         ActivityScenario.launch(MainActivity::class.java).use {
             composeRule.waitForIdle()

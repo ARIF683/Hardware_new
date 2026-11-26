@@ -106,9 +106,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var isInterState by remember { mutableStateOf(false) } // false = CGST + SGST, true = IGST
 
     val rows = remember {
-        mutableStateListOf<GstInvoiceRow>()
+        mutableStateListOf(
+            GstInvoiceRow(UUID.randomUUID().toString(), "", "8481", 1.0, 0.0, 18.0)
+        )
     }
     var defaultTaxRate by remember { mutableStateOf(18.0) }
+    var billDiscount by remember { mutableDoubleStateOf(0.0) }
+    var discountText by remember { mutableStateOf("") }
+    var savedBillId by remember { mutableStateOf<String?>(null) }
 
     var transporterId by remember { mutableStateOf("") }
     var vehicleNo by remember { mutableStateOf("") }
@@ -134,6 +139,8 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             quotationId = q.id
             quotationNo = q.quotationNo
             defaultTaxRate = q.taxPercent
+            billDiscount = q.discount.coerceAtLeast(0.0)
+            discountText = formatGstNumberInput(billDiscount)
 
             // Parse quotation line items into rows
             val parsed = InvoicePrintManager.parseLineItems(q.itemsJson)
@@ -156,6 +163,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     )
                 )
             }
+            if (rows.isEmpty()) {
+                rows.add(GstInvoiceRow(UUID.randomUUID().toString(), "", "8481", 1.0, 0.0, q.taxPercent))
+            }
         }
     }
 
@@ -164,10 +174,34 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val instantDispatchSlip by viewModel.instantDispatchSlip.collectAsState()
 
-    // Calculations
-    val taxableTotal by remember { derivedStateOf { rows.sumOf { it.qty * it.rate } } }
-    val totalTaxAmount by remember { derivedStateOf { rows.sumOf { (it.qty * it.rate) * (it.taxRatePercent / 100.0) } } }
-    val grandTotal by remember { derivedStateOf { taxableTotal + totalTaxAmount } }
+    // Calculations with proportional bill-level discount distribution
+    val distributedLines by remember(billDiscount) {
+        derivedStateOf {
+            val raw = rows.map { r ->
+                val rawTaxable = r.qty * r.rate
+                val rawTax = rawTaxable * (r.taxRatePercent / 100.0)
+                GstBillLineItem(
+                    id = r.id,
+                    name = r.itemName,
+                    hsn = r.hsnCode,
+                    qty = r.qty,
+                    rate = r.rate,
+                    taxRatePercent = r.taxRatePercent,
+                    taxableAmount = rawTaxable,
+                    taxAmount = rawTax,
+                    totalAmount = rawTaxable + rawTax,
+                    unit = r.unit,
+                    subtitle = r.subtitle,
+                    imageUrl = r.imageUrl
+                )
+            }
+            InvoicePrintManager.distributeDiscountAcrossGstLines(raw, billDiscount)
+        }
+    }
+    val rawSubtotal by remember { derivedStateOf { rows.sumOf { it.qty * it.rate } } }
+    val taxableTotal by remember { derivedStateOf { distributedLines.sumOf { it.taxableAmount } } }
+    val totalTaxAmount by remember { derivedStateOf { distributedLines.sumOf { it.taxAmount } } }
+    val grandTotal by remember { derivedStateOf { distributedLines.sumOf { it.totalAmount } } }
     val isEWayBillRequired = grandTotal > 50000.0
 
     Column(
@@ -884,6 +918,30 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        OutlinedTextField(
+                            value = discountText,
+                            onValueChange = { dStr ->
+                                discountText = dStr
+                                billDiscount = dStr.trim().toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
+                            },
+                            label = { Text("Bill Discount (₹)", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                                .testTag("gst_discount_input")
+                        )
+                        if (billDiscount > 0.0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Subtotal:", fontSize = 13.sp)
+                                Text("₹%.2f".format(rawSubtotal), fontWeight = FontWeight.Medium)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Discount:", fontSize = 13.sp, color = ext.positive)
+                                Text("-₹%.2f".format(billDiscount.coerceAtMost(rawSubtotal)), fontWeight = FontWeight.Bold, color = ext.positive)
+                            }
+                        }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Taxable Amount:", fontSize = 13.sp)
                             Text("₹%.2f".format(taxableTotal), fontWeight = FontWeight.Bold)
@@ -1028,20 +1086,41 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     val sigBmp = viewModel.bankingPreferenceManager.getSignatureBitmap()
                                     val qrBmp = viewModel.bankingPreferenceManager.getQrCodeBitmap()
 
-                                    val pdfItems = validRows.map { row ->
-                                        val taxAmount = (row.qty * row.rate) * (row.taxRatePercent / 100.0)
+                                    val rawValidLines = validRows.map { r ->
+                                        val rawTaxable = r.qty * r.rate
+                                        val tAmt = rawTaxable * (r.taxRatePercent / 100.0)
+                                        GstBillLineItem(
+                                            id = r.id,
+                                            name = r.itemName,
+                                            hsn = r.hsnCode,
+                                            qty = r.qty,
+                                            rate = r.rate,
+                                            taxRatePercent = r.taxRatePercent,
+                                            taxableAmount = rawTaxable,
+                                            taxAmount = tAmt,
+                                            totalAmount = rawTaxable + tAmt,
+                                            unit = r.unit,
+                                            subtitle = r.subtitle,
+                                            imageUrl = r.imageUrl
+                                        )
+                                    }
+                                    val gstLineItems = InvoicePrintManager.distributeDiscountAcrossGstLines(rawValidLines, billDiscount)
+                                    val reconciledTaxable = gstLineItems.sumOf { it.taxableAmount }
+                                    val reconciledTax = gstLineItems.sumOf { it.taxAmount }
+                                    val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
 
+                                    val pdfItems = gstLineItems.map { item ->
                                         InvoicePrintManager.GstTaxPdfItem(
-                                            name = row.itemName,
-                                            hsn = row.hsnCode,
-                                            qty = row.qty,
-                                            rate = row.rate,
-                                            taxRatePercent = row.taxRatePercent,
-                                            taxableAmount = row.qty * row.rate,
-                                            taxAmount = taxAmount,
-                                            totalAmount = (row.qty * row.rate) + taxAmount,
-                                            unit = row.unit,
-                                            subtitle = row.subtitle
+                                            name = item.name,
+                                            hsn = item.hsn,
+                                            qty = item.qty,
+                                            rate = item.rate,
+                                            taxRatePercent = item.taxRatePercent,
+                                            taxableAmount = item.taxableAmount,
+                                            taxAmount = item.taxAmount,
+                                            totalAmount = item.totalAmount,
+                                            unit = item.unit,
+                                            subtitle = item.subtitle
                                         )
                                     }
 
@@ -1055,9 +1134,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         customerGstin = customerGstin,
                                         isInterState = isInterState,
                                         items = pdfItems,
-                                        taxableTotal = taxableTotal,
-                                        totalTaxAmount = totalTaxAmount,
-                                        grandTotal = grandTotal,
+                                        taxableTotal = reconciledTaxable,
+                                        totalTaxAmount = reconciledTax,
+                                        grandTotal = reconciledGrandTotal,
                                         transporterId = transporterId,
                                         vehicleNo = vehicleNo,
                                         bankingInfo = bInfo,
@@ -1073,25 +1152,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     exportedPdfInfo = Pair(file, storagePath)
 
                                     val nowIso = DateTimeHelper.nowIso()
-                                    val gstLineItems = validRows.map { r ->
-                                        val tAmt = (r.qty * r.rate) * (r.taxRatePercent / 100.0)
-                                        GstBillLineItem(
-                                            id = r.id,
-                                            name = r.itemName,
-                                            hsn = r.hsnCode,
-                                            qty = r.qty,
-                                            rate = r.rate,
-                                            taxRatePercent = r.taxRatePercent,
-                                            taxableAmount = r.qty * r.rate,
-                                            taxAmount = tAmt,
-                                            totalAmount = (r.qty * r.rate) + tAmt,
-                                            unit = r.unit,
-                                            subtitle = r.subtitle,
-                                            imageUrl = r.imageUrl
-                                        )
-                                    }
+                                    val targetId = savedBillId ?: UUID.randomUUID().toString()
                                     val gstRecord = GstBillRecord(
-                                        id = UUID.randomUUID().toString(),
+                                        id = targetId,
                                         invoiceNo = invoiceNo,
                                         invoiceDate = invoiceDate,
                                         customerName = customerName.ifBlank { "Cash Customer" },
@@ -1101,9 +1164,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         storeGstin = storeGstin,
                                         isInterState = isInterState,
                                         itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
-                                        taxableTotal = taxableTotal,
-                                        totalTaxAmount = totalTaxAmount,
-                                        grandTotal = grandTotal,
+                                        taxableTotal = reconciledTaxable,
+                                        totalTaxAmount = reconciledTax,
+                                        grandTotal = reconciledGrandTotal,
                                         transporterId = transporterId,
                                         vehicleNo = vehicleNo,
                                         quotationId = quotationId,
@@ -1113,13 +1176,18 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         createdAt = nowIso
                                     )
                                     haptics.confirm()
-                                    viewModel.completePosOrGstSale(
-                                        bill = gstRecord,
-                                        lineItems = gstLineItems,
-                                        deductStock = deductStockAndCashflow,
-                                        recordCashflowSale = deductStockAndCashflow,
-                                        paymentMode = "Cash"
-                                    )
+                                    if (savedBillId == null) {
+                                        savedBillId = targetId
+                                        viewModel.completePosOrGstSale(
+                                            bill = gstRecord,
+                                            lineItems = gstLineItems,
+                                            deductStock = deductStockAndCashflow,
+                                            recordCashflowSale = deductStockAndCashflow,
+                                            paymentMode = "Cash"
+                                        )
+                                    } else {
+                                        viewModel.saveGstBill(gstRecord)
+                                    }
                                 } catch (e: Exception) {
                                     haptics.reject()
                                     viewModel.showToast("Failed to generate PDF: ${e.message}")
@@ -1156,8 +1224,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 hasConsumedSequenceNo = true
                             }
                             val nowIso = DateTimeHelper.nowIso()
-                            val gstLineItems = validRows.map { r ->
-                                val tAmt = (r.qty * r.rate) * (r.taxRatePercent / 100.0)
+                            val rawValidLines = validRows.map { r ->
+                                val rawTaxable = r.qty * r.rate
+                                val tAmt = rawTaxable * (r.taxRatePercent / 100.0)
                                 GstBillLineItem(
                                     id = r.id,
                                     name = r.itemName,
@@ -1165,16 +1234,21 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     qty = r.qty,
                                     rate = r.rate,
                                     taxRatePercent = r.taxRatePercent,
-                                    taxableAmount = r.qty * r.rate,
+                                    taxableAmount = rawTaxable,
                                     taxAmount = tAmt,
-                                    totalAmount = (r.qty * r.rate) + tAmt,
+                                    totalAmount = rawTaxable + tAmt,
                                     unit = r.unit,
                                     subtitle = r.subtitle,
                                     imageUrl = r.imageUrl
                                 )
                             }
+                            val gstLineItems = InvoicePrintManager.distributeDiscountAcrossGstLines(rawValidLines, billDiscount)
+                            val reconciledTaxable = gstLineItems.sumOf { it.taxableAmount }
+                            val reconciledTax = gstLineItems.sumOf { it.taxAmount }
+                            val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
+                            val targetId = savedBillId ?: UUID.randomUUID().toString()
                             val gstRecord = GstBillRecord(
-                                id = UUID.randomUUID().toString(),
+                                id = targetId,
                                 invoiceNo = invoiceNo,
                                 invoiceDate = invoiceDate,
                                 customerName = customerName.ifBlank { "Cash Customer" },
@@ -1184,9 +1258,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 storeGstin = storeGstin,
                                 isInterState = isInterState,
                                 itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
-                                taxableTotal = taxableTotal,
-                                totalTaxAmount = totalTaxAmount,
-                                grandTotal = grandTotal,
+                                taxableTotal = reconciledTaxable,
+                                totalTaxAmount = reconciledTax,
+                                grandTotal = reconciledGrandTotal,
                                 transporterId = transporterId,
                                 vehicleNo = vehicleNo,
                                 quotationId = quotationId,
@@ -1196,13 +1270,18 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 createdAt = nowIso
                             )
                             haptics.confirm()
-                            viewModel.completePosOrGstSale(
-                                bill = gstRecord,
-                                lineItems = gstLineItems,
-                                deductStock = deductStockAndCashflow,
-                                recordCashflowSale = deductStockAndCashflow,
-                                paymentMode = "Cash"
-                            )
+                            if (savedBillId == null) {
+                                savedBillId = targetId
+                                viewModel.completePosOrGstSale(
+                                    bill = gstRecord,
+                                    lineItems = gstLineItems,
+                                    deductStock = deductStockAndCashflow,
+                                    recordCashflowSale = deductStockAndCashflow,
+                                    paymentMode = "Cash"
+                                )
+                            } else {
+                                viewModel.saveGstBill(gstRecord)
+                            }
                             if (instantDispatchSlip) {
                                 savedBillForCompletion = gstRecord
                             }

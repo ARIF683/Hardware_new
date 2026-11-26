@@ -122,6 +122,7 @@ fun HomeScreen(viewModel: StockViewModel) {
     val selectedLogo by viewModel.selectedLogo.collectAsState()
     val bannerUrl by viewModel.bannerUrl.collectAsState()
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
+    val isAdmin by viewModel.isAdmin.collectAsState()
 
     var showColorMachineDialog by remember { mutableStateOf(false) }
     var overviewPeriod by remember { mutableStateOf("This Month") }
@@ -356,9 +357,13 @@ fun HomeScreen(viewModel: StockViewModel) {
                             .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
-                                logoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                if (isAdmin) {
+                                    logoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                } else {
+                                    viewModel.showToast("Admin access required to update store logo")
+                                }
                             }
                             .testTag("home_logo_avatar"),
                         contentAlignment = Alignment.Center
@@ -591,9 +596,13 @@ fun HomeScreen(viewModel: StockViewModel) {
                     .fillMaxWidth()
                     .height(154.dp)
                     .clickable {
-                        bannerPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                        if (isAdmin) {
+                            bannerPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        } else {
+                            viewModel.showToast("Admin access required to update store banner")
+                        }
                     }
                     .testTag("home_hero_banner")
             ) {

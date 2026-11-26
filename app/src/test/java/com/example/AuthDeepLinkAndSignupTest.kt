@@ -123,10 +123,7 @@ class AuthDeepLinkAndSignupTest {
 
     @Test
     fun `pending verification shows otp input and blocks invalid or empty otp`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("pending_signup_email", "newuser@store.com")
-            .commit()
+        AuthManager(app).setPendingVerificationEmail("newuser@store.com")
 
         val vm = StockViewModel(app)
         composeRule.setContent {

@@ -1975,7 +1975,7 @@ fun QuotationFormDialog(
                                 }
                             }
                         }
-                        val totalEstimateProfit = (grandTotal - totalEstimateCost)
+                        val totalEstimateProfit = (afterDiscount - totalEstimateCost)
 
                         Column(
                             modifier = Modifier

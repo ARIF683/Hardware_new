@@ -1,6 +1,7 @@
 package com.example.data.auth
 
 import android.content.SharedPreferences
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -11,9 +12,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Stores sensitive tokens/secrets encrypted with an Android Keystore AES-256-GCM key.
- * Automatically migrates any legacy plaintext preference and falls back cleanly only in JVM test environments
- * where AndroidKeyStore is absent.
+ * Stores sensitive tokens, session flags, and secrets encrypted with an Android Keystore AES-256-GCM key.
+ * Plaintext `"jvm:"` encoding/decoding is strictly restricted to Robolectric JVM test environments.
  */
 internal class SecureTokenStore(
     private val prefs: SharedPreferences,
@@ -28,9 +28,13 @@ internal class SecureTokenStore(
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_BITS = 128
         private const val ENC_PREFIX = "v1:"
+        private const val JVM_PREFIX = "jvm:"
         private const val KEY_ENC_TOKEN = "supabase_access_token_enc"
         private const val KEY_LEGACY_PLAINTEXT = "supabase_access_token"
         private const val KEY_ENC_REFRESH_TOKEN = "supabase_refresh_token_enc"
+
+        internal fun isRobolectricRuntime(): Boolean =
+            Build.FINGERPRINT.equals("robolectric", ignoreCase = true)
     }
 
     private fun getOrCreateKey(): SecretKey? {
@@ -56,9 +60,9 @@ internal class SecureTokenStore(
         }
     }
 
-    private fun encodeSecret(clean: String): String {
+    private fun encodeSecret(clean: String): String? {
         val key = getOrCreateKey()
-        val encodedValue = if (key != null) {
+        if (key != null) {
             try {
                 val cipher = Cipher.getInstance(TRANSFORMATION)
                 cipher.init(Cipher.ENCRYPT_MODE, key)
@@ -67,42 +71,44 @@ internal class SecureTokenStore(
                     cipher.doFinal(clean.toByteArray(Charsets.UTF_8)),
                     Base64.NO_WRAP
                 )
-                "$ENC_PREFIX$iv:$encrypted"
+                return "$ENC_PREFIX$iv:$encrypted"
             } catch (_: Throwable) {
-                null
+                if (!isRobolectricRuntime()) return null
             }
-        } else {
-            null
         }
-        return encodedValue ?: run {
-            // Fallback only when AndroidKeyStore is unavailable (e.g., local Robolectric JVM)
-            val b64 = Base64.encodeToString(clean.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            "jvm:$b64"
+        // Only permit JVM Base64 fallback inside Robolectric unit tests
+        if (!isRobolectricRuntime()) {
+            return null
         }
+        val b64 = Base64.encodeToString(clean.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        return "$JVM_PREFIX$b64"
     }
 
     private fun decodeSecret(stored: String?): String {
         if (stored.isNullOrBlank()) return ""
         return when {
             stored.startsWith(ENC_PREFIX) -> decryptV1(stored.removePrefix(ENC_PREFIX))
-            stored.startsWith("jvm:") -> decodeJvmFallback(stored.removePrefix("jvm:"))
+            stored.startsWith(JVM_PREFIX) && isRobolectricRuntime() ->
+                decodeJvmFallback(stored.removePrefix(JVM_PREFIX))
             else -> ""
         }
     }
 
-    fun saveToken(token: String) {
+    fun saveToken(token: String): Boolean {
         val clean = token.trim()
         if (clean.isBlank()) {
             prefs.edit()
                 .remove(encTokenKey)
                 .remove(legacyPlaintextKey)
                 .apply()
-            return
+            return true
         }
+        val encoded = encodeSecret(clean) ?: return false
         prefs.edit()
             .remove(legacyPlaintextKey)
-            .putString(encTokenKey, encodeSecret(clean))
+            .putString(encTokenKey, encoded)
             .apply()
+        return true
     }
 
     fun readToken(): String {
@@ -111,44 +117,54 @@ internal class SecureTokenStore(
             return decodeSecret(stored)
         }
 
-        // Migrate any pre-existing plaintext value into encrypted storage
+        // Migrate any pre-existing plaintext value into encrypted storage and scrub plaintext key
         val legacy = prefs.getString(legacyPlaintextKey, null).orEmpty().trim()
         if (legacy.isNotBlank()) {
-            saveToken(legacy)
+            val saved = saveToken(legacy)
+            if (!saved) {
+                prefs.edit().remove(legacyPlaintextKey).apply()
+                return ""
+            }
             return legacy
         }
         return ""
     }
 
-    fun saveRefreshToken(refreshToken: String) {
+    fun saveRefreshToken(refreshToken: String): Boolean {
         val clean = refreshToken.trim()
         if (clean.isBlank()) {
             prefs.edit().remove(encRefreshTokenKey).apply()
-            return
+            return true
         }
+        val encoded = encodeSecret(clean) ?: return false
         prefs.edit()
-            .putString(encRefreshTokenKey, encodeSecret(clean))
+            .putString(encRefreshTokenKey, encoded)
             .apply()
+        return true
     }
 
     fun readRefreshToken(): String =
         decodeSecret(prefs.getString(encRefreshTokenKey, null))
 
-    fun saveSessionTokens(accessToken: String, refreshToken: String) {
+    fun saveSessionTokens(accessToken: String, refreshToken: String): Boolean {
         val cleanAccess = accessToken.trim()
         val cleanRefresh = refreshToken.trim()
+        val encodedAccess = if (cleanAccess.isNotBlank()) (encodeSecret(cleanAccess) ?: return false) else null
+        val encodedRefresh = if (cleanRefresh.isNotBlank()) (encodeSecret(cleanRefresh) ?: return false) else null
+
         val editor = prefs.edit().remove(legacyPlaintextKey)
-        if (cleanAccess.isNotBlank()) {
-            editor.putString(encTokenKey, encodeSecret(cleanAccess))
+        if (encodedAccess != null) {
+            editor.putString(encTokenKey, encodedAccess)
         } else {
             editor.remove(encTokenKey)
         }
-        if (cleanRefresh.isNotBlank()) {
-            editor.putString(encRefreshTokenKey, encodeSecret(cleanRefresh))
+        if (encodedRefresh != null) {
+            editor.putString(encRefreshTokenKey, encodedRefresh)
         } else if (cleanAccess.isBlank()) {
             editor.remove(encRefreshTokenKey)
         }
         editor.apply()
+        return true
     }
 
     fun clearToken() {
@@ -159,20 +175,34 @@ internal class SecureTokenStore(
             .apply()
     }
 
-    fun saveEncryptedString(key: String, value: String) {
+    fun saveEncryptedString(key: String, value: String): Boolean {
         if (value.isBlank()) {
             prefs.edit().remove(key).apply()
-            return
+            return true
         }
+        val encoded = encodeSecret(value) ?: return false
         prefs.edit()
-            .putString(key, encodeSecret(value))
+            .putString(key, encoded)
             .apply()
+        return true
     }
 
     fun readEncryptedString(key: String): String? {
         val stored = prefs.getString(key, null) ?: return null
         val decoded = decodeSecret(stored)
         return decoded.ifBlank { null }
+    }
+
+    fun saveEncryptedBoolean(key: String, value: Boolean): Boolean =
+        saveEncryptedString(key, if (value) "1" else "0")
+
+    fun readEncryptedBoolean(key: String, defaultValue: Boolean = false): Boolean {
+        val decoded = readEncryptedString(key) ?: return defaultValue
+        return when (decoded) {
+            "1", "true" -> true
+            "0", "false" -> false
+            else -> defaultValue
+        }
     }
 
     fun hasEncryptedValue(key: String): Boolean = prefs.contains(key)

@@ -59,8 +59,8 @@ class StoreProfileSyncAndQrTest {
             updatedAt = 123456789L
         )
 
-        val purchasesPayload = StoreProfileSyncCodec.toPurchasesPayload(original, "2026-11-18")
-        val parsed = StoreProfileSyncCodec.parseFromLines(purchasesPayload.get("lines"))
+        val storeProfilePayload = StoreProfileSyncCodec.toStoreProfilePayload(original, "owner@store.com")
+        val parsed = StoreProfileSyncCodec.parseFromStoreProfileRow(storeProfilePayload)
 
         assertNotNull(parsed)
         assertEquals(original.bannerUrl, parsed!!.bannerUrl)

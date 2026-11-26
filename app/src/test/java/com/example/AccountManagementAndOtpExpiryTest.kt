@@ -61,10 +61,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `expired otp is rejected across signup reset email-change and delete flows`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "owner@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "owner@store.com", isAdmin = true)
 
         val auth = AuthManager(app)
         auth.setOtpExpiresAtForTest(System.currentTimeMillis() - 10_000L)
@@ -126,10 +123,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `settings screen shows change email row and delete account button`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "staff@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "staff@store.com", isAdmin = false)
 
         val vm = StockViewModel(app)
         composeRule.setContent {
@@ -150,10 +144,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `change email and delete account dialogs display inputs and action buttons`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "user@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "user@store.com", isAdmin = false)
 
         val vm = StockViewModel(app)
         composeRule.setContent {
@@ -171,10 +162,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `delete account otp dialog renders deletion warning and send otp button`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "user@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "user@store.com", isAdmin = false)
 
         val vm = StockViewModel(app)
         composeRule.setContent {
@@ -189,11 +177,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `account deletion shows confirmation banner on auth gate screen after logout`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean("is_authed", true)
-            .putString("current_user_email", "deleted@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "deleted@store.com", isAdmin = false)
 
         val vm = StockViewModel(app)
         composeRule.setContent {
@@ -262,10 +246,7 @@ class AccountManagementAndOtpExpiryTest {
 
     @Test
     fun `non-6-digit otp like 8 digits is rejected across all verification methods`() {
-        app.getSharedPreferences("stock_manager_auth", Context.MODE_PRIVATE)
-            .edit()
-            .putString("current_user_email", "owner@store.com")
-            .commit()
+        AuthManager.seedTestSessionForTest(app, "owner@store.com", isAdmin = true)
 
         val auth = AuthManager(app)
         auth.setOtpExpiresAtForTest(System.currentTimeMillis() + 60_000L)

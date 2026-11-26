@@ -97,6 +97,7 @@ fun BillingHubScreen(viewModel: StockViewModel) {
     val customLogoUrl by viewModel.customLogoUrl.collectAsState()
     val lowStockAlertsEnabled by viewModel.lowStockAlertsEnabled.collectAsState()
     val lowStockDefaultThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
+    val isAdmin by viewModel.isAdmin.collectAsState()
 
     val lowStockCount = remember(allItems, lowStockDefaultThreshold) {
         allItems.count { viewModel.appSettingsManager.isLowOrOutOfStock(it) }
@@ -293,9 +294,13 @@ fun BillingHubScreen(viewModel: StockViewModel) {
                         .size(48.dp)
                         .clip(CircleShape)
                         .clickable {
-                            logoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
+                            if (isAdmin) {
+                                logoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } else {
+                                viewModel.showToast("Admin access required to update store logo")
+                            }
                         }
                         .testTag("billing_logo_avatar"),
                     contentAlignment = Alignment.Center
