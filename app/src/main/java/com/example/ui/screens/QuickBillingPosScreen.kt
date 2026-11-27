@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -226,6 +227,8 @@ fun QuickBillingPosScreen(
     var showCartDrawer by remember { mutableStateOf(false) }
     var showCashCheckoutDialog by remember { mutableStateOf(false) }
     var showUpiCheckoutDialog by remember { mutableStateOf(false) }
+    var showKhataCheckoutDialog by remember { mutableStateOf(false) }
+    val khataAccounts by viewModel.allLedgerAccounts.collectAsState()
     var showReceiptSuccessDialog by remember { mutableStateOf(false) }
     var lastSavedBill by remember { mutableStateOf<GstBillRecord?>(null) }
     var showThermalDialog by remember { mutableStateOf(false) }
@@ -348,7 +351,12 @@ fun QuickBillingPosScreen(
         }
     }
 
-    fun finalizeAndSaveBill(paymentMode: String) {
+    fun finalizeAndSaveBill(
+        paymentMode: String,
+        creditAmountToKhata: Double = 0.0,
+        customerKhataAccountId: String? = null,
+        creditDueDate: String = ""
+    ) {
         if (cartItems.isEmpty()) {
             haptics.reject()
             viewModel.showToast("Cart is empty! Add products to bill.")
@@ -380,12 +388,18 @@ fun QuickBillingPosScreen(
         val reconciledTaxable = gstLineItems.sumOf { it.taxableAmount }
         val reconciledTax = gstLineItems.sumOf { it.taxAmount }
         val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
+        val safeCredit = creditAmountToKhata.coerceIn(0.0, reconciledGrandTotal)
+        val computedStatus = when {
+            safeCredit >= reconciledGrandTotal - 0.005 -> "Khata Due"
+            safeCredit > 0.005 -> "Partial Khata ($paymentMode)"
+            else -> "Paid ($paymentMode)"
+        }
 
         val billRecord = GstBillRecord(
             id = UUID.randomUUID().toString(),
             invoiceNo = invoiceNo,
             invoiceDate = invoiceDate,
-            customerName = customerName.ifBlank { "Cash Customer" },
+            customerName = customerName.ifBlank { if (safeCredit > 0.005) "Credit Customer" else "Cash Customer" },
             customerPhone = customerPhone.trim(),
             customerGstin = "",
             customerAddress = "",
@@ -395,12 +409,12 @@ fun QuickBillingPosScreen(
             taxableTotal = reconciledTaxable,
             totalTaxAmount = reconciledTax,
             grandTotal = reconciledGrandTotal,
-            transporterId = paymentMode, // Tag payment mode
+            transporterId = paymentMode,
             vehicleNo = "",
             quotationId = prefilledQuotation?.id,
             quotationNo = prefilledQuotation?.quotationNo,
             pdfPath = null,
-            status = "Paid ($paymentMode)",
+            status = computedStatus,
             createdAt = nowIso
         )
 
@@ -410,19 +424,23 @@ fun QuickBillingPosScreen(
             lineItems = gstLineItems,
             deductStock = true,
             recordCashflowSale = true,
-            paymentMode = paymentMode
+            paymentMode = paymentMode,
+            creditAmountToKhata = safeCredit,
+            customerKhataAccountId = customerKhataAccountId,
+            creditDueDate = creditDueDate
         )
 
         lastSavedBill = billRecord
         showCartDrawer = false
         showCashCheckoutDialog = false
         showUpiCheckoutDialog = false
+        showKhataCheckoutDialog = false
         if (instantDispatchSlip) {
             showReceiptSuccessDialog = true
         } else {
             cartItems.clear()
         }
-        viewModel.showToast("✅ Bill #$invoiceNo saved via $paymentMode!")
+        viewModel.showToast("✅ Bill #$invoiceNo saved ($computedStatus)!")
     }
 
     var showDiscountDialog by remember { mutableStateOf(false) }
@@ -1394,12 +1412,12 @@ fun QuickBillingPosScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ext.positive, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 46.dp)
                     ) {
-                        Text("₹ CASH CHECKOUT", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        Text("₹ CASH", fontWeight = FontWeight.Bold, fontSize = 11.5.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
                     Button(
@@ -1409,12 +1427,28 @@ fun QuickBillingPosScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ext.info, contentColor = Color.White),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 46.dp)
                     ) {
-                        Text("₹ UPI CHECKOUT", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        Text("₹ UPI", fontWeight = FontWeight.Bold, fontSize = 11.5.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                    }
+
+                    Button(
+                        onClick = {
+                            showCartDrawer = false
+                            showKhataCheckoutDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ext.warning, contentColor = Color.White),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 46.dp)
+                            .testTag("pos_khata_checkout_button")
+                    ) {
+                        Text("KHATA DUE", fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1548,6 +1582,145 @@ fun QuickBillingPosScreen(
                 TextButton(onClick = { showUpiCheckoutDialog = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // Khata Credit / Partial Payment Checkout Dialog
+    if (showKhataCheckoutDialog) {
+        val partyCandidates = remember(khataAccounts) {
+            khataAccounts.filter { !it.type.equals("SUPPLIER", ignoreCase = true) }
+        }
+        var selectedAccId by remember {
+            mutableStateOf(
+                partyCandidates.firstOrNull {
+                    customerName.isNotBlank() && it.name.equals(customerName.trim(), ignoreCase = true)
+                }?.id
+            )
+        }
+        var partyNameInput by remember {
+            mutableStateOf(if (customerName.equals("Cash Customer", ignoreCase = true)) "" else customerName)
+        }
+        var partyPhoneInput by remember { mutableStateOf(customerPhone) }
+        var paidNowText by remember { mutableStateOf("0") }
+        var paidNowMode by remember { mutableStateOf("Cash") }
+        var dueDateInput by remember { mutableStateOf("") }
+        val paidNowAmt = (paidNowText.trim().toDoubleOrNull() ?: 0.0).coerceIn(0.0, grandTotal)
+        val creditBal = (grandTotal - paidNowAmt).coerceAtLeast(0.0)
+
+        AlertDialog(
+            onDismissRequest = { showKhataCheckoutDialog = false },
+            title = { Text("Khata Credit / Split Checkout", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Bill Total: ₹${String.format(Locale.US, "%.2f", grandTotal)}", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    if (partyCandidates.isNotEmpty()) {
+                        Text("Quick Pick Existing Party:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            partyCandidates.take(12).forEach { acc ->
+                                FilterChip(
+                                    selected = selectedAccId == acc.id,
+                                    onClick = {
+                                        selectedAccId = acc.id
+                                        partyNameInput = acc.name
+                                        partyPhoneInput = acc.phone
+                                    },
+                                    label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) }
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = partyNameInput,
+                        onValueChange = {
+                            partyNameInput = it
+                            selectedAccId = null
+                        },
+                        label = { Text("Customer / Contractor Name *") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("pos_khata_customer_input")
+                    )
+                    OutlinedTextField(
+                        value = partyPhoneInput,
+                        onValueChange = { partyPhoneInput = it },
+                        label = { Text("Phone (Optional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = paidNowText,
+                            onValueChange = { paidNowText = it },
+                            label = { Text("Paid Now (₹)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = dueDateInput,
+                            onValueChange = { dueDateInput = it },
+                            label = { Text("Due YYYY-MM-DD") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (paidNowAmt > 0.0) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Cash", "UPI", "Bank").forEach { m ->
+                                FilterChip(selected = paidNowMode == m, onClick = { paidNowMode = m }, label = { Text(m, fontSize = 11.sp) })
+                            }
+                        }
+                    }
+                    Surface(
+                        color = ext.danger.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Posting ₹${String.format(Locale.US, "%.2f", creditBal)} to Customer Khata",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ext.danger,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (partyNameInput.isBlank() && selectedAccId == null) {
+                            viewModel.showToast("Enter customer name for Khata")
+                            return@Button
+                        }
+                        customerName = partyNameInput.trim().ifBlank { customerName }
+                        customerPhone = partyPhoneInput.trim()
+                        val modeLabel = if (paidNowAmt > 0.0) "Split ($paidNowMode + Khata)" else "Khata"
+                        finalizeAndSaveBill(
+                            paymentMode = modeLabel,
+                            creditAmountToKhata = creditBal,
+                            customerKhataAccountId = selectedAccId,
+                            creditDueDate = dueDateInput.trim()
+                        )
+                    },
+                    enabled = partyNameInput.isNotBlank() || selectedAccId != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = ext.warning, contentColor = Color.White),
+                    modifier = Modifier.testTag("pos_khata_confirm_button")
+                ) {
+                    Text("Confirm Khata Bill", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showKhataCheckoutDialog = false }) { Text("Cancel") }
             }
         )
     }

@@ -373,6 +373,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     val allLedgerAccounts: StateFlow<List<LedgerAccount>> = repository.allLedgerAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allLedgerEntries: StateFlow<List<LedgerEntry>> = repository.allLedgerEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allDailyCashflow: StateFlow<List<DailyCashflowRecord>> = repository.allDailyCashflow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -1144,6 +1147,9 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         deductStock: Boolean = true,
         recordCashflowSale: Boolean = true,
         paymentMode: String = "Cash",
+        creditAmountToKhata: Double = 0.0,
+        customerKhataAccountId: String? = null,
+        creditDueDate: String = "",
         onComplete: ((Result<Int>) -> Unit)? = null
     ) {
         val sourceQuotation = prefilledQuotationForGst.value
@@ -1155,12 +1161,16 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
                 deductStock = deductStock,
                 recordCashflowSale = recordCashflowSale,
                 paymentMode = paymentMode,
-                prefilledQuotation = sourceQuotation
+                prefilledQuotation = sourceQuotation,
+                creditAmountToKhata = creditAmountToKhata,
+                customerKhataAccountId = customerKhataAccountId,
+                creditDueDate = creditDueDate
             )
             if (res.isSuccess) {
                 val deductedCount = res.getOrDefault(0)
                 val stockNote = if (deductStock && deductedCount > 0) " · Stock deducted" else ""
-                showToast("Invoice #${bill.invoiceNo} saved$stockNote ✓")
+                val khataNote = if (creditAmountToKhata > 0.005) " · Khata updated" else ""
+                showToast("Invoice #${bill.invoiceNo} saved$stockNote$khataNote ✓")
             } else {
                 showToast("Failed to save invoice: ${res.exceptionOrNull()?.message}")
             }
@@ -1268,6 +1278,10 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteLedgerAccount(id: String) {
+        if (!authManager.isAdmin.value) {
+            showToast("Admin access required to delete Khata accounts.")
+            return
+        }
         viewModelScope.launch {
             repository.deleteLedgerAccount(id)
             showToast("Account deleted")
@@ -1280,10 +1294,27 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         amount: Double,
         date: String,
         description: String,
-        billRef: String
+        billRef: String,
+        paymentMode: String = "",
+        paymentRef: String = "",
+        dueDate: String = "",
+        siteName: String = "",
+        alsoRecordCashflow: Boolean = false
     ) {
         viewModelScope.launch {
-            val res = repository.addLedgerEntry(accountId, type, amount, date, description, billRef)
+            val res = repository.addLedgerEntry(
+                accountId = accountId,
+                type = type,
+                amount = amount,
+                date = date,
+                description = description,
+                billRef = billRef,
+                paymentMode = paymentMode,
+                paymentRef = paymentRef,
+                dueDate = dueDate,
+                siteName = siteName,
+                alsoRecordCashflow = alsoRecordCashflow
+            )
             if (res.isSuccess) {
                 showToast("Ledger entry added ✓")
             } else {

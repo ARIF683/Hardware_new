@@ -138,6 +138,9 @@ interface LedgerDao {
     @Query("SELECT * FROM ledger_entries WHERE account_id = :accountId ORDER BY date ASC, created_at ASC")
     suspend fun getEntriesForAccountOnce(accountId: String): List<com.example.data.model.LedgerEntry>
 
+    @Query("SELECT * FROM ledger_entries ORDER BY date DESC, created_at DESC")
+    fun getAllEntriesFlow(): Flow<List<com.example.data.model.LedgerEntry>>
+
     @Query("SELECT * FROM ledger_entries ORDER BY created_at DESC")
     suspend fun getAllEntriesList(): List<com.example.data.model.LedgerEntry>
 

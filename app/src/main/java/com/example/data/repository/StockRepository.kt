@@ -25,7 +25,13 @@ import com.example.data.remote.RemoteStoreProfile
 import com.example.data.remote.StoreProfileSyncCodec
 import com.example.data.remote.SupabaseClient
 import com.example.util.DateTimeHelper
+import com.example.util.KhataAccountMeta
+import com.example.util.KhataBalanceHelper
+import com.example.util.KhataEntryMeta
+import com.example.util.KhataMath
+import com.example.util.KhataMetaCodec
 import java.io.File
+import kotlin.math.abs
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -1225,8 +1231,12 @@ class StockRepository(
         // Automatically log purchase in Supplier Khata / Ledger
         if (supplier.isNotBlank() && totalAmount > 0.0) {
             try {
+                val roundedTotal = KhataMath.roundPaise(totalAmount)
                 val accounts = database.ledgerDao().getAllAccountsList()
-                val existingAcc = accounts.firstOrNull { it.type == "SUPPLIER" && it.name.trim().equals(supplier.trim(), ignoreCase = true) }
+                val existingAcc = accounts.firstOrNull {
+                    it.type.equals("SUPPLIER", ignoreCase = true) &&
+                        it.name.trim().equals(supplier.trim(), ignoreCase = true)
+                }
                 val accountId = existingAcc?.id ?: run {
                     val newId = UUID.randomUUID().toString()
                     val newAcc = LedgerAccount(
@@ -1245,14 +1255,37 @@ class StockRepository(
                     raw = billDate,
                     fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
                 )
+                val lineSummary = included.take(3).joinToString(", ") { "${it.name} (${it.qty.toInt()} ${it.unit})" } +
+                    if (included.size > 3) " +${included.size - 3} more" else ""
+                val purchaseDesc = "Purchase Bill #${billNo.ifBlank { "N/A" }}${if (lineSummary.isNotBlank()) " · $lineSummary" else ""}"
+                val defaultCreditDays = existingAcc?.let { KhataMetaCodec.parseAccountMeta(it.notes).creditDays } ?: 0
+                val autoDueDate = if (!paidInCash && defaultCreditDays > 0) {
+                    computeDueDateIso(normalizedBillDate, defaultCreditDays)
+                } else ""
+
                 addLedgerEntry(
                     accountId = accountId,
-                    type = "GOT", // GOT means we owe the supplier (Payable increases)
-                    amount = totalAmount,
+                    type = "GOT", // GOT means goods received / payable increases for supplier
+                    amount = roundedTotal,
                     date = normalizedBillDate,
-                    description = "Purchase Bill #${billNo.ifBlank { "N/A" }}",
-                    billRef = billNo
+                    description = purchaseDesc,
+                    billRef = billNo,
+                    paymentMode = if (paidInCash) "Cash Purchase" else "Credit Bill",
+                    dueDate = autoDueDate
                 )
+
+                // If paid in cash on the spot, record the offsetting GAVE payment so Supplier Khata settles to 0
+                if (paidInCash) {
+                    addLedgerEntry(
+                        accountId = accountId,
+                        type = "GAVE",
+                        amount = roundedTotal,
+                        date = normalizedBillDate,
+                        description = "Cash paid for Purchase Bill #${billNo.ifBlank { "N/A" }}",
+                        billRef = billNo,
+                        paymentMode = "Cash"
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(tag, "Failed to auto-log bill in supplier ledger", e)
             }
@@ -1709,7 +1742,10 @@ class StockRepository(
         deductStock: Boolean = true,
         recordCashflowSale: Boolean = true,
         paymentMode: String = "Cash",
-        prefilledQuotation: com.example.data.model.QuotationRecord? = null
+        prefilledQuotation: com.example.data.model.QuotationRecord? = null,
+        creditAmountToKhata: Double = 0.0,
+        customerKhataAccountId: String? = null,
+        creditDueDate: String = ""
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val now = nowIso()
@@ -1764,24 +1800,85 @@ class StockRepository(
                 }
             }
 
-            if (recordCashflowSale && bill.grandTotal > 0.0) {
-                val saleDate = DateTimeHelper.normalizeDateToIso(
-                    raw = bill.invoiceDate,
-                    fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
-                )
+            val safeCreditAmount = KhataMath.roundPaise(
+                creditAmountToKhata.coerceIn(0.0, bill.grandTotal.coerceAtLeast(0.0))
+            )
+            val paidPortion = KhataMath.roundPaise((bill.grandTotal - safeCreditAmount).coerceAtLeast(0.0))
+            val saleDate = DateTimeHelper.normalizeDateToIso(
+                raw = bill.invoiceDate,
+                fallbackDate = DateTimeHelper.utcIsoToLocalDateKey(now)
+            )
+
+            if (recordCashflowSale && paidPortion > 0.0) {
+                val cashflowMode = paymentMode
+                    .replace("Split (", "")
+                    .substringBefore("+")
+                    .trim()
+                    .ifBlank { "Cash" }
                 val cashflowRecord = DailyCashflowRecord(
                     id = UUID.randomUUID().toString(),
                     type = "SALE",
-                    amount = bill.grandTotal,
+                    amount = paidPortion,
                     title = "Bill #${bill.invoiceNo}",
                     category = "Sales",
-                    paymentMode = paymentMode.ifBlank { "Cash" },
+                    paymentMode = cashflowMode,
                     date = saleDate,
-                    note = "Customer: ${bill.customerName.ifBlank { "Walk-in" }}",
+                    note = "Customer: ${bill.customerName.ifBlank { "Walk-in" }}" +
+                        if (safeCreditAmount > 0.0) " (Credit ₹${KhataMath.formatAmount(safeCreditAmount)} to Khata)" else "",
                     createdAt = now
                 )
                 database.dailyCashflowDao().insert(cashflowRecord)
                 enqueueOp("upsertCashflow", cashflowListAdapter.toJson(listOf(cashflowRecord)))
+            }
+
+            if (safeCreditAmount > 0.0) {
+                val accounts = database.ledgerDao().getAllAccountsList()
+                val cleanCustName = bill.customerName.trim().ifBlank { "Credit Customer" }
+                val cleanPhone = bill.customerPhone.trim()
+                val existingAcc = customerKhataAccountId?.takeIf { it.isNotBlank() }?.let { targetId ->
+                    accounts.firstOrNull { it.id == targetId }
+                } ?: accounts.firstOrNull { acc ->
+                    !acc.type.equals("SUPPLIER", ignoreCase = true) && (
+                        (cleanPhone.isNotBlank() && acc.phone.trim() == cleanPhone) ||
+                            acc.name.trim().equals(cleanCustName, ignoreCase = true)
+                        )
+                }
+                val accountId = existingAcc?.id ?: run {
+                    val newId = UUID.randomUUID().toString()
+                    val newMeta = KhataMetaCodec.encodeAccountMeta(
+                        KhataAccountMeta(gstin = bill.customerGstin.trim())
+                    )
+                    val newAcc = LedgerAccount(
+                        id = newId,
+                        name = cleanCustName,
+                        phone = cleanPhone,
+                        address = bill.customerAddress.trim(),
+                        type = "CUSTOMER",
+                        netBalance = 0.0,
+                        notes = newMeta,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    database.ledgerDao().insertAccount(newAcc)
+                    enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(newAcc)))
+                    newId
+                }
+                val itemSummary = lineItems.take(3).joinToString(", ") { "${it.name} (${it.qty.toInt()} ${it.unit})" } +
+                    if (lineItems.size > 3) " +${lineItems.size - 3} more" else ""
+                val defaultDays = existingAcc?.let { KhataMetaCodec.parseAccountMeta(it.notes).creditDays } ?: 0
+                val effectiveDueDate = creditDueDate.trim().ifBlank {
+                    if (defaultDays > 0) computeDueDateIso(saleDate, defaultDays) else ""
+                }
+                addLedgerEntry(
+                    accountId = accountId,
+                    type = "GAVE",
+                    amount = safeCreditAmount,
+                    date = saleDate,
+                    description = "Bill #${bill.invoiceNo}${if (itemSummary.isNotBlank()) " · $itemSummary" else ""}",
+                    billRef = bill.invoiceNo,
+                    paymentMode = if (paidPortion > 0.0) "Split Credit" else "Credit Bill",
+                    dueDate = effectiveDueDate
+                )
             }
 
             if (prefilledQuotation != null && prefilledQuotation.status != "Converted") {
@@ -1958,21 +2055,70 @@ class StockRepository(
 
     // ==================== LEDGER / KHATA ====================
     val allLedgerAccounts: Flow<List<com.example.data.model.LedgerAccount>> = database.ledgerDao().getAllAccounts()
+    val allLedgerEntries: Flow<List<com.example.data.model.LedgerEntry>> = database.ledgerDao().getAllEntriesFlow()
 
     fun getEntriesForAccount(accountId: String): Flow<List<com.example.data.model.LedgerEntry>> {
         return database.ledgerDao().getEntriesForAccount(accountId)
     }
 
     suspend fun saveLedgerAccount(account: com.example.data.model.LedgerAccount) = withContext(Dispatchers.IO) {
-        database.ledgerDao().insertAccount(account)
-        enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(account)))
+        val now = nowIso()
+        val existing = database.ledgerDao().getAccountById(account.id)
+        if (existing == null) {
+            val openingAmt = KhataMath.roundPaise(account.netBalance)
+            val baseAccount = account.copy(
+                netBalance = 0.0,
+                creditLimit = KhataMath.roundPaise(account.creditLimit.coerceAtLeast(0.0)),
+                createdAt = account.createdAt.ifBlank { now },
+                updatedAt = now
+            )
+            database.ledgerDao().insertAccount(baseAccount)
+            enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(baseAccount)))
+            if (!KhataMath.isSettled(openingAmt)) {
+                val isSupplier = baseAccount.type.equals("SUPPLIER", ignoreCase = true)
+                val entryType = if (isSupplier) {
+                    if (openingAmt > 0) "GOT" else "GAVE"
+                } else {
+                    if (openingAmt > 0) "GAVE" else "GOT"
+                }
+                val entryDate = DateTimeHelper.normalizeDateToIso(
+                    baseAccount.createdAt,
+                    DateTimeHelper.localDateKey()
+                )
+                addLedgerEntry(
+                    accountId = baseAccount.id,
+                    type = entryType,
+                    amount = abs(openingAmt),
+                    date = entryDate,
+                    description = "Opening Balance",
+                    billRef = "",
+                    paymentMode = "Opening Balance",
+                    isOpeningBalance = true
+                )
+            }
+            recordAudit("CREATE_KHATA_ACCOUNT", "Created ${baseAccount.type} Khata account: ${baseAccount.name}")
+        } else {
+            val updated = account.copy(
+                netBalance = existing.netBalance, // Keep computed ledger balance intact on profile edits
+                creditLimit = KhataMath.roundPaise(account.creditLimit.coerceAtLeast(0.0)),
+                createdAt = existing.createdAt,
+                updatedAt = now
+            )
+            database.ledgerDao().insertAccount(updated)
+            enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(updated)))
+            recordAudit("EDIT_KHATA_ACCOUNT", "Updated Khata account: ${updated.name} (${updated.type})")
+        }
         flushQueue()
     }
 
     suspend fun deleteLedgerAccount(id: String) = withContext(Dispatchers.IO) {
+        val existing = database.ledgerDao().getAccountById(id)
         database.ledgerDao().deleteEntriesForAccount(id)
         database.ledgerDao().deleteAccountById(id)
         enqueueOp("deleteLedgerAcc", id)
+        if (existing != null) {
+            recordAudit("DELETE_KHATA_ACCOUNT", "Deleted Khata account: ${existing.name} (Bal: ₹${KhataMath.formatAmount(existing.netBalance)})")
+        }
         flushQueue()
     }
 
@@ -1982,41 +2128,84 @@ class StockRepository(
         amount: Double,
         date: String,
         description: String,
-        billRef: String
+        billRef: String,
+        paymentMode: String = "",
+        paymentRef: String = "",
+        dueDate: String = "",
+        siteName: String = "",
+        alsoRecordCashflow: Boolean = false,
+        isOpeningBalance: Boolean = false
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val roundedAmount = KhataMath.roundPaise(amount)
+            if (roundedAmount <= 0.0) {
+                return@withContext Result.failure(IllegalArgumentException("Amount must be greater than zero"))
+            }
             val account = database.ledgerDao().getAccountById(accountId)
                 ?: return@withContext Result.failure(Exception("Account not found"))
 
-            // For Customer: GAVE increases balance (they owe you more), GOT decreases balance
-            // For Supplier: GOT increases balance (you owe them more), GAVE decreases balance (you paid them)
-            val newBalance = if (account.type == "SUPPLIER") {
-                if (type == "GOT") account.netBalance + amount else account.netBalance - amount
-            } else {
-                if (type == "GAVE") account.netBalance + amount else account.netBalance - amount
-            }
-
             val now = nowIso()
             val normalizedDate = DateTimeHelper.normalizeDateToIso(date, DateTimeHelper.localDateKey())
+            val actorEmail = authManager.currentUserEmail.value.orEmpty().trim().ifBlank { "Staff" }
+            val existingMeta = KhataMetaCodec.parseEntryMeta(description)
+            val resolvedMode = paymentMode.trim().ifBlank { existingMeta.paymentMode }
+            val resolvedRef = paymentRef.trim().ifBlank { existingMeta.paymentRef }
+            val resolvedDue = dueDate.trim().ifBlank { existingMeta.dueDate }
+            val resolvedSite = siteName.trim().ifBlank { existingMeta.siteName }
+            val resolvedBy = existingMeta.recordedBy.ifBlank { actorEmail }
+
+            var linkedCashflowId = existingMeta.syncedCashflowId
+            if (alsoRecordCashflow && linkedCashflowId.isBlank()) {
+                val cfId = UUID.randomUUID().toString()
+                val isSupplier = account.type.equals("SUPPLIER", ignoreCase = true)
+                val cfType = if (type.equals("GOT", ignoreCase = true)) "SALE" else "EXPENSE"
+                val cfCategory = if (isSupplier) "Supplier Payment" else "Khata Collection"
+                val cfTitle = "${account.name}: ${existingMeta.cleanDescription.ifBlank { if (cfType == "SALE") "Khata Received" else "Khata Paid" }}"
+                val cfMode = resolvedMode.ifBlank { "Cash" }
+                val cfRecord = DailyCashflowRecord(
+                    id = cfId,
+                    type = cfType,
+                    amount = roundedAmount,
+                    title = cfTitle,
+                    category = cfCategory,
+                    paymentMode = cfMode,
+                    date = normalizedDate,
+                    note = "Synced from Khata${if (billRef.isNotBlank()) " (Bill #$billRef)" else ""}",
+                    createdAt = now
+                )
+                database.dailyCashflowDao().insert(cfRecord)
+                enqueueOp("upsertCashflow", cashflowListAdapter.toJson(listOf(cfRecord)))
+                linkedCashflowId = cfId
+            }
+
+            val encodedDescription = KhataMetaCodec.encodeEntryMeta(
+                KhataEntryMeta(
+                    cleanDescription = existingMeta.cleanDescription,
+                    paymentMode = resolvedMode,
+                    paymentRef = resolvedRef,
+                    dueDate = resolvedDue,
+                    siteName = resolvedSite,
+                    recordedBy = resolvedBy,
+                    isOpeningBalance = isOpeningBalance || existingMeta.isOpeningBalance,
+                    syncedCashflowId = linkedCashflowId
+                )
+            )
+
             val entry = com.example.data.model.LedgerEntry(
                 id = UUID.randomUUID().toString(),
                 accountId = accountId,
-                type = type,
-                amount = amount,
-                balanceAfter = newBalance,
+                type = type.uppercase(Locale.US),
+                amount = roundedAmount,
+                balanceAfter = 0.0, // Computed accurately chronologically below
                 date = normalizedDate,
-                description = description,
-                billRef = billRef,
+                description = encodedDescription,
+                billRef = billRef.trim(),
                 createdAt = now
             )
 
-            val updatedAccount = account.copy(netBalance = newBalance, updatedAt = now)
             database.ledgerDao().insertEntry(entry)
-            database.ledgerDao().insertAccount(updatedAccount)
-
             enqueueOp("upsertLedgerEntry", ledgerEntryListAdapter.toJson(listOf(entry)))
-            enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(updatedAccount)))
-            flushQueue()
+            recalculateAccountBalanceInternal(accountId)
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -2029,11 +2218,28 @@ class StockRepository(
         updatedEntry: com.example.data.model.LedgerEntry
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val roundedAmount = KhataMath.roundPaise(updatedEntry.amount)
+            if (roundedAmount <= 0.0) {
+                return@withContext Result.failure(IllegalArgumentException("Amount must be greater than zero"))
+            }
+            val meta = KhataMetaCodec.parseEntryMeta(updatedEntry.description)
+            val actor = authManager.currentUserEmail.value.orEmpty().trim().ifBlank { "Staff" }
+            val updatedDesc = KhataMetaCodec.encodeEntryMeta(
+                meta.copy(recordedBy = meta.recordedBy.ifBlank { actor })
+            )
             val normalized = updatedEntry.copy(
-                date = DateTimeHelper.normalizeDateToIso(updatedEntry.date, DateTimeHelper.localDateKey())
+                type = updatedEntry.type.uppercase(Locale.US),
+                amount = roundedAmount,
+                date = DateTimeHelper.normalizeDateToIso(updatedEntry.date, DateTimeHelper.localDateKey()),
+                description = updatedDesc,
+                billRef = updatedEntry.billRef.trim()
             )
             database.ledgerDao().insertEntry(normalized)
             enqueueOp("upsertLedgerEntry", ledgerEntryListAdapter.toJson(listOf(normalized)))
+            recordAudit(
+                "EDIT_KHATA_ENTRY",
+                "Edited entry ${normalized.id.take(8)} on account ${normalized.accountId.take(8)}: ${normalized.type} ₹${KhataMath.formatAmount(roundedAmount)}"
+            )
             recalculateAccountBalanceInternal(normalized.accountId)
             Result.success(Unit)
         } catch (e: Exception) {
@@ -2045,7 +2251,23 @@ class StockRepository(
     suspend fun deleteLedgerEntry(entryId: String, accountId: String) = withContext(Dispatchers.IO) {
         database.ledgerDao().deleteEntryById(entryId)
         enqueueOp("deleteLedgerEntry", entryId)
+        recordAudit("DELETE_KHATA_ENTRY", "Deleted entry ${entryId.take(8)} from account ${accountId.take(8)}")
         recalculateAccountBalanceInternal(accountId)
+    }
+
+    private fun computeDueDateIso(baseIsoDate: String, daysToAdd: Int): String {
+        if (daysToAdd <= 0) return ""
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val base = sdf.parse(DateTimeHelper.normalizeDateToIso(baseIsoDate, DateTimeHelper.localDateKey()))
+                ?: return ""
+            val cal = java.util.Calendar.getInstance()
+            cal.time = base
+            cal.add(java.util.Calendar.DAY_OF_YEAR, daysToAdd)
+            sdf.format(cal.time)
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     val allDailyCashflow: Flow<List<com.example.data.model.DailyCashflowRecord>> = database.dailyCashflowDao().getAllCashflow()
@@ -2108,19 +2330,30 @@ class StockRepository(
     private suspend fun recalculateAccountBalanceInternal(accountId: String) {
         val account = database.ledgerDao().getAccountById(accountId) ?: return
         val entries = database.ledgerDao().getEntriesForAccountOnce(accountId)
+            .sortedWith(
+                compareBy<com.example.data.model.LedgerEntry>(
+                    { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
+                    { if (KhataMetaCodec.parseEntryMeta(it.description).isOpeningBalance) 0 else 1 },
+                    { it.createdAt },
+                    { it.id }
+                )
+            )
 
         var runningBalance = 0.0
         val updatedEntries = mutableListOf<com.example.data.model.LedgerEntry>()
+        val isSupplier = account.type.equals("SUPPLIER", ignoreCase = true)
 
         for (entry in entries) {
-            val netDelta = if (account.type == "SUPPLIER") {
-                if (entry.type == "GOT") entry.amount else -entry.amount
+            val cleanAmt = KhataMath.roundPaise(entry.amount)
+            val netDelta = if (isSupplier) {
+                if (entry.type.equals("GOT", ignoreCase = true)) cleanAmt else -cleanAmt
             } else {
-                if (entry.type == "GAVE") entry.amount else -entry.amount
+                if (entry.type.equals("GAVE", ignoreCase = true)) cleanAmt else -cleanAmt
             }
-            runningBalance += netDelta
-            if (entry.balanceAfter != runningBalance) {
-                updatedEntries.add(entry.copy(balanceAfter = runningBalance))
+            runningBalance = KhataMath.roundPaise(runningBalance + netDelta)
+            val normalizedBalanceAfter = if (KhataMath.isSettled(runningBalance)) 0.0 else runningBalance
+            if (abs(entry.balanceAfter - normalizedBalanceAfter) > 0.004 || abs(entry.amount - cleanAmt) > 0.004) {
+                updatedEntries.add(entry.copy(amount = cleanAmt, balanceAfter = normalizedBalanceAfter))
             }
         }
 
@@ -2129,7 +2362,8 @@ class StockRepository(
             enqueueOp("upsertLedgerEntry", ledgerEntryListAdapter.toJson(listOf(u)))
         }
 
-        val updatedAccount = account.copy(netBalance = runningBalance, updatedAt = nowIso())
+        val finalNet = if (KhataMath.isSettled(runningBalance)) 0.0 else runningBalance
+        val updatedAccount = account.copy(netBalance = finalNet, updatedAt = nowIso())
         database.ledgerDao().insertAccount(updatedAccount)
         enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(updatedAccount)))
         flushQueue()

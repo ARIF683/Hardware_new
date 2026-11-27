@@ -12,6 +12,7 @@ import com.example.data.model.DailyCashflowRecord
 import com.example.data.model.GstBillRecord
 import com.example.data.model.Item
 import com.example.data.model.LedgerAccount
+import com.example.data.model.LedgerEntry
 import com.example.data.model.TransactionRecord
 import java.io.File
 import java.text.SimpleDateFormat
@@ -419,35 +420,105 @@ object XlsExporter {
         return XlsSheet("GST Bills", columns, rows, summary)
     }
 
+    fun buildKhataWorkbookXml(accounts: List<LedgerAccount>): String {
+        return buildWorkbookXml(listOf(buildKhataSheet(accounts)))
+    }
+
+    fun buildLedgerStatementWorkbookXml(
+        account: LedgerAccount,
+        entries: List<LedgerEntry>,
+        storeName: String = "Hardware Store"
+    ): String {
+        val columns = listOf(
+            XlsColumn("Date", 95),
+            XlsColumn("Particulars", 210),
+            XlsColumn("Payment Mode", 110),
+            XlsColumn("Bill / UTR Ref", 120),
+            XlsColumn("Site / Project", 120),
+            XlsColumn("Due Date", 95),
+            XlsColumn("Gave (Debit)", 100),
+            XlsColumn("Got (Credit)", 100),
+            XlsColumn("Running Bal", 105)
+        )
+        val sorted = entries.sortedWith(
+            compareBy<LedgerEntry>(
+                { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
+                { if (KhataMetaCodec.parseEntryMeta(it.description).isOpeningBalance) 0 else 1 },
+                { it.createdAt },
+                { it.id }
+            )
+        )
+        var totalGave = 0.0
+        var totalGot = 0.0
+        val rows = sorted.map { entry ->
+            val meta = KhataMetaCodec.parseEntryMeta(entry.description)
+            val isGave = entry.type.equals("GAVE", ignoreCase = true)
+            if (isGave) totalGave += entry.amount else totalGot += entry.amount
+            val refJoined = listOfNotNull(
+                entry.billRef.takeIf { it.isNotBlank() }?.let { "Bill #$it" },
+                meta.paymentRef.takeIf { it.isNotBlank() }
+            ).joinToString(" / ")
+            listOf(
+                XlsCell.Text(entry.date),
+                XlsCell.Text(meta.cleanDescription.ifBlank { if (isGave) "Debit" else "Credit" }),
+                XlsCell.Text(meta.paymentMode),
+                XlsCell.Text(refJoined),
+                XlsCell.Text(meta.siteName),
+                XlsCell.Text(meta.dueDate),
+                if (isGave) XlsCell.Number(entry.amount) else XlsCell.Number(0.0),
+                if (!isGave) XlsCell.Number(entry.amount) else XlsCell.Number(0.0),
+                XlsCell.Number(entry.balanceAfter)
+            )
+        }
+        val status = KhataBalanceHelper.statusFor(account.type, account.netBalance)
+        val summary = listOf(
+            XlsCell.Text("${account.name} (${storeName.take(16)})"),
+            XlsCell.Text("Status: ${status.label}"),
+            XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
+            XlsCell.Number(totalGave),
+            XlsCell.Number(totalGot),
+            XlsCell.Number(account.netBalance)
+        )
+        return buildWorkbookXml(listOf(XlsSheet(account.name, columns, rows, summary)))
+    }
+
     private fun buildKhataSheet(accounts: List<LedgerAccount>): XlsSheet {
         val columns = listOf(
             XlsColumn("Account Name", 180),
             XlsColumn("Type", 95),
+            XlsColumn("Status", 90),
             XlsColumn("Phone", 110),
+            XlsColumn("GSTIN", 130),
             XlsColumn("Address", 170),
             XlsColumn("Net Balance", 105),
             XlsColumn("Credit Limit", 95),
+            XlsColumn("Credit Days", 80),
             XlsColumn("Notes", 160)
         )
         var totalNet = 0.0
         val rows = accounts.map { acc ->
+            val meta = KhataMetaCodec.parseAccountMeta(acc.notes)
+            val status = KhataBalanceHelper.statusFor(acc.type, acc.netBalance)
             totalNet += acc.netBalance
             listOf(
                 XlsCell.Text(acc.name),
                 XlsCell.Text(acc.type),
+                XlsCell.Text(status.label),
                 XlsCell.Text(acc.phone),
+                XlsCell.Text(meta.gstin),
                 XlsCell.Text(acc.address),
                 XlsCell.Number(acc.netBalance),
                 XlsCell.Number(acc.creditLimit),
-                XlsCell.Text(acc.notes)
+                XlsCell.Number(meta.creditDays.toDouble(), isInteger = true),
+                XlsCell.Text(meta.cleanNotes)
             )
         }
         val summary = if (accounts.isNotEmpty()) {
             listOf(
                 XlsCell.Text("TOTAL (${accounts.size})"),
-                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
+                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
                 XlsCell.Number(totalNet),
-                XlsCell.Text(""), XlsCell.Text("")
+                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text("")
             )
         } else null
         return XlsSheet("Khata Accounts", columns, rows, summary)

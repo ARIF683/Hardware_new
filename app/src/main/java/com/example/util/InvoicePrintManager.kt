@@ -519,19 +519,142 @@ object InvoicePrintManager {
         }
     }
 
+    data class LedgerStatementRow(
+        val entry: LedgerEntry,
+        val meta: KhataEntryMeta,
+        val runningBalance: Double,
+        val cleanDescription: String,
+        val tags: String,
+        val pageIndex: Int
+    )
+
+    data class LedgerStatementPlan(
+        val rows: List<LedgerStatementRow>,
+        val totalPages: Int,
+        val openingForPeriod: Double,
+        val closingForPeriod: Double,
+        val periodGave: Double,
+        val periodGot: Double,
+        val status: KhataBalanceHelper.BalanceStatus
+    )
+
+    fun buildLedgerStatementPlan(
+        account: LedgerAccount,
+        entries: List<LedgerEntry>,
+        fromDate: String = "",
+        toDate: String = ""
+    ): LedgerStatementPlan {
+        val isSupplier = account.type.equals("SUPPLIER", ignoreCase = true)
+        val normFrom = fromDate.trim().takeIf { it.isNotBlank() }?.let { DateTimeHelper.normalizeDateToIso(it, "") } ?: ""
+        val normTo = toDate.trim().takeIf { it.isNotBlank() }?.let { DateTimeHelper.normalizeDateToIso(it, "") } ?: ""
+
+        val allSorted = entries.sortedWith(
+            compareBy<LedgerEntry>(
+                { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
+                { if (KhataMetaCodec.parseEntryMeta(it.description).isOpeningBalance) 0 else 1 },
+                { it.createdAt },
+                { it.id }
+            )
+        )
+
+        var running = 0.0
+        var openingForPeriod = 0.0
+        val computedRows = mutableListOf<Triple<LedgerEntry, KhataEntryMeta, Double>>()
+        for (entry in allSorted) {
+            val delta = if (isSupplier) {
+                if (entry.type.equals("GOT", ignoreCase = true)) entry.amount else -entry.amount
+            } else {
+                if (entry.type.equals("GAVE", ignoreCase = true)) entry.amount else -entry.amount
+            }
+            running = KhataMath.roundPaise(running + delta)
+            val entryIso = DateTimeHelper.normalizeDateToIso(entry.date, entry.date)
+            if (normFrom.isNotBlank() && entryIso < normFrom) {
+                openingForPeriod = running
+                continue
+            }
+            if (normTo.isNotBlank() && entryIso > normTo) continue
+            computedRows.add(Triple(entry, KhataMetaCodec.parseEntryMeta(entry.description), running))
+        }
+
+        val closingForPeriod = if (computedRows.isNotEmpty()) {
+            computedRows.last().third
+        } else if (normFrom.isNotBlank() || normTo.isNotBlank()) {
+            openingForPeriod
+        } else {
+            KhataMath.roundPaise(account.netBalance)
+        }
+        val periodGave = KhataMath.roundPaise(computedRows.filter { it.first.type.equals("GAVE", ignoreCase = true) }.sumOf { it.first.amount })
+        val periodGot = KhataMath.roundPaise(computedRows.filter { it.first.type.equals("GOT", ignoreCase = true) }.sumOf { it.first.amount })
+        val status = KhataBalanceHelper.statusFor(account.type, closingForPeriod)
+
+        // Simulate A4 vertical flow to assign deterministic page indices
+        var pageIndex = 1
+        var y = 100f + 86f + 34f // banner + summary box + table header
+        if (normFrom.isNotBlank()) y += 22f
+
+        val plannedRows = computedRows.map { (entry, meta, rowBal) ->
+            val cleanDesc = meta.cleanDescription.ifBlank {
+                if (entry.billRef.isNotBlank()) "Bill #${entry.billRef}" else if (entry.type.equals("GAVE", ignoreCase = true)) "Debit" else "Credit"
+            }
+            val tags = buildList {
+                if (meta.paymentMode.isNotBlank()) add(meta.paymentMode)
+                if (entry.billRef.isNotBlank() && !cleanDesc.contains(entry.billRef)) add("Bill #${entry.billRef}")
+                if (meta.paymentRef.isNotBlank()) add("Ref:${meta.paymentRef}")
+                if (meta.siteName.isNotBlank()) add("Site:${meta.siteName}")
+                if (meta.dueDate.isNotBlank()) add("Due:${meta.dueDate}")
+            }.joinToString(" · ")
+            val rowHeight = if (tags.isNotBlank()) 28f else 22f
+            if (y + rowHeight > 775f) {
+                pageIndex++
+                y = 70f + 34f
+            }
+            val row = LedgerStatementRow(
+                entry = entry,
+                meta = meta,
+                runningBalance = rowBal,
+                cleanDescription = cleanDesc,
+                tags = tags,
+                pageIndex = pageIndex
+            )
+            y += rowHeight
+            row
+        }
+        if (y + 72f > 790f) {
+            pageIndex++
+        }
+
+        return LedgerStatementPlan(
+            rows = plannedRows,
+            totalPages = pageIndex,
+            openingForPeriod = openingForPeriod,
+            closingForPeriod = closingForPeriod,
+            periodGave = periodGave,
+            periodGot = periodGot,
+            status = status
+        )
+    }
+
     /**
-     * Generates a clean A4 PDF for Ledger Statement
+     * Generates a multi-page A4 PDF for Ledger Statement with Opening Balance,
+     * period totals, payment mode/bill metadata, Closing Balance, and UPI reminder.
      */
     fun createLedgerStatementPdf(
         context: Context,
         account: LedgerAccount,
         entries: List<LedgerEntry>,
-        storeName: String = "HARDWARE & TOOLS STORE"
+        storeName: String = "HARDWARE & TOOLS STORE",
+        fromDate: String = "",
+        toDate: String = "",
+        upiId: String = ""
     ): File {
+        val plan = buildLedgerStatementPlan(account, entries, fromDate, toDate)
+        val normFrom = fromDate.trim().takeIf { it.isNotBlank() }?.let { DateTimeHelper.normalizeDateToIso(it, "") } ?: ""
+
         val pdfDoc = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-        val page = pdfDoc.startPage(pageInfo)
-        val canvas: Canvas = page.canvas
+        var pageNumber = 1
+        var pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
+        var page = pdfDoc.startPage(pageInfo)
+        var canvas: Canvas = page.canvas
 
         val boldPaint = Paint().apply {
             isAntiAlias = true
@@ -541,91 +664,167 @@ object InvoicePrintManager {
         }
         val textPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 10f
+            textSize = 9.5f
             color = Color.rgb(30, 41, 59)
         }
         val subPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 9f
+            textSize = 8.5f
             color = Color.rgb(100, 116, 139)
         }
-
-        // Header Banner
-        canvas.drawRect(0f, 0f, 595f, 85f, Paint().apply { color = Color.rgb(15, 23, 42) })
-        canvas.drawText(storeName.uppercase(), 36f, 38f, Paint().apply {
-            isAntiAlias = true
-            textSize = 18f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = Color.WHITE
-        })
-        canvas.drawText("ACCOUNT STATEMENT / KHATA LEDGER", 36f, 58f, Paint().apply {
-            isAntiAlias = true
-            textSize = 10f
-            color = Color.rgb(245, 158, 11)
-        })
-
-        var y = 110f
-
-        // Account Details Box
-        canvas.drawRoundRect(36f, y, 559f, y + 60f, 6f, 6f, Paint().apply { color = Color.rgb(248, 250, 252) })
-        canvas.drawText("ACCOUNT: ${account.name} (${account.type})", 50f, y + 22f, boldPaint)
-        canvas.drawText("Phone: ${account.phone.ifEmpty { "N/A" }} | Address: ${account.address.ifEmpty { "N/A" }}", 50f, y + 42f, subPaint)
-
-        val balanceColor = if (account.netBalance >= 0) Color.rgb(22, 163, 74) else Color.rgb(220, 38, 38)
-        val balText = String.format(Locale.US, "NET BALANCE: ₹%.2f", Math.abs(account.netBalance))
-        canvas.drawText(balText, 545f, y + 32f, Paint().apply {
-            isAntiAlias = true
-            textSize = 12f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            color = balanceColor
-            textAlign = Paint.Align.RIGHT
-        })
-
-        y += 80f
-
-        // Table Header
-        canvas.drawRoundRect(36f, y, 559f, y + 24f, 4f, 4f, Paint().apply { color = Color.rgb(51, 65, 85) })
         val headerPaint = Paint().apply {
             isAntiAlias = true
-            textSize = 9f
+            textSize = 8.5f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             color = Color.WHITE
         }
-        canvas.drawText("DATE", 46f, y + 16f, headerPaint)
-        canvas.drawText("DETAILS / BILL REF", 130f, y + 16f, headerPaint)
-        canvas.drawText("GAVE (DEBIT)", 330f, y + 16f, headerPaint)
-        canvas.drawText("GOT (CREDIT)", 420f, y + 16f, headerPaint)
-        canvas.drawText("BALANCE", 545f, y + 16f, Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT })
-
-        y += 34f
-        val linePaint = Paint().apply { color = Color.rgb(241, 245, 249); strokeWidth = 1f }
+        val linePaint = Paint().apply { color = Color.rgb(226, 232, 240); strokeWidth = 1f }
         val rightTextPaint = Paint(textPaint).apply { textAlign = Paint.Align.RIGHT }
 
-        val chronologicalEntries = entries.sortedWith(
-            compareBy(
-                { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
-                { it.createdAt }
-            )
-        )
-
-        chronologicalEntries.forEachIndexed { index, entry ->
-            canvas.drawText(entry.date, 46f, y + 2f, subPaint)
-            val desc = entry.description.ifEmpty { if (entry.billRef.isNotEmpty()) "Bill #${entry.billRef}" else "Payment" }
-            canvas.drawText(desc.take(28), 130f, y + 2f, textPaint)
-
-            if (entry.type == "GAVE") {
-                canvas.drawText(String.format(Locale.US, "₹%.2f", entry.amount), 380f, y + 2f, Paint(rightTextPaint).apply { color = Color.rgb(220, 38, 38) })
-                canvas.drawText("-", 450f, y + 2f, textPaint)
+        fun drawBanner(isFirstPage: Boolean) {
+            val bannerHeight = if (isFirstPage) 82f else 54f
+            canvas.drawRect(0f, 0f, 595f, bannerHeight, Paint().apply { color = Color.rgb(15, 23, 42) })
+            canvas.drawText(storeName.uppercase(), 36f, if (isFirstPage) 36f else 28f, Paint().apply {
+                isAntiAlias = true
+                textSize = if (isFirstPage) 17f else 13f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                color = Color.WHITE
+            })
+            val subLabel = if (fromDate.isNotBlank() || toDate.isNotBlank()) {
+                "ACCOUNT STATEMENT (${fromDate.ifBlank { "Start" }} to ${toDate.ifBlank { "Today" }})"
             } else {
-                canvas.drawText("-", 350f, y + 2f, textPaint)
-                canvas.drawText(String.format(Locale.US, "₹%.2f", entry.amount), 470f, y + 2f, Paint(rightTextPaint).apply { color = Color.rgb(22, 163, 74) })
+                "ACCOUNT STATEMENT / KHATA LEDGER"
             }
+            canvas.drawText(subLabel, 36f, if (isFirstPage) 56f else 43f, Paint().apply {
+                isAntiAlias = true
+                textSize = 9.5f
+                color = Color.rgb(245, 158, 11)
+            })
+            canvas.drawText("Page $pageNumber of ${plan.totalPages}", 559f, if (isFirstPage) 56f else 43f, Paint().apply {
+                isAntiAlias = true
+                textSize = 9f
+                color = Color.rgb(203, 213, 225)
+                textAlign = Paint.Align.RIGHT
+            })
+        }
 
-            canvas.drawText(String.format(Locale.US, "₹%.2f", entry.balanceAfter), 545f, y + 2f, rightTextPaint)
+        fun drawTableHeader(atY: Float): Float {
+            canvas.drawRoundRect(36f, atY, 559f, atY + 24f, 4f, 4f, Paint().apply { color = Color.rgb(51, 65, 85) })
+            canvas.drawText("DATE", 44f, atY + 15.5f, headerPaint)
+            canvas.drawText("PARTICULARS / MODE / REF", 112f, atY + 15.5f, headerPaint)
+            canvas.drawText("GAVE (DR)", 378f, atY + 15.5f, Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT })
+            canvas.drawText("GOT (CR)", 462f, atY + 15.5f, Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT })
+            canvas.drawText("BALANCE", 550f, atY + 15.5f, Paint(headerPaint).apply { textAlign = Paint.Align.RIGHT })
+            return atY + 34f
+        }
 
+        fun startContinuationPage(): Float {
+            pdfDoc.finishPage(page)
+            pageNumber++
+            pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
+            page = pdfDoc.startPage(pageInfo)
+            canvas = page.canvas
+            drawBanner(isFirstPage = false)
+            return drawTableHeader(70f)
+        }
+
+        val accMeta = KhataMetaCodec.parseAccountMeta(account.notes)
+        val isSupplier = account.type.equals("SUPPLIER", ignoreCase = true)
+
+        drawBanner(isFirstPage = true)
+        var y = 100f
+
+        // Account Summary Box
+        canvas.drawRoundRect(36f, y, 559f, y + 72f, 6f, 6f, Paint().apply { color = Color.rgb(248, 250, 252) })
+        canvas.drawText("PARTY: ${account.name} (${account.type})", 48f, y + 20f, boldPaint)
+        val contactLine = buildString {
+            append("Phone: ${account.phone.ifBlank { "N/A" }}")
+            if (accMeta.gstin.isNotBlank()) append("  |  GSTIN: ${accMeta.gstin}")
+        }
+        canvas.drawText(contactLine, 48f, y + 37f, subPaint)
+        val addrLine = account.address.ifBlank { accMeta.cleanNotes.ifBlank { "Hardware Khata Party" } }
+        canvas.drawText("Address / Notes: ${addrLine.take(54)}", 48f, y + 53f, subPaint)
+
+        val statusColor = if (plan.status.isPositiveHealth) Color.rgb(22, 163, 74) else Color.rgb(220, 38, 38)
+        canvas.drawText(plan.status.label, 547f, y + 22f, Paint().apply {
+            isAntiAlias = true
+            textSize = 9.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            color = statusColor
+            textAlign = Paint.Align.RIGHT
+        })
+        canvas.drawText("₹${KhataMath.formatAmount(plan.closingForPeriod)}", 547f, y + 44f, Paint().apply {
+            isAntiAlias = true
+            textSize = 15f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            color = statusColor
+            textAlign = Paint.Align.RIGHT
+        })
+        if (account.creditLimit > 0.0) {
+            canvas.drawText("Limit: ₹${KhataMath.formatAmount(account.creditLimit)}", 547f, y + 60f, Paint(subPaint).apply { textAlign = Paint.Align.RIGHT })
+        }
+
+        y += 86f
+        y = drawTableHeader(y)
+
+        if (normFrom.isNotBlank()) {
+            canvas.drawText(normFrom, 44f, y + 2f, subPaint)
+            canvas.drawText("Opening Balance brought forward", 112f, y + 2f, boldPaint)
+            canvas.drawText("-", 378f, y + 2f, rightTextPaint)
+            canvas.drawText("-", 462f, y + 2f, rightTextPaint)
+            canvas.drawText("₹${KhataMath.formatAmount(plan.openingForPeriod)}", 550f, y + 2f, Paint(rightTextPaint).apply { typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) })
             canvas.drawLine(36f, y + 12f, 559f, y + 12f, linePaint)
             y += 22f
         }
+
+        plan.rows.forEach { row ->
+            val entry = row.entry
+            val rowHeight = if (row.tags.isNotBlank()) 28f else 22f
+            if (row.pageIndex > pageNumber || y + rowHeight > 775f) {
+                y = startContinuationPage()
+            }
+
+            canvas.drawText(entry.date, 44f, y + 2f, subPaint)
+            canvas.drawText(row.cleanDescription.take(36), 112f, y + 2f, textPaint)
+            if (row.tags.isNotBlank()) {
+                canvas.drawText(row.tags.take(44), 112f, y + 13f, Paint(subPaint).apply { textSize = 7.5f })
+            }
+
+            if (entry.type.equals("GAVE", ignoreCase = true)) {
+                canvas.drawText("₹${KhataMath.formatAmount(entry.amount)}", 378f, y + 2f, Paint(rightTextPaint).apply { color = Color.rgb(220, 38, 38) })
+                canvas.drawText("-", 462f, y + 2f, rightTextPaint)
+            } else {
+                canvas.drawText("-", 378f, y + 2f, rightTextPaint)
+                canvas.drawText("₹${KhataMath.formatAmount(entry.amount)}", 462f, y + 2f, Paint(rightTextPaint).apply { color = Color.rgb(22, 163, 74) })
+            }
+
+            val balSuffix = when {
+                KhataMath.isSettled(row.runningBalance) -> ""
+                row.runningBalance < 0 -> " Adv"
+                else -> ""
+            }
+            canvas.drawText("₹${KhataMath.formatAmount(row.runningBalance)}$balSuffix", 550f, y + 2f, rightTextPaint)
+            canvas.drawLine(36f, y + rowHeight - 8f, 559f, y + rowHeight - 8f, linePaint)
+            y += rowHeight
+        }
+
+        // Totals Summary Box
+        if (y + 72f > 790f) {
+            y = startContinuationPage()
+        }
+        y += 6f
+        canvas.drawRoundRect(36f, y, 559f, y + 54f, 6f, 6f, Paint().apply { color = Color.rgb(241, 245, 249) })
+        canvas.drawText("SUMMARY TOTALS (${plan.rows.size} entries)", 48f, y + 20f, boldPaint)
+        canvas.drawText("Gave: ₹${KhataMath.formatAmount(plan.periodGave)}", 48f, y + 38f, Paint(textPaint).apply { color = Color.rgb(220, 38, 38) })
+        canvas.drawText("Got: ₹${KhataMath.formatAmount(plan.periodGot)}", 185f, y + 38f, Paint(textPaint).apply { color = Color.rgb(22, 163, 74) })
+        if (upiId.isNotBlank() && !isSupplier && plan.closingForPeriod > 0.005) {
+            canvas.drawText("Pay via UPI: ${upiId.trim()}", 320f, y + 38f, subPaint)
+        }
+        canvas.drawText("${plan.status.label}: ₹${KhataMath.formatAmount(plan.closingForPeriod)}", 547f, y + 28f, Paint(boldPaint).apply {
+            textSize = 11.5f
+            color = statusColor
+            textAlign = Paint.Align.RIGHT
+        })
 
         pdfDoc.finishPage(page)
         val outputFile = safePdfOutputFile(

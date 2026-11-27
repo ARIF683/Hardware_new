@@ -114,6 +114,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var billDiscount by remember { mutableDoubleStateOf(0.0) }
     var discountText by remember { mutableStateOf("") }
     var savedBillId by remember { mutableStateOf<String?>(null) }
+    var gstPaymentMode by remember { mutableStateOf("Cash") }
+    var paidNowText by remember { mutableStateOf("") }
+    var creditDueDate by remember { mutableStateOf("") }
 
     var transporterId by remember { mutableStateOf("") }
     var vehicleNo by remember { mutableStateOf("") }
@@ -1039,11 +1042,50 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Deduct Inventory Stock & Log Cashflow Sale",
+                        text = "Deduct Inventory Stock & Log Cashflow / Khata",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                }
+                if (deductStockAndCashflow) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    ) {
+                        listOf("Cash", "UPI", "Bank", "Khata", "Split").forEach { mode ->
+                            FilterChip(
+                                selected = gstPaymentMode == mode,
+                                onClick = { gstPaymentMode = mode },
+                                label = { Text(mode, fontSize = 11.sp, maxLines = 1) }
+                            )
+                        }
+                    }
+                    if (gstPaymentMode == "Khata" || gstPaymentMode == "Split") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (gstPaymentMode == "Split") {
+                                OutlinedTextField(
+                                    value = paidNowText,
+                                    onValueChange = { paidNowText = it },
+                                    label = { Text("Paid Now (₹)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            OutlinedTextField(
+                                value = creditDueDate,
+                                onValueChange = { creditDueDate = it },
+                                label = { Text("Khata Due (YYYY-MM-DD)") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -1153,11 +1195,21 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
                                     val nowIso = DateTimeHelper.nowIso()
                                     val targetId = savedBillId ?: UUID.randomUUID().toString()
+                                    val creditToKhata = if (!deductStockAndCashflow) 0.0 else when (gstPaymentMode) {
+                                        "Khata" -> reconciledGrandTotal
+                                        "Split" -> (reconciledGrandTotal - (paidNowText.trim().toDoubleOrNull() ?: 0.0)).coerceIn(0.0, reconciledGrandTotal)
+                                        else -> 0.0
+                                    }
+                                    val billStatus = when {
+                                        creditToKhata >= reconciledGrandTotal - 0.005 -> "Khata Due"
+                                        creditToKhata > 0.005 -> "Partial Khata"
+                                        else -> "Generated"
+                                    }
                                     val gstRecord = GstBillRecord(
                                         id = targetId,
                                         invoiceNo = invoiceNo,
                                         invoiceDate = invoiceDate,
-                                        customerName = customerName.ifBlank { "Cash Customer" },
+                                        customerName = customerName.ifBlank { if (creditToKhata > 0.005) "Credit Customer" else "Cash Customer" },
                                         customerPhone = customerPhone,
                                         customerGstin = customerGstin,
                                         customerAddress = customerAddress,
@@ -1172,7 +1224,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         quotationId = quotationId,
                                         quotationNo = quotationNo,
                                         pdfPath = storagePath,
-                                        status = "Generated",
+                                        status = billStatus,
                                         createdAt = nowIso
                                     )
                                     haptics.confirm()
@@ -1183,7 +1235,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                             lineItems = gstLineItems,
                                             deductStock = deductStockAndCashflow,
                                             recordCashflowSale = deductStockAndCashflow,
-                                            paymentMode = "Cash"
+                                            paymentMode = gstPaymentMode,
+                                            creditAmountToKhata = creditToKhata,
+                                            creditDueDate = creditDueDate.trim()
                                         )
                                     } else {
                                         viewModel.saveGstBill(gstRecord)
@@ -1247,11 +1301,21 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             val reconciledTax = gstLineItems.sumOf { it.taxAmount }
                             val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
                             val targetId = savedBillId ?: UUID.randomUUID().toString()
+                            val creditToKhata = if (!deductStockAndCashflow) 0.0 else when (gstPaymentMode) {
+                                "Khata" -> reconciledGrandTotal
+                                "Split" -> (reconciledGrandTotal - (paidNowText.trim().toDoubleOrNull() ?: 0.0)).coerceIn(0.0, reconciledGrandTotal)
+                                else -> 0.0
+                            }
+                            val billStatus = when {
+                                creditToKhata >= reconciledGrandTotal - 0.005 -> "Khata Due"
+                                creditToKhata > 0.005 -> "Partial Khata"
+                                else -> "Generated"
+                            }
                             val gstRecord = GstBillRecord(
                                 id = targetId,
                                 invoiceNo = invoiceNo,
                                 invoiceDate = invoiceDate,
-                                customerName = customerName.ifBlank { "Cash Customer" },
+                                customerName = customerName.ifBlank { if (creditToKhata > 0.005) "Credit Customer" else "Cash Customer" },
                                 customerPhone = customerPhone,
                                 customerGstin = customerGstin,
                                 customerAddress = customerAddress,
@@ -1266,7 +1330,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 quotationId = quotationId,
                                 quotationNo = quotationNo,
                                 pdfPath = null,
-                                status = "Generated",
+                                status = billStatus,
                                 createdAt = nowIso
                             )
                             haptics.confirm()
@@ -1277,7 +1341,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     lineItems = gstLineItems,
                                     deductStock = deductStockAndCashflow,
                                     recordCashflowSale = deductStockAndCashflow,
-                                    paymentMode = "Cash"
+                                    paymentMode = gstPaymentMode,
+                                    creditAmountToKhata = creditToKhata,
+                                    creditDueDate = creditDueDate.trim()
                                 )
                             } else {
                                 viewModel.saveGstBill(gstRecord)
