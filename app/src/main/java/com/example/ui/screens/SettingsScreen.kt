@@ -822,20 +822,25 @@ fun SettingsScreen(viewModel: StockViewModel) {
                 SettingsRowDivider()
 
                 // Row 3: Currency, Tax & Banking
+                val gstBadgeSummary = when (storeIdentity.gstModeEnum) {
+                    com.example.util.StoreGstMode.REGULAR -> if (storeIdentity.storeGstin.isNotBlank()) "GSTIN: ${storeIdentity.storeGstin}" else "Regular GST"
+                    com.example.util.StoreGstMode.COMPOSITION -> "Composition (0%)"
+                    com.example.util.StoreGstMode.UNREGISTERED -> "Unregistered Retail"
+                }
                 SettingsItemRow(
                     icon = Icons.Filled.CurrencyRupee,
                     iconTint = ext.positive,
                     title = "Currency, GST & Banking",
                     subtitle = if (bankingInfo.upiId.isNotBlank()) {
-                        "INR (₹) • UPI: ${bankingInfo.upiId}"
+                        "$gstBadgeSummary • UPI: ${bankingInfo.upiId}"
                     } else {
-                        "INR (₹) • Bank, Signature & Payment QR"
+                        "$gstBadgeSummary • Bank, Signature & QR"
                     },
                     onClick = {
                         if (isAdmin) {
                             showBankingScreen = true
                         } else {
-                            viewModel.showToast("Admin access required to manage banking details")
+                            viewModel.showToast("Admin access required to manage banking & GST details")
                         }
                     },
                     testTag = "settings_banking_row",

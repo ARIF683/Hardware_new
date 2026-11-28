@@ -1944,12 +1944,25 @@ class StockRepository(
             val quoteItems = com.example.util.InvoicePrintManager.parseLineItems(quotation.itemsJson)
 
             // Map quotation line items into GST bill line items and proportionally distribute discount
+            val identity = storeProfilePreferenceManager.currentStoreIdentity.value
+            val storeGstMode = identity.gstModeEnum
+            val configuredStoreGstin = if (storeGstMode == com.example.util.StoreGstMode.UNREGISTERED) "" else identity.storeGstin
+            val effectiveInterState = if (storeGstMode == com.example.util.StoreGstMode.REGULAR) {
+                com.example.util.GstinComplianceHelper.resolveInterState(
+                    storeGstinOrState = configuredStoreGstin.ifBlank { identity.effectiveStateCode },
+                    customerGstinOrState = customerGstin,
+                    fallback = isInterState
+                )
+            } else {
+                false
+            }
+
             val rawGstLineItems = quoteItems.mapIndexed { idx, qItem ->
                 val matched = if (qItem.itemId != null) database.itemDao().getItemByIdOnce(qItem.itemId) else null
                 val effectiveRate = if (qItem.qty > 0) {
                     qItem.total / qItem.qty
                 } else qItem.unitPrice
-                val taxRate = quotation.taxPercent
+                val taxRate = if (storeGstMode == com.example.util.StoreGstMode.REGULAR) quotation.taxPercent else 0.0
 
                 com.example.data.model.GstBillLineItem(
                     id = qItem.itemId ?: "row_$idx",
@@ -1984,8 +1997,8 @@ class StockRepository(
                 customerPhone = quotation.customerPhone,
                 customerGstin = customerGstin,
                 customerAddress = quotation.customerAddress,
-                storeGstin = "27AABCS1234F1Z5",
-                isInterState = isInterState,
+                storeGstin = configuredStoreGstin,
+                isInterState = effectiveInterState,
                 itemsJson = com.example.util.InvoicePrintManager.gstItemsToJson(gstLineItems),
                 taxableTotal = taxableTotal,
                 totalTaxAmount = totalTaxAmount,
@@ -2434,7 +2447,10 @@ class StockRepository(
                 ?: lastKnownRemoteProfile?.invoiceSeqUpdatedAt,
             quotePrefix = appSettingsManager.quotePrefix.value,
             quoteNextNum = appSettingsManager.nextQuoteNum.value,
-            quotePadDigits = appSettingsManager.quotePadDigits.value
+            quotePadDigits = appSettingsManager.quotePadDigits.value,
+            storeGstMode = identity.storeGstMode,
+            storeGstin = identity.storeGstin,
+            storeStateCode = identity.effectiveStateCode
         )
     }
 
@@ -2497,7 +2513,12 @@ class StockRepository(
             appSettingsManager.invoicePadDigits.value != AppSettingsManager.DEFAULT_PAD_DIGITS ||
             appSettingsManager.invoiceIncludeFy.value
 
-        if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity) || (hasLocalCustomSeq && remoteMissingSeq)) {
+        val remoteMissingGst = remoteProfile == null || remoteProfile.storeGstMode.isNullOrBlank()
+        val hasLocalGst = identity.storeGstin.isNotBlank() ||
+            identity.storeStateCode.isNotBlank() ||
+            identity.storeGstMode != com.example.util.StoreGstMode.REGULAR.code
+
+        if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity) || (hasLocalCustomSeq && remoteMissingSeq) || (hasLocalGst && remoteMissingGst)) {
             val snapshot = buildLocalStoreProfileSnapshot()
             val merged = StoreProfileSyncCodec.merge(remoteProfile, snapshot)
             if (supabaseClient.saveStoreProfile(merged, authManager.currentUserEmail.value)) {
@@ -2535,7 +2556,10 @@ class StockRepository(
             storeName = remote.storeName,
             supervisorName = remote.supervisorName,
             roleTitle = remote.roleTitle,
-            location = remote.location
+            location = remote.location,
+            storeGstMode = remote.storeGstMode,
+            storeGstin = remote.storeGstin,
+            storeStateCode = remote.storeStateCode
         )
         bankingPreferenceManager.applyRemoteBankDetails(
             bankName = remote.bankName,
@@ -2638,6 +2662,30 @@ class StockRepository(
             supervisorName = supervisorName.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_SUPERVISOR_NAME },
             roleTitle = roleTitle.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_ROLE_TITLE },
             location = location.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_LOCATION },
+            updatedAt = System.currentTimeMillis()
+        )
+        pushStoreProfileMerged(snapshot)
+    }
+
+    suspend fun saveAndSyncStoreGstConfig(
+        gstMode: String,
+        storeGstin: String,
+        storeStateCode: String
+    ) = withContext(Dispatchers.IO) {
+        storeProfilePreferenceManager.saveStoreGstConfig(
+            gstMode = gstMode,
+            storeGstin = storeGstin,
+            storeStateCode = storeStateCode
+        )
+        val updated = storeProfilePreferenceManager.currentStoreIdentity.value
+        recordAudit(
+            "UPDATE_STORE_GST",
+            "Updated GST mode to ${updated.gstModeEnum.label} (${updated.storeGstin.ifBlank { "No GSTIN" }}, State ${updated.effectiveStateCode.ifBlank { "-" }})"
+        )
+        val snapshot = buildLocalStoreProfileSnapshot().copy(
+            storeGstMode = updated.storeGstMode,
+            storeGstin = updated.storeGstin,
+            storeStateCode = updated.effectiveStateCode,
             updatedAt = System.currentTimeMillis()
         )
         pushStoreProfileMerged(snapshot)

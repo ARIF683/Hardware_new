@@ -37,7 +37,10 @@ data class RemoteStoreProfile(
     val invoiceSeqUpdatedAt: Long? = null,
     val quotePrefix: String? = null,
     val quoteNextNum: Int? = null,
-    val quotePadDigits: Int? = null
+    val quotePadDigits: Int? = null,
+    val storeGstMode: String? = null,
+    val storeGstin: String? = null,
+    val storeStateCode: String? = null
 )
 
 object StoreProfileSyncCodec {
@@ -112,7 +115,10 @@ object StoreProfileSyncCodec {
             invoiceSeqUpdatedAt = first.optPresentLong("invoiceSeqUpdatedAt"),
             quotePrefix = first.optPresentString("quotePrefix"),
             quoteNextNum = first.optPresentInt("quoteNextNum"),
-            quotePadDigits = first.optPresentInt("quotePadDigits")
+            quotePadDigits = first.optPresentInt("quotePadDigits"),
+            storeGstMode = first.optPresentString("storeGstMode"),
+            storeGstin = first.optPresentString("storeGstin"),
+            storeStateCode = first.optPresentString("storeStateCode")
         )
     }
 
@@ -188,6 +194,9 @@ object StoreProfileSyncCodec {
             profile.quotePrefix?.let { put("quotePrefix", it) }
             profile.quoteNextNum?.let { put("quoteNextNum", it) }
             profile.quotePadDigits?.let { put("quotePadDigits", it) }
+            profile.storeGstMode?.let { put("storeGstMode", it) }
+            profile.storeGstin?.let { put("storeGstin", it) }
+            profile.storeStateCode?.let { put("storeStateCode", it) }
             put("updatedAt", ts)
         }
     }
@@ -260,7 +269,10 @@ object StoreProfileSyncCodec {
             invoiceSeqUpdatedAt = maxOf(baseSeqTs, overSeqTs).takeIf { it > 0L },
             quotePrefix = if (preferOverrideSeq) (override.quotePrefix ?: base.quotePrefix) else (base.quotePrefix ?: override.quotePrefix),
             quoteNextNum = mergedQuoteNextNum,
-            quotePadDigits = if (preferOverrideSeq) (override.quotePadDigits ?: base.quotePadDigits) else (base.quotePadDigits ?: override.quotePadDigits)
+            quotePadDigits = if (preferOverrideSeq) (override.quotePadDigits ?: base.quotePadDigits) else (base.quotePadDigits ?: override.quotePadDigits),
+            storeGstMode = override.storeGstMode ?: base.storeGstMode,
+            storeGstin = override.storeGstin ?: base.storeGstin,
+            storeStateCode = override.storeStateCode ?: base.storeStateCode
         )
     }
 }

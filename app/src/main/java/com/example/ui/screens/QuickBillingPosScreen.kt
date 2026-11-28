@@ -71,6 +71,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TableView
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -130,8 +131,11 @@ import com.example.data.model.QuotationLineItem
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.DateTimeHelper
+import com.example.util.GstinComplianceHelper
 import com.example.util.InvoicePrintManager
 import com.example.util.ItemSearchMatcher
+import com.example.util.KhataMetaCodec
+import com.example.util.StoreGstMode
 import com.example.util.rememberAppHaptics
 import java.io.File
 import java.text.SimpleDateFormat
@@ -211,6 +215,10 @@ fun QuickBillingPosScreen(
         }
     }
 
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+    val storeGstMode = storeIdentity.gstModeEnum
+    val configuredStoreGstin = if (storeGstMode == StoreGstMode.UNREGISTERED) "" else storeIdentity.storeGstin
+
     // POS State
     val cartItems = remember { mutableStateListOf<PosCartItem>() }
     var searchQuery by remember { mutableStateOf("") }
@@ -218,8 +226,23 @@ fun QuickBillingPosScreen(
 
     var customerName by remember { mutableStateOf("Cash Customer") }
     var customerPhone by remember { mutableStateOf("") }
+    var customerGstin by remember { mutableStateOf("") }
+    var customerAddress by remember { mutableStateOf("") }
     var discountText by remember { mutableStateOf("0") }
-    var taxRateSelected by remember { mutableDoubleStateOf(18.0) }
+    var taxRateSelected by remember {
+        mutableDoubleStateOf(if (storeGstMode == StoreGstMode.REGULAR) 18.0 else 0.0)
+    }
+
+    LaunchedEffect(storeGstMode) {
+        if (storeGstMode != StoreGstMode.REGULAR) {
+            taxRateSelected = 0.0
+            for (i in cartItems.indices) {
+                if (cartItems[i].customTaxRate != 0.0) {
+                    cartItems[i] = cartItems[i].copy(customTaxRate = 0.0)
+                }
+            }
+        }
+    }
 
     val bankingInfo by viewModel.bankingInfo.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
@@ -241,7 +264,8 @@ fun QuickBillingPosScreen(
         if (quote != null) {
             customerName = quote.customerName.ifBlank { "Cash Customer" }
             customerPhone = quote.customerPhone
-            taxRateSelected = quote.taxPercent
+            customerAddress = quote.customerAddress
+            taxRateSelected = if (storeGstMode == StoreGstMode.REGULAR) quote.taxPercent else 0.0
             discountText = quote.discount.toString()
 
             val parsedItems = InvoicePrintManager.parseLineItems(quote.itemsJson)
@@ -261,7 +285,7 @@ fun QuickBillingPosScreen(
                         item = fallbackItem,
                         qty = qItem.qty,
                         customPrice = qItem.unitPrice,
-                        customTaxRate = quote.taxPercent
+                        customTaxRate = if (storeGstMode == StoreGstMode.REGULAR) quote.taxPercent else 0.0
                     )
                 )
             }
@@ -351,6 +375,9 @@ fun QuickBillingPosScreen(
         }
     }
 
+    var showDiscountDialog by remember { mutableStateOf(false) }
+    var showCustomerDialog by remember { mutableStateOf(false) }
+
     fun finalizeAndSaveBill(
         paymentMode: String,
         creditAmountToKhata: Double = 0.0,
@@ -362,20 +389,18 @@ fun QuickBillingPosScreen(
             viewModel.showToast("Cart is empty! Add products to bill.")
             return
         }
-        val nowIso = DateTimeHelper.nowIso()
-        val invoiceNo = viewModel.consumeNextInvoiceNo()
-        val invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
         val rawGstLines = cartItems.map { c ->
             val rawTaxable = c.qty * c.customPrice
-            val tAmt = rawTaxable * (c.customTaxRate / 100.0)
+            val effRate = if (storeGstMode == StoreGstMode.REGULAR) c.customTaxRate else 0.0
+            val tAmt = rawTaxable * (effRate / 100.0)
             GstBillLineItem(
                 id = c.item.id,
                 name = c.item.name,
                 hsn = c.item.code.ifBlank { "8481" },
                 qty = c.qty,
                 rate = c.customPrice,
-                taxRatePercent = c.customTaxRate,
+                taxRatePercent = effRate,
                 taxableAmount = rawTaxable,
                 taxAmount = tAmt,
                 totalAmount = rawTaxable + tAmt,
@@ -389,22 +414,51 @@ fun QuickBillingPosScreen(
         val reconciledTax = gstLineItems.sumOf { it.taxAmount }
         val reconciledGrandTotal = gstLineItems.sumOf { it.totalAmount }
         val safeCredit = creditAmountToKhata.coerceIn(0.0, reconciledGrandTotal)
+        val resolvedName = customerName.ifBlank { if (safeCredit > 0.005) "Credit Customer" else "Cash Customer" }
+        val cleanCustGstin = GstinComplianceHelper.normalizeGstin(customerGstin)
+
+        if (GstinComplianceHelper.isRule46AddressRequired(reconciledGrandTotal, cleanCustGstin, storeGstMode)) {
+            val missingMsg = GstinComplianceHelper.rule46MissingFieldsMessage(resolvedName, customerAddress)
+            if (missingMsg != null) {
+                haptics.reject()
+                viewModel.showToast(missingMsg)
+                showCashCheckoutDialog = false
+                showUpiCheckoutDialog = false
+                showKhataCheckoutDialog = false
+                showCustomerDialog = true
+                return
+            }
+        }
+
+        val nowIso = DateTimeHelper.nowIso()
+        val invoiceNo = viewModel.consumeNextInvoiceNo()
+        val invoiceDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+
         val computedStatus = when {
             safeCredit >= reconciledGrandTotal - 0.005 -> "Khata Due"
             safeCredit > 0.005 -> "Partial Khata ($paymentMode)"
             else -> "Paid ($paymentMode)"
+        }
+        val resolvedInterState = if (storeGstMode == StoreGstMode.REGULAR) {
+            GstinComplianceHelper.resolveInterState(
+                storeGstinOrState = configuredStoreGstin.ifBlank { storeIdentity.effectiveStateCode },
+                customerGstinOrState = cleanCustGstin,
+                fallback = false
+            )
+        } else {
+            false
         }
 
         val billRecord = GstBillRecord(
             id = UUID.randomUUID().toString(),
             invoiceNo = invoiceNo,
             invoiceDate = invoiceDate,
-            customerName = customerName.ifBlank { if (safeCredit > 0.005) "Credit Customer" else "Cash Customer" },
+            customerName = resolvedName,
             customerPhone = customerPhone.trim(),
-            customerGstin = "",
-            customerAddress = "",
-            storeGstin = "27AABCS1234F1Z5",
-            isInterState = false,
+            customerGstin = cleanCustGstin,
+            customerAddress = customerAddress.trim(),
+            storeGstin = configuredStoreGstin,
+            isInterState = resolvedInterState,
             itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
             taxableTotal = reconciledTaxable,
             totalTaxAmount = reconciledTax,
@@ -442,9 +496,6 @@ fun QuickBillingPosScreen(
         }
         viewModel.showToast("✅ Bill #$invoiceNo saved ($computedStatus)!")
     }
-
-    var showDiscountDialog by remember { mutableStateOf(false) }
-    var showCustomerDialog by remember { mutableStateOf(false) }
 
     // Quick Discount Dialog
     if (showDiscountDialog) {
@@ -498,21 +549,66 @@ fun QuickBillingPosScreen(
         )
     }
 
-    // Quick Customer Dialog
+    // Quick Customer & Khata Auto-Fill Dialog
     if (showCustomerDialog) {
+        val partyCandidates = remember(khataAccounts) {
+            khataAccounts.filter {
+                !it.type.equals("SUPPLIER", ignoreCase = true) &&
+                    !KhataMetaCodec.parseAccountMeta(it.notes).archived
+            }
+        }
         var tempName by remember { mutableStateOf(customerName) }
         var tempPhone by remember { mutableStateOf(customerPhone) }
+        var tempGstin by remember { mutableStateOf(customerGstin) }
+        var tempAddress by remember { mutableStateOf(customerAddress) }
+        val gstinCheck = remember(tempGstin) { GstinComplianceHelper.validateGstin(tempGstin) }
+        val rule46Needed = GstinComplianceHelper.isRule46AddressRequired(grandTotal, tempGstin, storeGstMode)
+
         AlertDialog(
             onDismissRequest = { showCustomerDialog = false },
-            title = { Text("👤 Customer Details", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text("👤 Customer & GSTIN Details", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (partyCandidates.isNotEmpty()) {
+                        Text("Pick Khata Customer (Auto-fills GSTIN & Address):", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            partyCandidates.take(15).forEach { acc ->
+                                val meta = remember(acc.notes) { KhataMetaCodec.parseAccountMeta(acc.notes) }
+                                FilterChip(
+                                    selected = tempName.trim().equals(acc.name.trim(), ignoreCase = true),
+                                    onClick = {
+                                        tempName = acc.name
+                                        tempPhone = acc.phone
+                                        tempAddress = acc.address
+                                        if (meta.gstin.isNotBlank()) tempGstin = meta.gstin
+                                    },
+                                    label = {
+                                        Text(
+                                            text = if (meta.gstin.isNotBlank()) "${acc.name} • GST" else acc.name,
+                                            fontSize = 11.sp,
+                                            maxLines = 1
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("pos_customer_khata_${acc.id}")
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = tempName,
                         onValueChange = { tempName = it },
-                        label = { Text("Customer / Contractor Name") },
+                        label = { Text(if (rule46Needed) "Customer / Contractor Name *" else "Customer / Contractor Name") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("pos_customer_name_input")
                     )
                     OutlinedTextField(
                         value = tempPhone,
@@ -522,6 +618,53 @@ fun QuickBillingPosScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    OutlinedTextField(
+                        value = tempGstin,
+                        onValueChange = { tempGstin = GstinComplianceHelper.normalizeGstin(it) },
+                        label = { Text("Customer GSTIN (Optional)") },
+                        placeholder = { Text("15-char GSTIN") },
+                        isError = tempGstin.isNotBlank() && !gstinCheck.isValid,
+                        supportingText = if (tempGstin.isNotBlank()) {
+                            {
+                                Text(
+                                    text = if (gstinCheck.isValid) {
+                                        "✓ Valid • ${gstinCheck.stateCode} ${gstinCheck.stateName}"
+                                    } else {
+                                        gstinCheck.errorReason ?: "Invalid GSTIN"
+                                    },
+                                    fontSize = 10.sp,
+                                    color = if (gstinCheck.isValid) ext.positive else MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.testTag("pos_customer_gstin_status")
+                                )
+                            }
+                        } else null,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("pos_customer_gstin_input")
+                    )
+                    OutlinedTextField(
+                        value = tempAddress,
+                        onValueChange = { tempAddress = it },
+                        label = { Text(if (rule46Needed) "Full Address & State * (Rule 46)" else "Address (Optional)") },
+                        isError = rule46Needed && tempAddress.isBlank(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("pos_customer_address_input")
+                    )
+                    if (rule46Needed) {
+                        Surface(
+                            color = ext.warning.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("pos_customer_rule46_note")
+                        ) {
+                            Text(
+                                text = "₹50,000+ bill without GSTIN: Customer Name & Full Address required under Rule 46.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ext.warning,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -529,12 +672,15 @@ fun QuickBillingPosScreen(
                     onClick = {
                         customerName = tempName.ifBlank { "Cash Customer" }
                         customerPhone = tempPhone.trim()
+                        customerGstin = GstinComplianceHelper.normalizeGstin(tempGstin)
+                        customerAddress = tempAddress.trim()
                         showCustomerDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    ),
+                    modifier = Modifier.testTag("pos_customer_save_button")
                 ) {
                     Text("Save", fontWeight = FontWeight.Bold)
                 }
@@ -752,7 +898,7 @@ fun QuickBillingPosScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    // Selectable GST Slab Bar (0%, 5%, 12%, 18%, 28%)
+                    // Selectable GST Slab Bar (0%, 5%, 12%, 18%, 28%) or Mode Pill
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -762,43 +908,60 @@ fun QuickBillingPosScreen(
                     ) {
                         item {
                             Text(
-                                text = "GST:",
+                                text = if (storeGstMode == StoreGstMode.REGULAR) "GST:" else "${storeGstMode.shortLabel}:",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        items(listOf(0.0, 5.0, 12.0, 18.0, 28.0)) { slab ->
-                            val selected = taxRateSelected == slab
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (selected) {
-                                    if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                },
-                                border = BorderStroke(
-                                    0.8.dp,
-                                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                ),
-                                modifier = Modifier
-                                    .testTag("pos_gst_slab_${slab.toInt()}")
-                                    .clickable {
-                                        taxRateSelected = slab
-                                        for (i in cartItems.indices) {
-                                            cartItems[i] = cartItems[i].copy(customTaxRate = slab)
+                        if (storeGstMode == StoreGstMode.REGULAR) {
+                            items(listOf(0.0, 5.0, 12.0, 18.0, 28.0)) { slab ->
+                                val selected = taxRateSelected == slab
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (selected) {
+                                        if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    ),
+                                    modifier = Modifier
+                                        .testTag("pos_gst_slab_${slab.toInt()}")
+                                        .clickable {
+                                            taxRateSelected = slab
+                                            for (i in cartItems.indices) {
+                                                cartItems[i] = cartItems[i].copy(customTaxRate = slab)
+                                            }
                                         }
-                                    }
-                            ) {
-                                Text(
-                                    text = if (slab == 0.0) "0% Free" else "${slab.toInt()}%",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                ) {
+                                    Text(
+                                        text = if (slab == 0.0) "0% Free" else "${slab.toInt()}%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ext.positive
+                                ) {
+                                    Text(
+                                        text = "0% (${storeGstMode.docTitle})",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1345,7 +1508,7 @@ fun QuickBillingPosScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Customer Name / Phone inputs
+                // Customer Name / Phone / GSTIN & Address quick edit
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1366,6 +1529,51 @@ fun QuickBillingPosScreen(
                         singleLine = true,
                         modifier = Modifier.weight(1f).widthIn(min = 0.dp)
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = buildString {
+                            if (customerGstin.isNotBlank()) append("GSTIN: $customerGstin")
+                            if (customerAddress.isNotBlank()) {
+                                if (isNotEmpty()) append(" • ")
+                                append(customerAddress)
+                            }
+                            if (isEmpty()) append("No GSTIN / Address set")
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = { showCustomerDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("Pick Khata / GSTIN", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                val drawerRule46Missing = if (GstinComplianceHelper.isRule46AddressRequired(grandTotal, customerGstin, storeGstMode)) {
+                    GstinComplianceHelper.rule46MissingFieldsMessage(customerName, customerAddress)
+                } else null
+                if (drawerRule46Missing != null) {
+                    Surface(
+                        color = ext.warning.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("pos_cart_rule46_warning")
+                    ) {
+                        Text(
+                            text = drawerRule46Missing,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ext.warning,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1517,6 +1725,29 @@ fun QuickBillingPosScreen(
                             Text("₹${String.format(Locale.US, "%.2f", changeReturn)}", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = ext.positive)
                         }
                     }
+                    if (GstinComplianceHelper.isCashLimitExceeded(grandTotal)) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            color = ext.danger.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.55f)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("pos_cash_269st_warning")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = ext.danger, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Sec 269ST Alert: Cash receipt of ₹2,00,000+ is prohibited. Use UPI or Bank transfer.",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ext.danger
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1602,6 +1833,8 @@ fun QuickBillingPosScreen(
             mutableStateOf(if (customerName.equals("Cash Customer", ignoreCase = true)) "" else customerName)
         }
         var partyPhoneInput by remember { mutableStateOf(customerPhone) }
+        var partyGstinInput by remember { mutableStateOf(customerGstin) }
+        var partyAddressInput by remember { mutableStateOf(customerAddress) }
         var paidNowText by remember { mutableStateOf("0") }
         var paidNowMode by remember { mutableStateOf("Cash") }
         var dueDateInput by remember { mutableStateOf("") }
@@ -1626,14 +1859,25 @@ fun QuickBillingPosScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             partyCandidates.take(12).forEach { acc ->
+                                val accMeta = remember(acc.notes) { KhataMetaCodec.parseAccountMeta(acc.notes) }
                                 FilterChip(
                                     selected = selectedAccId == acc.id,
                                     onClick = {
                                         selectedAccId = acc.id
                                         partyNameInput = acc.name
                                         partyPhoneInput = acc.phone
+                                        partyAddressInput = acc.address
+                                        if (accMeta.gstin.isNotBlank()) {
+                                            partyGstinInput = accMeta.gstin
+                                        }
                                     },
-                                    label = { Text(acc.name, fontSize = 11.sp, maxLines = 1) }
+                                    label = {
+                                        Text(
+                                            text = if (accMeta.gstin.isNotBlank()) "${acc.name} • GST" else acc.name,
+                                            fontSize = 11.sp,
+                                            maxLines = 1
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -1678,6 +1922,22 @@ fun QuickBillingPosScreen(
                             listOf("Cash", "UPI", "Bank").forEach { m ->
                                 FilterChip(selected = paidNowMode == m, onClick = { paidNowMode = m }, label = { Text(m, fontSize = 11.sp) })
                             }
+                        }
+                    }
+                    if (paidNowMode == "Cash" && GstinComplianceHelper.isCashLimitExceeded(paidNowAmt)) {
+                        Surface(
+                            color = ext.danger.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.55f)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("pos_khata_cash_269st_warning")
+                        ) {
+                            Text(
+                                text = "Sec 269ST Alert: Cash paid ₹2,00,000+ is prohibited. Switch Paid Now mode to UPI or Bank.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ext.danger,
+                                modifier = Modifier.padding(8.dp)
+                            )
                         }
                     }
                     val pickedParty = partyCandidates.firstOrNull { it.id == selectedAccId }
@@ -1728,6 +1988,8 @@ fun QuickBillingPosScreen(
                         }
                         customerName = partyNameInput.trim().ifBlank { customerName }
                         customerPhone = partyPhoneInput.trim()
+                        customerGstin = GstinComplianceHelper.normalizeGstin(partyGstinInput)
+                        customerAddress = partyAddressInput.trim()
                         val modeLabel = if (paidNowAmt > 0.0) "Split ($paidNowMode + Khata)" else "Khata"
                         finalizeAndSaveBill(
                             paymentMode = modeLabel,
@@ -1832,7 +2094,7 @@ fun QuickBillingPosScreen(
             )
         }
         ThermalPrintDialog(
-            title = "SALE RECEIPT",
+            title = storeGstMode.docTitle,
             refNo = bill.invoiceNo,
             date = bill.invoiceDate,
             customerName = bill.customerName,

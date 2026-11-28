@@ -108,7 +108,8 @@ object InvoicePrintManager {
         storeEmail: String = "",
         bankingInfo: BankingInfo? = null,
         signatureBitmap: Bitmap? = null,
-        qrCodeBitmap: Bitmap? = null
+        qrCodeBitmap: Bitmap? = null,
+        storeGstMode: StoreGstMode? = null
     ): File {
         val pdfItems = parseGstLineItems(bill.itemsJson).map { item ->
             GstTaxPdfItem(
@@ -146,7 +147,8 @@ object InvoicePrintManager {
             vehicleNo = bill.vehicleNo,
             bankingInfo = bankingInfo,
             signatureBitmap = signatureBitmap,
-            qrCodeBitmap = qrCodeBitmap
+            qrCodeBitmap = qrCodeBitmap,
+            storeGstMode = storeGstMode
         )
     }
 
@@ -1071,10 +1073,12 @@ object InvoicePrintManager {
         vehicleNo: String = "",
         bankingInfo: BankingInfo? = null,
         signatureBitmap: Bitmap? = null,
-        qrCodeBitmap: Bitmap? = null
+        qrCodeBitmap: Bitmap? = null,
+        storeGstMode: StoreGstMode? = null
     ): File {
+        val effectiveMode = GstinComplianceHelper.inferGstMode(storeGstin, totalTaxAmount, storeGstMode)
         val pdfDoc = PdfDocument()
-        val maxItemsPage1 = 14
+        val maxItemsPage1 = 13
         val maxItemsContinuation = 20
         val rowHeight = 30f
         val totalsBlockHeight = 220f
@@ -1083,7 +1087,7 @@ object InvoicePrintManager {
         // Pre-calculate total pages
         var calcPages = 1
         var calcItemsOnPage = 0
-        var calcY = 166f
+        var calcY = 176f
         for (i in items.indices) {
             val maxForThisPage = if (calcPages == 1) maxItemsPage1 else maxItemsContinuation
             if (calcItemsOnPage >= maxForThisPage || calcY + rowHeight > pageBottomLimit) {
@@ -1179,7 +1183,7 @@ object InvoicePrintManager {
                 strokeWidth = 1f
             }
             c.drawRect(24f, 24f, 571f, 816f, outerBorderPaint)
-            c.drawText("GST Tax Invoice • Standard Rule 46 Compliant • Page $pageNum of $totalPages", 595f / 2f, 810f, footerPaint)
+            c.drawText("${effectiveMode.docTitle} • ${effectiveMode.pdfHeaderTag} • Page $pageNum of $totalPages", 595f / 2f, 810f, footerPaint)
         }
 
         fun drawPage1Header(c: Canvas): Float {
@@ -1195,16 +1199,21 @@ object InvoicePrintManager {
             if (subLine1.isNotBlank()) {
                 c.drawText(subLine1, 36f, 64f, headerSubPaint)
             }
-            c.drawText("GSTIN: ${storeGstin.ifEmpty { "Unregistered" }}  •  TAX INVOICE (Rule 46 CGST Rules)", 36f, 78f, headerSubPaint)
+            val gstSubtitle = if (effectiveMode == StoreGstMode.UNREGISTERED) {
+                effectiveMode.pdfHeaderTag
+            } else {
+                "GSTIN: ${storeGstin.ifEmpty { "Not Provided" }}  •  ${effectiveMode.pdfHeaderTag}"
+            }
+            c.drawText(gstSubtitle, 36f, 78f, headerSubPaint)
 
             val docTypePaint = Paint().apply {
                 isAntiAlias = true
-                textSize = 14f
+                textSize = if (effectiveMode == StoreGstMode.UNREGISTERED) 11f else 14f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 color = Color.rgb(251, 191, 36)
                 textAlign = Paint.Align.RIGHT
             }
-            c.drawText("TAX INVOICE", 559f, 48f, docTypePaint)
+            c.drawText(effectiveMode.docTitle, 559f, 48f, docTypePaint)
             val metaPaint = Paint().apply {
                 isAntiAlias = true
                 textSize = 8.5f
@@ -1215,27 +1224,35 @@ object InvoicePrintManager {
             c.drawText("Date: $invoiceDate", 559f, 78f, metaPaint)
 
             var curY = 104f
-            c.drawRoundRect(24f, curY, 571f, curY + 54f, 4f, 4f, cardPaint)
-            c.drawRoundRect(24f, curY, 571f, curY + 54f, 4f, 4f, strokePaint)
+            c.drawRoundRect(24f, curY, 571f, curY + 64f, 4f, 4f, cardPaint)
+            c.drawRoundRect(24f, curY, 571f, curY + 64f, 4f, 4f, strokePaint)
 
-            c.drawText("BILLED TO / RECIPIENT:", 36f, curY + 16f, boldPaint)
+            c.drawText("BILLED TO / RECIPIENT:", 36f, curY + 15f, boldPaint)
             val buyerName = customerName.ifEmpty { "Cash / Retail Customer" }
-            c.drawText("Name: $buyerName", 36f, curY + 29f, textPaint)
+            c.drawText("Name: ${buyerName.take(40)}", 36f, curY + 27f, textPaint)
             val buyerGstin = customerGstin.ifEmpty { "Unregistered" }
             val buyerExtra = if (customerPhone.isNotBlank()) " | Ph: $customerPhone" else ""
-            c.drawText("GSTIN: $buyerGstin$buyerExtra", 36f, curY + 42f, textPaint)
+            c.drawText("GSTIN: $buyerGstin$buyerExtra", 36f, curY + 39f, textPaint)
+            val addrDisplay = customerAddress.trim().ifBlank { "Not Provided" }.let {
+                if (it.length > 46) it.take(44) + ".." else it
+            }
+            c.drawText("Addr: $addrDisplay", 36f, curY + 52f, smallSubPaint)
 
-            val placeOfSupply = if (isInterState) "Inter-State (IGST 100%)" else "Intra-State (CGST 50% + SGST 50%)"
-            c.drawText("Place of Supply: $placeOfSupply", 310f, curY + 16f, textPaint)
+            val placeOfSupply = when (effectiveMode) {
+                StoreGstMode.REGULAR -> if (isInterState) "Inter-State (IGST 100%)" else "Intra-State (CGST 50% + SGST 50%)"
+                StoreGstMode.COMPOSITION -> "Composition Supply (No ITC)"
+                StoreGstMode.UNREGISTERED -> "Retail Supply (Non-GST)"
+            }
+            c.drawText("Supply: $placeOfSupply", 310f, curY + 15f, textPaint)
             if (transporterId.isNotEmpty() || vehicleNo.isNotEmpty()) {
                 val transText = "Transport: ${transporterId.ifEmpty { "-" }} | Vehicle: ${vehicleNo.ifEmpty { "-" }}"
-                c.drawText(transText, 310f, curY + 29f, textPaint)
+                c.drawText(transText, 310f, curY + 27f, textPaint)
             } else {
-                c.drawText("Reverse Charge: No | Terms: Due on Receipt", 310f, curY + 29f, textPaint)
+                c.drawText("Reverse Charge: No | Terms: Due on Receipt", 310f, curY + 27f, textPaint)
             }
-            c.drawText("Original for Recipient", 310f, curY + 42f, smallSubPaint)
+            c.drawText("Original for Recipient", 310f, curY + 39f, smallSubPaint)
 
-            curY += 62f
+            curY += 72f
             return drawTableHeader(c, curY)
         }
 
@@ -1249,7 +1266,7 @@ object InvoicePrintManager {
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 color = Color.WHITE
             }
-            c.drawText("${storeName.uppercase()} - TAX INVOICE (Continuation - Page $pageNum of $totalPages)", 36f, 46f, miniStorePaint)
+            c.drawText("${storeName.uppercase()} - ${effectiveMode.docTitle} (Page $pageNum of $totalPages)", 36f, 46f, miniStorePaint)
 
             val miniMetaPaint = Paint().apply {
                 isAntiAlias = true
@@ -1319,17 +1336,33 @@ object InvoicePrintManager {
         canvas.drawRoundRect(320f, y, 571f, y + 84f, 4f, 4f, totalsCardPaint)
         canvas.drawRoundRect(320f, y, 571f, y + 84f, 4f, 4f, strokePaint)
 
-        canvas.drawText("Taxable Value Total:", 332f, y + 16f, textPaint)
+        val taxableLabel = when (effectiveMode) {
+            StoreGstMode.REGULAR -> "Taxable Value Total:"
+            StoreGstMode.COMPOSITION -> "Bill Supply Value:"
+            StoreGstMode.UNREGISTERED -> "Subtotal Value:"
+        }
+        canvas.drawText(taxableLabel, 332f, y + 16f, textPaint)
         canvas.drawText("₹%.2f".format(taxableTotal), 558f, y + 16f, rightBoldPaint)
 
-        if (isInterState) {
-            canvas.drawText("Integrated Tax (IGST):", 332f, y + 31f, textPaint)
-            canvas.drawText("₹%.2f".format(totalTaxAmount), 558f, y + 31f, rightBoldPaint)
-        } else {
-            canvas.drawText("Central Tax (CGST):", 332f, y + 30f, textPaint)
-            canvas.drawText("₹%.2f".format(totalTaxAmount / 2), 558f, y + 30f, rightBoldPaint)
-            canvas.drawText("State Tax (SGST):", 332f, y + 43f, textPaint)
-            canvas.drawText("₹%.2f".format(totalTaxAmount / 2), 558f, y + 43f, rightBoldPaint)
+        when {
+            effectiveMode == StoreGstMode.COMPOSITION -> {
+                canvas.drawText("Composition Scheme (No ITC):", 332f, y + 31f, textPaint)
+                canvas.drawText("₹0.00", 558f, y + 31f, rightBoldPaint)
+            }
+            effectiveMode == StoreGstMode.UNREGISTERED -> {
+                canvas.drawText("Non-GST Cash Memo:", 332f, y + 31f, textPaint)
+                canvas.drawText("₹0.00", 558f, y + 31f, rightBoldPaint)
+            }
+            isInterState -> {
+                canvas.drawText("Integrated Tax (IGST):", 332f, y + 31f, textPaint)
+                canvas.drawText("₹%.2f".format(totalTaxAmount), 558f, y + 31f, rightBoldPaint)
+            }
+            else -> {
+                canvas.drawText("Central Tax (CGST):", 332f, y + 30f, textPaint)
+                canvas.drawText("₹%.2f".format(totalTaxAmount / 2), 558f, y + 30f, rightBoldPaint)
+                canvas.drawText("State Tax (SGST):", 332f, y + 43f, textPaint)
+                canvas.drawText("₹%.2f".format(totalTaxAmount / 2), 558f, y + 43f, rightBoldPaint)
+            }
         }
 
         canvas.drawLine(328f, y + 54f, 563f, y + 54f, strokePaint)
@@ -1615,21 +1648,18 @@ object InvoicePrintManager {
     /**
      * Exports filtered GST bills as a GSTR-1 ready CSV report and triggers the Android Share Sheet.
      */
-    fun exportGstr1CsvAndShare(
-        context: Context,
+    internal fun buildGstr1CsvContent(
         bills: List<GstBillRecord>,
-        storeName: String
-    ): File {
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val csvFile = File(exportDir, "GSTR1_Report_$stamp.csv")
-
+        storeName: String,
+        storeGstMode: StoreGstMode? = null
+    ): String {
         fun csvEscape(value: String): String = SpreadsheetSanitizer.csvEscape(value)
 
         val sb = StringBuilder()
         sb.appendLine("Store,${csvEscape(storeName)}")
-        sb.appendLine("Invoice No,Date,Customer Name,Phone,Customer GSTIN,Supply Type,Taxable Value,CGST,SGST,IGST,Total Tax,Grand Total,Status,Estimate Ref")
+        sb.appendLine("Invoice No,Date,GSTR-1 Bucket,Customer Name,Phone,Customer GSTIN,Customer Address,Supply Type,Taxable Value,CGST,SGST,IGST,Total Tax,Grand Total,Status,Estimate Ref")
         bills.forEach { bill ->
+            val bucket = GstinComplianceHelper.classifyGstr1Bucket(bill, storeGstMode)
             val cgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
             val sgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
             val igst = if (bill.isInterState) bill.totalTaxAmount else 0.0
@@ -1638,9 +1668,11 @@ object InvoicePrintManager {
                 listOf(
                     csvEscape(bill.invoiceNo),
                     csvEscape(bill.invoiceDate),
+                    csvEscape(bucket.code),
                     csvEscape(bill.customerName),
                     csvEscape(bill.customerPhone),
                     csvEscape(bill.customerGstin),
+                    csvEscape(bill.customerAddress),
                     csvEscape(supplyType),
                     String.format(Locale.US, "%.2f", bill.taxableTotal),
                     String.format(Locale.US, "%.2f", cgst),
@@ -1653,7 +1685,19 @@ object InvoicePrintManager {
                 ).joinToString(",")
             )
         }
-        csvFile.writeText(sb.toString(), Charsets.UTF_8)
+        return sb.toString()
+    }
+
+    fun exportGstr1CsvAndShare(
+        context: Context,
+        bills: List<GstBillRecord>,
+        storeName: String,
+        storeGstMode: StoreGstMode? = null
+    ): File {
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val csvFile = File(exportDir, "GSTR1_Report_$stamp.csv")
+        csvFile.writeText(buildGstr1CsvContent(bills, storeName, storeGstMode), Charsets.UTF_8)
 
         val uri: Uri = FileProvider.getUriForFile(
             context,

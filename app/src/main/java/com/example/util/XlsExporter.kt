@@ -148,15 +148,18 @@ object XlsExporter {
 
     fun buildGstr1WorkbookXml(
         bills: List<GstBillRecord>,
-        storeName: String
+        storeName: String,
+        storeGstMode: StoreGstMode? = null
     ): String {
         val columns = listOf(
             XlsColumn("Store", 140),
             XlsColumn("Invoice No", 110),
             XlsColumn("Invoice Date", 95),
+            XlsColumn("GSTR-1 Bucket", 105),
             XlsColumn("Customer Name", 170),
             XlsColumn("Phone", 105),
             XlsColumn("Customer GSTIN", 135),
+            XlsColumn("Customer Address", 180),
             XlsColumn("Supply Type", 140),
             XlsColumn("Taxable Value", 105),
             XlsColumn("CGST", 90),
@@ -176,6 +179,7 @@ object XlsExporter {
         var sumGrand = 0.0
 
         val rows = bills.map { bill ->
+            val bucket = GstinComplianceHelper.classifyGstr1Bucket(bill, storeGstMode)
             val cgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
             val sgst = if (bill.isInterState) 0.0 else bill.totalTaxAmount / 2.0
             val igst = if (bill.isInterState) bill.totalTaxAmount else 0.0
@@ -192,9 +196,11 @@ object XlsExporter {
                 XlsCell.Text(storeName),
                 XlsCell.Text(bill.invoiceNo),
                 XlsCell.Text(bill.invoiceDate),
+                XlsCell.Text(bucket.code),
                 XlsCell.Text(bill.customerName),
                 XlsCell.Text(bill.customerPhone),
                 XlsCell.Text(bill.customerGstin),
+                XlsCell.Text(bill.customerAddress),
                 XlsCell.Text(supplyType),
                 XlsCell.Number(bill.taxableTotal),
                 XlsCell.Number(cgst),
@@ -210,6 +216,8 @@ object XlsExporter {
         val summary = if (bills.isNotEmpty()) {
             listOf(
                 XlsCell.Text("TOTAL (${bills.size} Bills)"),
+                XlsCell.Text(""),
+                XlsCell.Text(""),
                 XlsCell.Text(""),
                 XlsCell.Text(""),
                 XlsCell.Text(""),
@@ -257,12 +265,13 @@ object XlsExporter {
         stockMovements: List<TransactionRecord>,
         gstBills: List<GstBillRecord>,
         ledgerAccounts: List<LedgerAccount>,
-        storeName: String
+        storeName: String,
+        storeGstMode: StoreGstMode? = null
     ): String {
         val inventorySheet = buildInventorySheet(items)
         val cashflowSheet = buildCashflowSheet(cashflow)
         val movementSheet = buildStockMovementSheet(stockMovements)
-        val gstSheet = buildGstr1Sheet(gstBills, storeName)
+        val gstSheet = buildGstr1Sheet(gstBills, storeName, storeGstMode)
         val khataSheet = buildKhataSheet(ledgerAccounts)
         return buildWorkbookXml(listOf(inventorySheet, cashflowSheet, movementSheet, gstSheet, khataSheet))
     }
@@ -376,13 +385,19 @@ object XlsExporter {
         return XlsSheet("Stock Movements", columns, rows, null)
     }
 
-    private fun buildGstr1Sheet(bills: List<GstBillRecord>, storeName: String): XlsSheet {
+    private fun buildGstr1Sheet(
+        bills: List<GstBillRecord>,
+        storeName: String,
+        storeGstMode: StoreGstMode? = null
+    ): XlsSheet {
         val columns = listOf(
             XlsColumn("Store", 130),
             XlsColumn("Invoice No", 105),
             XlsColumn("Date", 95),
+            XlsColumn("GSTR-1 Bucket", 105),
             XlsColumn("Customer", 160),
             XlsColumn("GSTIN", 130),
+            XlsColumn("Address", 165),
             XlsColumn("Taxable", 95),
             XlsColumn("Total Tax", 90),
             XlsColumn("Grand Total", 105),
@@ -392,6 +407,7 @@ object XlsExporter {
         var sumTax = 0.0
         var sumGrand = 0.0
         val rows = bills.map { b ->
+            val bucket = GstinComplianceHelper.classifyGstr1Bucket(b, storeGstMode)
             sumTaxable += b.taxableTotal
             sumTax += b.totalTaxAmount
             sumGrand += b.grandTotal
@@ -399,8 +415,10 @@ object XlsExporter {
                 XlsCell.Text(storeName),
                 XlsCell.Text(b.invoiceNo),
                 XlsCell.Text(b.invoiceDate),
+                XlsCell.Text(bucket.code),
                 XlsCell.Text(b.customerName),
                 XlsCell.Text(b.customerGstin),
+                XlsCell.Text(b.customerAddress),
                 XlsCell.Number(b.taxableTotal),
                 XlsCell.Number(b.totalTaxAmount),
                 XlsCell.Number(b.grandTotal),
@@ -410,7 +428,8 @@ object XlsExporter {
         val summary = if (bills.isNotEmpty()) {
             listOf(
                 XlsCell.Text("TOTAL (${bills.size})"),
-                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
+                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
+                XlsCell.Text(""), XlsCell.Text(""), XlsCell.Text(""),
                 XlsCell.Number(sumTaxable),
                 XlsCell.Number(sumTax),
                 XlsCell.Number(sumGrand),

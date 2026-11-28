@@ -106,7 +106,9 @@ import com.example.data.pref.AppSettingsManager
 import com.example.data.remote.UpdateStatus
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.GstinComplianceHelper
 import com.example.util.SpreadsheetSanitizer
+import com.example.util.StoreGstMode
 import com.example.util.XlsExporter
 import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
@@ -212,11 +214,18 @@ fun BankingAndSignatureSubScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BankingAndSignatureContent(viewModel: StockViewModel) {
     val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val bankingInfo by viewModel.bankingInfo.collectAsState()
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+
+    var gstMode by remember(storeIdentity.storeGstMode) { mutableStateOf(storeIdentity.gstModeEnum) }
+    var storeGstinInput by remember(storeIdentity.storeGstin) { mutableStateOf(storeIdentity.storeGstin) }
+    var storeStateInput by remember(storeIdentity.effectiveStateCode) { mutableStateOf(storeIdentity.effectiveStateCode) }
+    val gstValidation = remember(storeGstinInput) { GstinComplianceHelper.validateGstin(storeGstinInput) }
 
     var bankName by remember(bankingInfo.bankName) { mutableStateOf(bankingInfo.bankName) }
     var accountHolder by remember(bankingInfo.accountHolder) { mutableStateOf(bankingInfo.accountHolder) }
@@ -272,16 +281,168 @@ fun BankingAndSignatureContent(viewModel: StockViewModel) {
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        "GST Banking & Signature Setup",
+                        "GST Registration, Banking & Signature",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 15.sp
                     )
                     Text(
-                        "Details, QR code, and signature added here sync across all your devices and appear on GST bills & PDFs.",
+                        "Configure your GST status, GSTIN, bank details, QR code & signature. Everything syncs across devices.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        // 0. Store GST Registration & Tax Mode Card
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Store GST Registration & Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    BadgePill(
+                        text = gstMode.shortLabel,
+                        bgColor = when (gstMode) {
+                            StoreGstMode.REGULAR -> MaterialTheme.colorScheme.primaryContainer
+                            StoreGstMode.COMPOSITION -> ext.warning.copy(alpha = 0.16f)
+                            StoreGstMode.UNREGISTERED -> MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        textColor = when (gstMode) {
+                            StoreGstMode.REGULAR -> MaterialTheme.colorScheme.primary
+                            StoreGstMode.COMPOSITION -> ext.warning
+                            StoreGstMode.UNREGISTERED -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    StoreGstMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = gstMode == mode,
+                            onClick = { gstMode = mode },
+                            label = { Text(mode.shortLabel, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) },
+                            modifier = Modifier.testTag("gst_mode_${mode.code}")
+                        )
+                    }
+                }
+
+                Text(
+                    text = when (gstMode) {
+                        StoreGstMode.REGULAR -> "Standard GST dealer: charges CGST/SGST or IGST and prints \"TAX INVOICE\" (Rule 46)."
+                        StoreGstMode.COMPOSITION -> "Composition dealer: locks tax to 0% (no tax collected from buyer) and prints \"BILL OF SUPPLY\" (Rule 49)."
+                        StoreGstMode.UNREGISTERED -> "Unregistered retail shop: hides GSTIN, locks tax to 0% & prints \"RETAIL BILL / CASH MEMO\". Can legally bill any amount (₹5,000+ / ₹40,000+)."
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (gstMode != StoreGstMode.UNREGISTERED) {
+                    OutlinedTextField(
+                        value = storeGstinInput,
+                        onValueChange = { raw ->
+                            val clean = GstinComplianceHelper.normalizeGstin(raw).take(15)
+                            storeGstinInput = clean
+                            GstinComplianceHelper.extractStateCode(clean)?.let { code ->
+                                storeStateInput = code
+                            }
+                        },
+                        label = { Text("Store GSTIN (15-Char)") },
+                        placeholder = { Text("e.g. 27AABCS1234F1Z5") },
+                        singleLine = true,
+                        isError = storeGstinInput.isNotBlank() && !gstValidation.isValid,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("store_gstin_input")
+                    )
+
+                    if (storeGstinInput.isNotBlank()) {
+                        if (gstValidation.isValid) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ext.positive.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, ext.positive.copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("store_gstin_valid_badge")
+                            ) {
+                                Text(
+                                    text = "Valid GSTIN ✓ • ${gstValidation.stateCode} ${gstValidation.stateName} • PAN ${gstValidation.pan}",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ext.positive,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = gstValidation.errorReason ?: "Invalid GSTIN format",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.testTag("store_gstin_error_text")
+                            )
+                        }
+                    }
+                }
+
+                val resolvedHomeState = GstinComplianceHelper.stateNameForCodeOrGstin(
+                    if (gstMode != StoreGstMode.UNREGISTERED && storeGstinInput.isNotBlank()) storeGstinInput else storeStateInput
+                )
+                OutlinedTextField(
+                    value = storeStateInput,
+                    onValueChange = { raw ->
+                        storeStateInput = raw.filter { it.isDigit() }.take(2)
+                    },
+                    enabled = gstMode == StoreGstMode.UNREGISTERED || storeGstinInput.isBlank(),
+                    label = { Text("Home State Code (2 digits)") },
+                    placeholder = { Text("e.g. 27 for Maharashtra, 07 for Delhi") },
+                    supportingText = {
+                        Text(
+                            text = if (resolvedHomeState.isNotBlank()) "State: $resolvedHomeState" else "Used to auto-detect Intra-State vs Inter-State (IGST)",
+                            fontSize = 11.sp
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Button(
+                    onClick = {
+                        if (gstMode != StoreGstMode.UNREGISTERED && storeGstinInput.isNotBlank() && !gstValidation.isValid) {
+                            haptics.reject()
+                            viewModel.showToast(gstValidation.errorReason ?: "Enter a valid 15-character GSTIN")
+                            return@Button
+                        }
+                        if (storeStateInput.isNotBlank() && !GstinComplianceHelper.INDIAN_STATE_CODES.containsKey(storeStateInput)) {
+                            haptics.reject()
+                            viewModel.showToast("Invalid 2-digit Indian GST State Code '$storeStateInput'")
+                            return@Button
+                        }
+                        haptics.confirm()
+                        viewModel.saveStoreGstConfig(
+                            gstMode = gstMode.code,
+                            storeGstin = storeGstinInput,
+                            storeStateCode = storeStateInput
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("store_gst_save_button")
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Save & Sync GST Profile", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -2053,7 +2214,8 @@ fun SettingsExportXlsDialog(
                                     stockMovements = allTransactions,
                                     gstBills = allGstBills,
                                     ledgerAccounts = allLedgerAccounts,
-                                    storeName = storeTitle
+                                    storeName = storeTitle,
+                                    storeGstMode = viewModel.storeIdentity.value.gstModeEnum
                                 )
                             }
                         }

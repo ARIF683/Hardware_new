@@ -1563,6 +1563,21 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun saveStoreGstConfig(
+        gstMode: String,
+        storeGstin: String,
+        storeStateCode: String
+    ) {
+        if (!isAdmin.value) {
+            showToast("Admin access required")
+            return
+        }
+        viewModelScope.launch {
+            repository.saveAndSyncStoreGstConfig(gstMode, storeGstin, storeStateCode)
+            showToast("Store GST registration & mode saved & synced!")
+        }
+    }
+
     fun saveBankDetails(
         bankName: String,
         accountHolder: String,

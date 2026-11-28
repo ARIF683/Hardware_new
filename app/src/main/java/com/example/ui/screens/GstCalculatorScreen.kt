@@ -6,8 +6,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -56,7 +58,10 @@ import com.example.ui.StockViewModel
 import com.example.ui.components.SavedPaymentQrCard
 import com.example.ui.theme.LocalExtendedColors
 import com.example.util.DateTimeHelper
+import com.example.util.GstinComplianceHelper
 import com.example.util.InvoicePrintManager
+import com.example.util.KhataMetaCodec
+import com.example.util.StoreGstMode
 import com.example.util.rememberAppHaptics
 import androidx.compose.ui.platform.testTag
 import java.io.File
@@ -92,6 +97,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
     val allGstBills by viewModel.allGstBills.collectAsState()
+    val allLedgerAccounts by viewModel.allLedgerAccounts.collectAsState()
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+    val storeGstMode = storeIdentity.gstModeEnum
     val invoicePrefix by viewModel.invoicePrefix.collectAsState()
     val nextInvoiceNum by viewModel.nextInvoiceNum.collectAsState()
     val invoicePadDigits by viewModel.invoicePadDigits.collectAsState()
@@ -101,7 +109,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var quotationNo by remember { mutableStateOf<String?>(null) }
     var customerPhone by remember { mutableStateOf("") }
     var customerAddress by remember { mutableStateOf("") }
-    var storeGstin by remember { mutableStateOf("27AABCS1234F1Z5") }
+    var storeGstin by remember(storeIdentity.storeGstin, storeGstMode) {
+        mutableStateOf(if (storeGstMode == StoreGstMode.UNREGISTERED) "" else storeIdentity.storeGstin)
+    }
     var customerGstin by remember { mutableStateOf("") }
     var customerName by remember { mutableStateOf("") }
     val liveNextInvoiceNo = remember(invoicePrefix, nextInvoiceNum, invoicePadDigits, invoiceIncludeFy, allGstBills) {
@@ -116,10 +126,17 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
 
     val rows = remember {
         mutableStateListOf(
-            GstInvoiceRow(UUID.randomUUID().toString(), "", "8481", 1.0, 0.0, 18.0)
+            GstInvoiceRow(
+                UUID.randomUUID().toString(),
+                "",
+                "8481",
+                1.0,
+                0.0,
+                if (storeGstMode == StoreGstMode.REGULAR) 18.0 else 0.0
+            )
         )
     }
-    var defaultTaxRate by remember { mutableStateOf(18.0) }
+    var defaultTaxRate by remember { mutableStateOf(if (storeGstMode == StoreGstMode.REGULAR) 18.0 else 0.0) }
     var billDiscount by remember { mutableDoubleStateOf(0.0) }
     var discountText by remember { mutableStateOf("") }
     var savedBillId by remember { mutableStateOf<String?>(null) }
@@ -226,7 +243,47 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val taxableTotal by remember { derivedStateOf { distributedLines.sumOf { it.taxableAmount } } }
     val totalTaxAmount by remember { derivedStateOf { distributedLines.sumOf { it.taxAmount } } }
     val grandTotal by remember { derivedStateOf { distributedLines.sumOf { it.totalAmount } } }
-    val isEWayBillRequired = grandTotal > 50000.0
+    val isEWayBillRequired = storeGstMode != StoreGstMode.UNREGISTERED && grandTotal > GstinComplianceHelper.EWAY_BILL_THRESHOLD
+    val storeStateCode = remember(storeGstin, storeIdentity.effectiveStateCode) {
+        GstinComplianceHelper.extractStateCode(storeGstin) ?: storeIdentity.effectiveStateCode
+    }
+    val customerGstinValidation = remember(customerGstin) {
+        GstinComplianceHelper.validateGstin(customerGstin)
+    }
+    val storeGstinValidation = remember(storeGstin) {
+        GstinComplianceHelper.validateGstin(storeGstin)
+    }
+    val rule46AddressRequired = remember(grandTotal, customerGstin, storeGstMode) {
+        GstinComplianceHelper.isRule46AddressRequired(grandTotal, customerGstin, storeGstMode)
+    }
+    val rule46MissingMsg = remember(rule46AddressRequired, customerName, customerAddress) {
+        if (rule46AddressRequired) {
+            GstinComplianceHelper.rule46MissingFieldsMessage(customerName, customerAddress)
+        } else null
+    }
+
+    LaunchedEffect(storeGstMode) {
+        if (storeGstMode != StoreGstMode.REGULAR) {
+            defaultTaxRate = 0.0
+            isInterState = false
+            for (i in rows.indices) {
+                if (rows[i].taxRatePercent != 0.0) {
+                    rows[i] = rows[i].copy(taxRatePercent = 0.0)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(storeStateCode, customerGstin, storeGstMode) {
+        if (storeGstMode == StoreGstMode.REGULAR) {
+            val custState = GstinComplianceHelper.extractStateCode(customerGstin)
+            if (storeStateCode.isNotBlank() && !custState.isNullOrBlank()) {
+                isInterState = storeStateCode != custState
+            }
+        } else {
+            isInterState = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -287,33 +344,156 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             }
                         }
 
-                        Text("Invoice & GSTIN Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Invoice & GSTIN Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .clickable { viewModel.navigateTo(com.example.ui.NavigationTab.SETTINGS) }
+                                    .testTag("gst_calc_mode_badge")
+                            ) {
+                                Text(
+                                    text = storeGstMode.shortLabel,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        if (storeGstMode != StoreGstMode.REGULAR) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ext.info.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, ext.info.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = if (storeGstMode == StoreGstMode.COMPOSITION) {
+                                        "Composition Mode: Bills generate as BILL OF SUPPLY with 0% tax."
+                                    } else {
+                                        "Unregistered Mode: Retail Cash Memo (Non-GST) — Store GSTIN hidden & 0% tax."
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ext.info,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+
+                        val khataParties = remember(allLedgerAccounts) {
+                            allLedgerAccounts.filter {
+                                !it.type.equals("SUPPLIER", ignoreCase = true) &&
+                                    !KhataMetaCodec.parseAccountMeta(it.notes).archived
+                            }
+                        }
+                        if (khataParties.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Quick Pick Khata Party (Auto-fills Name, GSTIN & Address):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(khataParties.take(15), key = { it.id }) { party ->
+                                    val partyMeta = remember(party.notes) { KhataMetaCodec.parseAccountMeta(party.notes) }
+                                    val isSelectedParty = customerName.trim().equals(party.name.trim(), ignoreCase = true)
+                                    FilterChip(
+                                        selected = isSelectedParty,
+                                        onClick = {
+                                            customerName = party.name
+                                            customerPhone = party.phone
+                                            customerAddress = party.address
+                                            if (partyMeta.gstin.isNotBlank()) {
+                                                customerGstin = partyMeta.gstin
+                                            }
+                                        },
+                                        label = {
+                                            Text(
+                                                text = if (partyMeta.gstin.isNotBlank()) "${party.name} • GST" else party.name,
+                                                fontSize = 11.sp,
+                                                maxLines = 1
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("gst_khata_party_${party.id}")
+                                    )
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(8.dp))
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                             val stackFields = maxWidth < 300.dp
                             if (stackFields) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedTextField(
-                                        value = storeGstin,
-                                        onValueChange = { storeGstin = it },
-                                        label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    if (storeGstMode != StoreGstMode.UNREGISTERED) {
+                                        OutlinedTextField(
+                                            value = storeGstin,
+                                            onValueChange = { storeGstin = GstinComplianceHelper.normalizeGstin(it) },
+                                            label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            placeholder = { Text("Set in Settings", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            singleLine = true,
+                                            isError = storeGstin.isNotBlank() && !storeGstinValidation.isValid,
+                                            supportingText = if (storeGstin.isNotBlank()) {
+                                                {
+                                                    Text(
+                                                        text = if (storeGstinValidation.isValid) {
+                                                            "✓ ${storeGstinValidation.stateCode} ${storeGstinValidation.stateName}"
+                                                        } else {
+                                                            storeGstinValidation.errorReason ?: "Invalid GSTIN"
+                                                        },
+                                                        fontSize = 10.sp,
+                                                        color = if (storeGstinValidation.isValid) ext.positive else MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                            } else null,
+                                            modifier = Modifier.fillMaxWidth().testTag("gst_calc_store_gstin_input")
+                                        )
+                                    }
                                     OutlinedTextField(
                                         value = customerGstin,
-                                        onValueChange = { customerGstin = it },
+                                        onValueChange = { customerGstin = GstinComplianceHelper.normalizeGstin(it) },
                                         label = { Text("Customer GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                         placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                         singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
+                                        isError = customerGstin.isNotBlank() && !customerGstinValidation.isValid,
+                                        supportingText = if (customerGstin.isNotBlank()) {
+                                            {
+                                                Text(
+                                                    text = if (customerGstinValidation.isValid) {
+                                                        "✓ Valid (${customerGstinValidation.stateCode} ${customerGstinValidation.stateName})"
+                                                    } else {
+                                                        customerGstinValidation.errorReason ?: "Invalid GSTIN"
+                                                    },
+                                                    fontSize = 10.sp,
+                                                    color = if (customerGstinValidation.isValid) ext.positive else MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.testTag("gst_calc_gstin_status")
+                                                )
+                                            }
+                                        } else null,
+                                        modifier = Modifier.fillMaxWidth().testTag("gst_calc_customer_gstin_input")
                                     )
                                     OutlinedTextField(
                                         value = customerName,
                                         onValueChange = { customerName = it },
-                                        label = { Text("Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        label = { Text(if (rule46AddressRequired) "Customer Name *" else "Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        isError = rule46AddressRequired && customerName.isBlank(),
                                         singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().testTag("gst_calc_customer_name_input")
                                     )
                                     OutlinedTextField(
                                         value = invoiceNo,
@@ -356,10 +536,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     OutlinedTextField(
                                         value = customerAddress,
                                         onValueChange = { customerAddress = it },
-                                        label = { Text("Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                        placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        label = { Text(if (rule46AddressRequired) "Full Address & State *" else "Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        placeholder = { Text(if (rule46AddressRequired) "Required for ₹50k+ B2C" else "Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        isError = rule46AddressRequired && customerAddress.isBlank(),
                                         singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().testTag("gst_calc_customer_address_input")
                                     )
                                 }
                             } else {
@@ -369,20 +550,52 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.Top
                                     ) {
-                                        OutlinedTextField(
-                                            value = storeGstin,
-                                            onValueChange = { storeGstin = it },
-                                            label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
-                                        )
+                                        if (storeGstMode != StoreGstMode.UNREGISTERED) {
+                                            OutlinedTextField(
+                                                value = storeGstin,
+                                                onValueChange = { storeGstin = GstinComplianceHelper.normalizeGstin(it) },
+                                                label = { Text("Store GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                                placeholder = { Text("Set in Settings", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                singleLine = true,
+                                                isError = storeGstin.isNotBlank() && !storeGstinValidation.isValid,
+                                                supportingText = if (storeGstin.isNotBlank()) {
+                                                    {
+                                                        Text(
+                                                            text = if (storeGstinValidation.isValid) {
+                                                                "✓ ${storeGstinValidation.stateCode} ${storeGstinValidation.stateName}"
+                                                            } else {
+                                                                storeGstinValidation.errorReason ?: "Invalid GSTIN"
+                                                            },
+                                                            fontSize = 10.sp,
+                                                            color = if (storeGstinValidation.isValid) ext.positive else MaterialTheme.colorScheme.error
+                                                        )
+                                                    }
+                                                } else null,
+                                                modifier = Modifier.weight(1f).widthIn(min = 0.dp).testTag("gst_calc_store_gstin_input")
+                                            )
+                                        }
                                         OutlinedTextField(
                                             value = customerGstin,
-                                            onValueChange = { customerGstin = it },
+                                            onValueChange = { customerGstin = GstinComplianceHelper.normalizeGstin(it) },
                                             label = { Text("Customer GSTIN", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                             placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                            isError = customerGstin.isNotBlank() && !customerGstinValidation.isValid,
+                                            supportingText = if (customerGstin.isNotBlank()) {
+                                                {
+                                                    Text(
+                                                        text = if (customerGstinValidation.isValid) {
+                                                            "✓ Valid (${customerGstinValidation.stateCode} ${customerGstinValidation.stateName})"
+                                                        } else {
+                                                            customerGstinValidation.errorReason ?: "Invalid GSTIN"
+                                                        },
+                                                        fontSize = 10.sp,
+                                                        color = if (customerGstinValidation.isValid) ext.positive else MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.testTag("gst_calc_gstin_status")
+                                                    )
+                                                }
+                                            } else null,
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp).testTag("gst_calc_customer_gstin_input")
                                         )
                                     }
                                     Row(
@@ -393,9 +606,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         OutlinedTextField(
                                             value = customerName,
                                             onValueChange = { customerName = it },
-                                            label = { Text("Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            label = { Text(if (rule46AddressRequired) "Customer Name *" else "Customer Name", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            isError = rule46AddressRequired && customerName.isBlank(),
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp).testTag("gst_calc_customer_name_input")
                                         )
                                         OutlinedTextField(
                                             value = invoiceNo,
@@ -444,13 +658,32 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         OutlinedTextField(
                                             value = customerAddress,
                                             onValueChange = { customerAddress = it },
-                                            label = { Text("Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                                            placeholder = { Text("Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            label = { Text(if (rule46AddressRequired) "Full Address & State *" else "Address", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            placeholder = { Text(if (rule46AddressRequired) "Required for ₹50k+ B2C" else "Optional", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            isError = rule46AddressRequired && customerAddress.isBlank(),
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp).testTag("gst_calc_customer_address_input")
                                         )
                                     }
                                 }
+                            }
+                        }
+                        if (rule46AddressRequired) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ext.warning.copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth().testTag("gst_rule46_warning")
+                            ) {
+                                Text(
+                                    text = rule46MissingMsg
+                                        ?: "✓ Rule 46 B2C (₹50,000+ without GSTIN): Customer Name & Address recorded.",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ext.warning,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -459,9 +692,15 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Supply Type: ${if (isInterState) "Inter-State (IGST)" else "Intra-State (CGST + SGST)"}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            val supplyLabel = if (storeGstMode == StoreGstMode.REGULAR) {
+                                "Supply Type: ${if (isInterState) "Inter-State (IGST)" else "Intra-State (CGST + SGST)"}"
+                            } else {
+                                "Supply Type: ${storeGstMode.docTitle} (0%)"
+                            }
+                            Text(supplyLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                             Switch(
                                 checked = isInterState,
+                                enabled = storeGstMode == StoreGstMode.REGULAR,
                                 onCheckedChange = { isInterState = it }
                             )
                         }
@@ -569,31 +808,46 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { rate ->
-                                    val isAllCurrent = rows.isNotEmpty() && rows.all { it.taxRatePercent == rate }
-                                    val isSelected = isAllCurrent || (rows.isEmpty() && defaultTaxRate == rate)
+                                if (storeGstMode == StoreGstMode.REGULAR) {
+                                    listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { rate ->
+                                        val isAllCurrent = rows.isNotEmpty() && rows.all { it.taxRatePercent == rate }
+                                        val isSelected = isAllCurrent || (rows.isEmpty() && defaultTaxRate == rate)
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isSelected) {
+                                                if (rate == 0.0) ext.positive else MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.surface
+                                            },
+                                            modifier = Modifier.clickable {
+                                                defaultTaxRate = rate
+                                                for (i in rows.indices) {
+                                                    rows[i] = rows[i].copy(taxRatePercent = rate)
+                                                }
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (rate == 0.0) "0% (Tax-Free)" else "${rate.toInt()}%",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                } else {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (isSelected) {
-                                            if (rate == 0.0) ext.positive else MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.surface
-                                        },
-                                        modifier = Modifier.clickable {
-                                            defaultTaxRate = rate
-                                            for (i in rows.indices) {
-                                                rows[i] = rows[i].copy(taxRatePercent = rate)
-                                            }
-                                        }
+                                        color = ext.positive
                                     ) {
                                         Text(
-                                            text = if (rate == 0.0) "0% (Tax-Free)" else "${rate.toInt()}%",
+                                            text = "0% Locked (${storeGstMode.shortLabel} • ${storeGstMode.docTitle})",
                                             fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
@@ -950,22 +1204,37 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { slab ->
-                                    val selected = row.taxRatePercent == slab
+                                if (storeGstMode == StoreGstMode.REGULAR) {
+                                    listOf(0.0, 5.0, 12.0, 18.0, 28.0).forEach { slab ->
+                                        val selected = row.taxRatePercent == slab
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (selected) {
+                                                if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
+                                            } else MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.clickable { updateThisRow { it.copy(taxRatePercent = slab) } }
+                                        ) {
+                                            Text(
+                                                text = if (slab == 0.0) "0% (Exempt)" else "${slab.toInt()}%",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                } else {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (selected) {
-                                            if (slab == 0.0) ext.positive else MaterialTheme.colorScheme.primary
-                                        } else MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier.clickable { updateThisRow { it.copy(taxRatePercent = slab) } }
+                                        color = ext.positive
                                     ) {
                                         Text(
-                                            text = if (slab == 0.0) "0% (Exempt)" else "${slab.toInt()}%",
+                                            text = "0% (${storeGstMode.shortLabel})",
                                             fontSize = 10.5.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            softWrap = false,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         )
                                     }
@@ -1036,12 +1305,33 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             }
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        val previewBucket = GstinComplianceHelper.classifyGstr1Bucket(
+                            GstBillRecord(
+                                id = "preview",
+                                invoiceNo = invoiceNo,
+                                invoiceDate = invoiceDate,
+                                customerName = customerName,
+                                customerGstin = GstinComplianceHelper.normalizeGstin(customerGstin),
+                                storeGstin = if (storeGstMode == StoreGstMode.UNREGISTERED) "" else storeGstin,
+                                isInterState = isInterState,
+                                itemsJson = "[]",
+                                taxableTotal = taxableTotal,
+                                totalTaxAmount = totalTaxAmount,
+                                grandTotal = grandTotal,
+                                status = "Preview",
+                                createdAt = ""
+                            ),
+                            storeGstMode
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Grand Total:", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Column {
+                                Text("Grand Total:", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text("GSTR-1 Type: ${previewBucket.label}", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             Text("₹%.2f".format(grandTotal), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
@@ -1151,6 +1441,33 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                             )
                         }
                     }
+                    val cashPaidEstimate = when (gstPaymentMode) {
+                        "Cash" -> grandTotal
+                        "Split" -> paidNowText.trim().toDoubleOrNull() ?: 0.0
+                        else -> 0.0
+                    }
+                    if (GstinComplianceHelper.isCashLimitExceeded(cashPaidEstimate)) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ext.danger.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, ext.danger.copy(alpha = 0.55f)),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("gst_sec269st_warning")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = ext.danger, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Sec 269ST Alert: Cash receipt of ₹2,00,000+ is prohibited under Income Tax Act. Switch to UPI or Bank transfer.",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ext.danger
+                                )
+                            }
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -1206,7 +1523,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@Button
                             }
+                            if (rule46MissingMsg != null) {
+                                haptics.reject()
+                                viewModel.showToast(rule46MissingMsg)
+                                return@Button
+                            }
                             if (!prepareInvoiceNumberForFinalize()) return@Button
+                            val cleanStoreGstin = if (storeGstMode == StoreGstMode.UNREGISTERED) "" else GstinComplianceHelper.normalizeGstin(storeGstin)
+                            val cleanCustGstin = GstinComplianceHelper.normalizeGstin(customerGstin)
                             scope.launch {
                                 isGeneratingPdf = true
                                 try {
@@ -1257,9 +1581,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         invoiceNo = invoiceNo,
                                         invoiceDate = invoiceDate,
                                         storeName = effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" },
-                                        storeGstin = storeGstin,
+                                        storeGstin = cleanStoreGstin,
                                         customerName = customerName,
-                                        customerGstin = customerGstin,
+                                        customerGstin = cleanCustGstin,
+                                        customerAddress = customerAddress.trim(),
+                                        customerPhone = customerPhone.trim(),
                                         isInterState = isInterState,
                                         items = pdfItems,
                                         taxableTotal = reconciledTaxable,
@@ -1269,7 +1595,8 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         vehicleNo = vehicleNo,
                                         bankingInfo = bInfo,
                                         signatureBitmap = sigBmp,
-                                        qrCodeBitmap = qrBmp
+                                        qrCodeBitmap = qrBmp,
+                                        storeGstMode = storeGstMode
                                     )
                                     val cleanInvNo = invoiceNo.replace(Regex("[^a-zA-Z0-9_-]"), "_")
                                     val storagePath = InvoicePrintManager.savePdfToDownloads(
@@ -1296,10 +1623,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         invoiceNo = invoiceNo,
                                         invoiceDate = invoiceDate,
                                         customerName = customerName.ifBlank { if (creditToKhata > 0.005) "Credit Customer" else "Cash Customer" },
-                                        customerPhone = customerPhone,
-                                        customerGstin = customerGstin,
-                                        customerAddress = customerAddress,
-                                        storeGstin = storeGstin,
+                                        customerPhone = customerPhone.trim(),
+                                        customerGstin = cleanCustGstin,
+                                        customerAddress = customerAddress.trim(),
+                                        storeGstin = cleanStoreGstin,
                                         isInterState = isInterState,
                                         itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
                                         taxableTotal = reconciledTaxable,
@@ -1359,7 +1686,14 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@OutlinedButton
                             }
+                            if (rule46MissingMsg != null) {
+                                haptics.reject()
+                                viewModel.showToast(rule46MissingMsg)
+                                return@OutlinedButton
+                            }
                             if (!prepareInvoiceNumberForFinalize()) return@OutlinedButton
+                            val cleanStoreGstin = if (storeGstMode == StoreGstMode.UNREGISTERED) "" else GstinComplianceHelper.normalizeGstin(storeGstin)
+                            val cleanCustGstin = GstinComplianceHelper.normalizeGstin(customerGstin)
                             val nowIso = DateTimeHelper.nowIso()
                             val rawValidLines = validRows.map { r ->
                                 val rawTaxable = r.qty * r.rate
@@ -1399,10 +1733,10 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 invoiceNo = invoiceNo,
                                 invoiceDate = invoiceDate,
                                 customerName = customerName.ifBlank { if (creditToKhata > 0.005) "Credit Customer" else "Cash Customer" },
-                                customerPhone = customerPhone,
-                                customerGstin = customerGstin,
-                                customerAddress = customerAddress,
-                                storeGstin = storeGstin,
+                                customerPhone = customerPhone.trim(),
+                                customerGstin = cleanCustGstin,
+                                customerAddress = customerAddress.trim(),
+                                storeGstin = cleanStoreGstin,
                                 isInterState = isInterState,
                                 itemsJson = InvoicePrintManager.gstItemsToJson(gstLineItems),
                                 taxableTotal = reconciledTaxable,
@@ -1484,7 +1818,12 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp)) {
                                         Text(effectiveStoreTitle.ifBlank { "HARDWARE & TOOLS STORE" }.uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp)
-                                        Text("GSTIN: $storeGstin  •  TAX INVOICE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
+                                        val previewHeaderTag = if (storeGstMode == StoreGstMode.UNREGISTERED) {
+                                            storeGstMode.docTitle
+                                        } else {
+                                            "GSTIN: ${storeGstin.ifBlank { "Not Set" }}  •  ${storeGstMode.docTitle}"
+                                        }
+                                        Text(previewHeaderTag, fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                                         Text("Inv #: $invoiceNo  |  Date: $invoiceDate", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                                     }
                                 }
@@ -1500,7 +1839,17 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         if (customerGstin.isNotBlank()) {
                                             Text("GSTIN: $customerGstin", fontSize = 10.sp)
                                         }
-                                        Text("Supply: ${if (isInterState) "Inter-State (IGST)" else "Intra-State (CGST + SGST)"}", fontSize = 10.sp)
+                                        if (customerAddress.isNotBlank()) {
+                                            Text("Address: $customerAddress", fontSize = 10.sp)
+                                        }
+                                        Text(
+                                            text = if (storeGstMode == StoreGstMode.REGULAR) {
+                                                "Supply: ${if (isInterState) "Inter-State (IGST)" else "Intra-State (CGST + SGST)"}"
+                                            } else {
+                                                "Supply: ${storeGstMode.pdfHeaderTag}"
+                                            },
+                                            fontSize = 10.sp
+                                        )
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))

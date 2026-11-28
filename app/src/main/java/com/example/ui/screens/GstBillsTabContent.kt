@@ -97,7 +97,10 @@ import com.example.data.model.GstBillRecord
 import com.example.ui.StockViewModel
 import com.example.ui.components.SavedPaymentQrCard
 import com.example.ui.theme.LocalExtendedColors
+import com.example.util.Gstr1Bucket
+import com.example.util.GstinComplianceHelper
 import com.example.util.InvoicePrintManager
+import com.example.util.StoreGstMode
 import com.example.util.XlsExporter
 import com.example.util.rememberAppHaptics
 import kotlinx.coroutines.Dispatchers
@@ -123,6 +126,8 @@ fun GstBillsTabContent(
     val ledgerAccounts by viewModel.allLedgerAccounts.collectAsState()
     val effectiveStoreTitle by viewModel.effectiveStoreTitle.collectAsState()
     val bankingInfo by viewModel.bankingInfo.collectAsState()
+    val storeIdentity by viewModel.storeIdentity.collectAsState()
+    val storeGstMode = storeIdentity.gstModeEnum
 
     var searchQuery by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf("All") } // All, Paid, Pending, This Month, Today
@@ -254,8 +259,16 @@ fun GstBillsTabContent(
                                             .background(MaterialTheme.colorScheme.primary)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
+                                    val modeStatusText = when {
+                                        storeGstMode == StoreGstMode.REGULAR && storeIdentity.storeGstin.isNotBlank() ->
+                                            "GST Active • ${storeIdentity.storeGstin}"
+                                        storeGstMode == StoreGstMode.REGULAR ->
+                                            "Regular GST Mode • Live Register"
+                                        else ->
+                                            "${storeGstMode.shortLabel} • ${storeGstMode.docTitle}"
+                                    }
                                     Text(
-                                        text = "GST Active • Live Register",
+                                        text = modeStatusText,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.primary
@@ -720,6 +733,7 @@ fun GstBillsTabContent(
             items(filteredBills, key = { it.id }) { bill ->
                 InvoiceSummaryCard(
                     bill = bill,
+                    storeGstMode = storeGstMode,
                     isPending = isBillPending(bill),
                     inrFormat = inrFormat,
                     onOpenDetails = { billForDetails = bill },
@@ -736,7 +750,8 @@ fun GstBillsTabContent(
                                     storeName = storeTitle,
                                     bankingInfo = bInfo,
                                     signatureBitmap = sig,
-                                    qrCodeBitmap = qr
+                                    qrCodeBitmap = qr,
+                                    storeGstMode = storeGstMode
                                 )
                                 InvoicePrintManager.printPdf(context, pdfFile, "GST_${bill.invoiceNo}")
                             } catch (e: Exception) {
@@ -759,7 +774,8 @@ fun GstBillsTabContent(
                                     storeName = storeTitle,
                                     bankingInfo = bInfo,
                                     signatureBitmap = sig,
-                                    qrCodeBitmap = qr
+                                    qrCodeBitmap = qr,
+                                    storeGstMode = storeGstMode
                                 )
                                 InvoicePrintManager.sharePdf(context, pdfFile, "GST Invoice #${bill.invoiceNo}")
                             } catch (e: Exception) {
@@ -1059,7 +1075,8 @@ fun GstBillsTabContent(
                                 storeName = storeTitle,
                                 bankingInfo = bInfo,
                                 signatureBitmap = sig,
-                                qrCodeBitmap = qr
+                                qrCodeBitmap = qr,
+                                storeGstMode = storeGstMode
                             )
                             InvoicePrintManager.printPdf(context, pdfFile, "GST_${b.invoiceNo}")
                         }
@@ -1084,7 +1101,8 @@ fun GstBillsTabContent(
                                 storeName = storeTitle,
                                 bankingInfo = bInfo,
                                 signatureBitmap = sig,
-                                qrCodeBitmap = qr
+                                qrCodeBitmap = qr,
+                                storeGstMode = storeGstMode
                             )
                             InvoicePrintManager.sharePdf(context, pdfFile, "GST Invoice #${b.invoiceNo}")
                         }
@@ -1149,8 +1167,21 @@ fun GstBillsTabContent(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Export GSTR-1 Register", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
+                    val bucketCounts = remember(filteredBills, storeGstMode) {
+                        filteredBills.groupingBy { GstinComplianceHelper.classifyGstr1Bucket(it, storeGstMode) }.eachCount()
+                    }
+                    val bucketSummary = buildList {
+                        bucketCounts[Gstr1Bucket.B2B]?.let { add("B2B: $it") }
+                        bucketCounts[Gstr1Bucket.B2CL]?.let { add("B2CL: $it") }
+                        bucketCounts[Gstr1Bucket.B2CS]?.let { add("B2CS: $it") }
+                        bucketCounts[Gstr1Bucket.COMPOSITION]?.let { add("Comp: $it") }
+                        bucketCounts[Gstr1Bucket.NON_GST]?.let { add("Non-GST: $it") }
+                    }.joinToString(" • ")
                     Text(
-                        "${filteredBills.size} GST bills ready with CGST, SGST, IGST & taxable totals.",
+                        text = buildString {
+                            append("${filteredBills.size} bills ready with GSTR-1 buckets, CGST, SGST, IGST & taxable totals.")
+                            if (bucketSummary.isNotBlank()) append("\n$bucketSummary")
+                        },
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1161,7 +1192,7 @@ fun GstBillsTabContent(
                             showGstrExportDialog = false
                             scope.launch {
                                 val xml = withContext(Dispatchers.Default) {
-                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle)
+                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle, storeGstMode)
                                 }
                                 XlsExporter.shareXlsFile(
                                     context = context,
@@ -1190,7 +1221,7 @@ fun GstBillsTabContent(
                             showGstrExportDialog = false
                             scope.launch {
                                 val xml = withContext(Dispatchers.Default) {
-                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle)
+                                    XlsExporter.buildGstr1WorkbookXml(billsSnapshot, storeTitle, storeGstMode)
                                 }
                                 val res = withContext(Dispatchers.IO) {
                                     XlsExporter.saveXlsToDownloads(context, "GSTR1_Register", xml)
@@ -1220,7 +1251,8 @@ fun GstBillsTabContent(
                                 InvoicePrintManager.exportGstr1CsvAndShare(
                                     context = context,
                                     bills = filteredBills,
-                                    storeName = storeTitle
+                                    storeName = storeTitle,
+                                    storeGstMode = storeGstMode
                                 )
                                 viewModel.showToast("Exported GSTR-1 CSV for ${filteredBills.size} bills")
                             } catch (e: Exception) {
@@ -1307,6 +1339,7 @@ private fun BillingFilterPill(
 @Composable
 private fun InvoiceSummaryCard(
     bill: GstBillRecord,
+    storeGstMode: StoreGstMode,
     isPending: Boolean,
     inrFormat: NumberFormat,
     onOpenDetails: () -> Unit,
@@ -1318,6 +1351,7 @@ private fun InvoiceSummaryCard(
 ) {
     val ext = LocalExtendedColors.current
     val lineItems = remember(bill.itemsJson) { InvoicePrintManager.parseGstLineItems(bill.itemsJson) }
+    val gstr1Bucket = remember(bill, storeGstMode) { GstinComplianceHelper.classifyGstr1Bucket(bill, storeGstMode) }
     var showMenu by remember { mutableStateOf(false) }
 
     val statusColor = if (isPending) ext.warning else ext.positive
@@ -1399,6 +1433,21 @@ private fun InvoiceSummaryCard(
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 1,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = ext.info.copy(alpha = 0.14f)
+                            ) {
+                                Text(
+                                    text = gstr1Bucket.code,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ext.info,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        .testTag("billing_gstr1_badge_${bill.invoiceNo}")
                                 )
                             }
                         }
