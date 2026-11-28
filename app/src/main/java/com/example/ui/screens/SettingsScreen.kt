@@ -155,6 +155,12 @@ fun SettingsScreen(viewModel: StockViewModel) {
     val lowStockThreshold by viewModel.lowStockDefaultThreshold.collectAsState()
     val invoicePrefix by viewModel.invoicePrefix.collectAsState()
     val nextInvoiceNum by viewModel.nextInvoiceNum.collectAsState()
+    val invoicePadDigits by viewModel.invoicePadDigits.collectAsState()
+    val invoiceIncludeFy by viewModel.invoiceIncludeFy.collectAsState()
+    val quotePrefix by viewModel.quotePrefix.collectAsState()
+    val nextQuoteNum by viewModel.nextQuoteNum.collectAsState()
+    val quotePadDigits by viewModel.quotePadDigits.collectAsState()
+    val allGstBills by viewModel.allGstBills.collectAsState()
     val instantDispatchSlip by viewModel.instantDispatchSlip.collectAsState()
     var showLowStockThresholdDialog by remember { mutableStateOf(false) }
 
@@ -175,6 +181,7 @@ fun SettingsScreen(viewModel: StockViewModel) {
             showAdminUserManagementDialog = false
             showBankingScreen = false
             showProfileEditDialog = false
+            showInvoiceSequenceDialog = false
         }
     }
 
@@ -874,18 +881,41 @@ fun SettingsScreen(viewModel: StockViewModel) {
             Spacer(modifier = Modifier.height(8.dp))
             SettingsGroupedCard {
                 // Row 1: Invoice Sequence
+                val formattedNextInv = remember(invoicePrefix, nextInvoiceNum, invoicePadDigits, invoiceIncludeFy) {
+                    com.example.data.pref.AppSettingsManager.formatDocumentNo(
+                        prefix = invoicePrefix,
+                        num = nextInvoiceNum,
+                        padDigits = invoicePadDigits,
+                        includeFy = invoiceIncludeFy
+                    )
+                }
+                val formattedNextQuote = remember(quotePrefix, nextQuoteNum, quotePadDigits) {
+                    com.example.data.pref.AppSettingsManager.formatDocumentNo(
+                        prefix = quotePrefix,
+                        num = nextQuoteNum,
+                        padDigits = quotePadDigits,
+                        includeFy = false,
+                        defaultPrefix = com.example.data.pref.AppSettingsManager.DEFAULT_QUOTE_PREFIX
+                    )
+                }
                 SettingsItemRow(
                     icon = Icons.Filled.Tag,
                     iconTint = ext.warning,
-                    title = "Invoice Sequence",
-                    subtitle = "Prefix: $invoicePrefix • Next: #$nextInvoiceNum",
-                    onClick = { showInvoiceSequenceDialog = true },
+                    title = "Invoice & Estimate Sequence",
+                    subtitle = "Next Bill: $formattedNextInv • Quote: $formattedNextQuote",
+                    onClick = {
+                        if (isAdmin) {
+                            showInvoiceSequenceDialog = true
+                        } else {
+                            viewModel.showToast("Only Admin can update invoice sequence")
+                        }
+                    },
                     testTag = "settings_invoice_seq_edit",
                     trailingContent = {
                         SettingsInlinePill(
-                            text = "Edit",
+                            text = if (isAdmin) "Edit" else "Locked",
                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurface
+                            contentColor = if (isAdmin) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 )
@@ -1560,12 +1590,26 @@ fun SettingsScreen(viewModel: StockViewModel) {
         )
     }
 
-    if (showInvoiceSequenceDialog) {
+    if (showInvoiceSequenceDialog && isAdmin) {
         SettingsInvoiceSequenceDialog(
             initialPrefix = invoicePrefix,
             initialNextNum = nextInvoiceNum,
-            onSave = { prefix, nextNum ->
-                viewModel.setInvoiceSequence(prefix, nextNum)
+            initialPadDigits = invoicePadDigits,
+            initialIncludeFy = invoiceIncludeFy,
+            initialQuotePrefix = quotePrefix,
+            initialNextQuoteNum = nextQuoteNum,
+            initialQuotePadDigits = quotePadDigits,
+            existingInvoiceNos = allGstBills.map { it.invoiceNo },
+            onSaveDetailed = { prefix, nextNum, padDigits, includeFy, qPrefix, qNext, qPad ->
+                viewModel.setInvoiceSequence(
+                    prefix = prefix,
+                    nextNum = nextNum,
+                    padDigits = padDigits,
+                    includeFy = includeFy,
+                    quotePrefix = qPrefix,
+                    nextQuoteNum = qNext,
+                    quotePadDigits = qPad
+                )
                 showInvoiceSequenceDialog = false
             },
             onDismiss = { showInvoiceSequenceDialog = false }

@@ -15,6 +15,7 @@ import com.example.data.model.PurchaseLine
 import com.example.data.model.PurchaseRecord
 import com.example.data.model.SyncQueueItem
 import com.example.data.model.TransactionRecord
+import com.example.data.pref.AppSettingsManager
 import com.example.data.pref.BankingPreferenceManager
 import com.example.data.pref.FestivalPreferenceManager
 import com.example.data.pref.FestivalStudioCodec
@@ -81,7 +82,8 @@ class StockRepository(
     private val context: Context,
     private val database: AppDatabase = AppDatabase.getDatabase(context),
     private val supabaseClient: SupabaseClient = SupabaseClient(),
-    private val authManager: AuthManager = AuthManager(context)
+    private val authManager: AuthManager = AuthManager(context),
+    val appSettingsManager: AppSettingsManager = AppSettingsManager(context)
 ) {
     private val tag = "StockRepository"
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -777,6 +779,8 @@ class StockRepository(
             } catch (e: Exception) {
                 Log.w(tag, "Failed to sync store profile from Supabase", e)
             }
+
+            reconcileSequenceCountersFromDb()
 
             _syncStatus.value = "Synced ✓"
             flushQueue()
@@ -1634,7 +1638,9 @@ class StockRepository(
     val allQuotations: Flow<List<com.example.data.model.QuotationRecord>> = database.quotationDao().getAllQuotations()
 
     suspend fun saveQuotation(quotation: com.example.data.model.QuotationRecord) = withContext(Dispatchers.IO) {
+        val existingQuoteNos = database.quotationDao().getAllQuotationsList().map { it.quotationNo }
         database.quotationDao().insert(quotation)
+        appSettingsManager.advanceQuoteCounterIfUsed(quotation.quotationNo, existingQuoteNos)
         enqueueOp("upsertQuotations", quotationListAdapter.toJson(listOf(quotation)))
         try {
             supabaseClient.upsertQuotations(listOf(quotation))
@@ -1749,7 +1755,9 @@ class StockRepository(
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val now = nowIso()
+            val existingBillNos = database.gstBillDao().getAllGstBillsList().map { it.invoiceNo }
             database.gstBillDao().insert(bill)
+            val seqAdvanced = appSettingsManager.advanceInvoiceCounterIfUsed(bill.invoiceNo, existingBillNos)
             enqueueOp("upsertGstBills", gstBillListAdapter.toJson(listOf(bill)))
 
             var deductedLineCount = 0
@@ -1901,6 +1909,12 @@ class StockRepository(
                 "GST_BILL_SALE",
                 "Saved Invoice #${bill.invoiceNo} (₹${String.format(Locale.US, "%.2f", bill.grandTotal)}, $deductedLineCount stock lines deducted)"
             )
+            if (seqAdvanced && supabaseClient.isConfigured()) {
+                enqueueOp(
+                    "upsertStoreProfile",
+                    StoreProfileSyncCodec.toJsonObject(buildLocalStoreProfileSnapshot()).toString()
+                )
+            }
             flushQueue()
             Result.success(deductedLineCount)
         } catch (e: Exception) {
@@ -1924,7 +1938,9 @@ class StockRepository(
     ): Result<com.example.data.model.GstBillRecord> = withContext(Dispatchers.IO) {
         try {
             val now = nowIso()
-            val invNumber = invoiceNo?.ifBlank { null } ?: "GST-${quotation.quotationNo}"
+            val existingBillNos = database.gstBillDao().getAllGstBillsList().map { it.invoiceNo }
+            val invNumber = invoiceNo?.ifBlank { null }
+                ?: appSettingsManager.consumeNextInvoiceNo(existingBillNos)
             val quoteItems = com.example.util.InvoicePrintManager.parseLineItems(quotation.itemsJson)
 
             // Map quotation line items into GST bill line items and proportionally distribute discount
@@ -2409,7 +2425,16 @@ class StockRepository(
             signatureUrl = sigUrl,
             qrCodeUrl = qrUrl,
             festivalConfigJson = festivalPreferenceManager.getRawJsonOrNull(),
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            invoicePrefix = appSettingsManager.invoicePrefix.value,
+            invoiceNextNum = appSettingsManager.nextInvoiceNum.value,
+            invoicePadDigits = appSettingsManager.invoicePadDigits.value,
+            invoiceIncludeFy = appSettingsManager.invoiceIncludeFy.value,
+            invoiceSeqUpdatedAt = appSettingsManager.getInvoiceSeqUpdatedAt().takeIf { it > 0L }
+                ?: lastKnownRemoteProfile?.invoiceSeqUpdatedAt,
+            quotePrefix = appSettingsManager.quotePrefix.value,
+            quoteNextNum = appSettingsManager.nextQuoteNum.value,
+            quotePadDigits = appSettingsManager.quotePadDigits.value
         )
     }
 
@@ -2465,13 +2490,26 @@ class StockRepository(
             identity.location != StoreProfilePreferenceManager.DEFAULT_LOCATION ||
             identity.supervisorName != StoreProfilePreferenceManager.DEFAULT_SUPERVISOR_NAME
 
-        if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity)) {
+        val remoteMissingSeq = remoteProfile == null || remoteProfile.invoicePrefix.isNullOrBlank()
+        val hasLocalCustomSeq = appSettingsManager.getInvoiceSeqUpdatedAt() > 0L ||
+            appSettingsManager.invoicePrefix.value != AppSettingsManager.DEFAULT_INVOICE_PREFIX ||
+            appSettingsManager.nextInvoiceNum.value != AppSettingsManager.DEFAULT_NEXT_INVOICE_NUM ||
+            appSettingsManager.invoicePadDigits.value != AppSettingsManager.DEFAULT_PAD_DIGITS ||
+            appSettingsManager.invoiceIncludeFy.value
+
+        if (uploadedSigUrl != null || uploadedQrUrl != null || (hasLocalBank && remoteMissingBank) || (hasLocalCustomIdentity && remoteMissingIdentity) || (hasLocalCustomSeq && remoteMissingSeq)) {
             val snapshot = buildLocalStoreProfileSnapshot()
             val merged = StoreProfileSyncCodec.merge(remoteProfile, snapshot)
             if (supabaseClient.saveStoreProfile(merged, authManager.currentUserEmail.value)) {
                 lastKnownRemoteProfile = merged
             }
         }
+    }
+
+    private suspend fun reconcileSequenceCountersFromDb() {
+        val billNos = database.gstBillDao().getAllGstBillsList().map { it.invoiceNo }
+        val quoteNos = database.quotationDao().getAllQuotationsList().map { it.quotationNo }
+        appSettingsManager.reconcileWithExistingDocuments(billNos, quoteNos)
     }
 
     private suspend fun applyRemoteStoreProfile(remote: RemoteStoreProfile) {
@@ -2508,6 +2546,7 @@ class StockRepository(
             upiId = remote.upiId
         )
         festivalPreferenceManager.applyRemoteJson(safeFestivalJson)
+        appSettingsManager.applyRemoteSequenceProfile(remote)
         authManager.refreshCurrentUserRole()
 
         val currentBank = bankingPreferenceManager.currentBankingInfo.value
@@ -2601,6 +2640,39 @@ class StockRepository(
             location = location.trim().ifBlank { StoreProfilePreferenceManager.DEFAULT_LOCATION },
             updatedAt = System.currentTimeMillis()
         )
+        pushStoreProfileMerged(snapshot)
+    }
+
+    suspend fun saveAndSyncInvoiceSequence(
+        prefix: String,
+        nextNum: Int,
+        padDigits: Int,
+        includeFy: Boolean,
+        quotePrefix: String,
+        nextQuoteNum: Int,
+        quotePadDigits: Int
+    ) = withContext(Dispatchers.IO) {
+        val nowTs = System.currentTimeMillis()
+        appSettingsManager.setInvoiceSequence(
+            prefix = prefix,
+            nextNum = nextNum,
+            padDigits = padDigits,
+            includeFy = includeFy,
+            updatedAt = nowTs
+        )
+        appSettingsManager.setQuoteSequence(
+            prefix = quotePrefix,
+            nextNum = nextQuoteNum,
+            padDigits = quotePadDigits,
+            updatedAt = nowTs
+        )
+        val nextInvPreview = appSettingsManager.previewNextInvoiceNo()
+        val nextQuotePreview = appSettingsManager.previewNextQuoteNo()
+        recordAudit(
+            "UPDATE_INVOICE_SEQ",
+            "Updated invoice sequence to $nextInvPreview (quote next: $nextQuotePreview)"
+        )
+        val snapshot = buildLocalStoreProfileSnapshot()
         pushStoreProfileMerged(snapshot)
     }
 

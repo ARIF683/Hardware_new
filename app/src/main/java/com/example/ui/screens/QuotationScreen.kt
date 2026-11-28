@@ -511,13 +511,21 @@ fun QuotationScreen(viewModel: StockViewModel) {
 
     // Form Dialog
     if (showFormDialog) {
+        val nextQuotePreview = remember(quotations) { viewModel.previewNextQuoteNo() }
         QuotationFormDialog(
             existingQuotation = quotationToEdit,
             availableItems = allItems,
+            defaultQuoteNo = nextQuotePreview,
             onDismiss = { showFormDialog = false },
-            onSave = { record ->
+            onSaveWithAutoFlag = { record, usedDefaultAutoNo ->
                 haptics.confirm()
-                viewModel.saveQuotation(record)
+                val finalRecord = if (quotationToEdit == null && usedDefaultAutoNo) {
+                    record.copy(quotationNo = viewModel.consumeNextQuoteNo())
+                } else {
+                    viewModel.markQuoteNoUsed(record.quotationNo)
+                    record
+                }
+                viewModel.saveQuotation(finalRecord)
                 showFormDialog = false
             }
         )
@@ -998,16 +1006,19 @@ private data class QuotationFormRow(
 fun QuotationFormDialog(
     existingQuotation: QuotationRecord?,
     availableItems: List<Item>,
+    defaultQuoteNo: String = "EST-1001",
     onDismiss: () -> Unit,
-    onSave: (QuotationRecord) -> Unit
+    onSave: (QuotationRecord) -> Unit = {},
+    onSaveWithAutoFlag: ((QuotationRecord, Boolean) -> Unit)? = null
 ) {
     val ext = LocalExtendedColors.current
     val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
-    val nextQuoteNo = remember { "EST-" + (1000..9999).random().toString() }
+    val nextQuoteNo = defaultQuoteNo
 
     var customerName by remember { mutableStateOf(existingQuotation?.customerName ?: "") }
     var customerPhone by remember { mutableStateOf(existingQuotation?.customerPhone ?: "") }
     var quoteNo by remember { mutableStateOf(existingQuotation?.quotationNo ?: nextQuoteNo) }
+    var hasEditedQuoteNo by remember { mutableStateOf(false) }
     var date by remember { mutableStateOf(existingQuotation?.date ?: todayStr) }
     var validUntil by remember { mutableStateOf(existingQuotation?.validUntil ?: "") }
     var status by remember { mutableStateOf(existingQuotation?.status ?: "Draft") }
@@ -1169,7 +1180,10 @@ fun QuotationFormDialog(
                         ) {
                             OutlinedTextField(
                                 value = quoteNo,
-                                onValueChange = { quoteNo = it },
+                                onValueChange = {
+                                    quoteNo = it
+                                    hasEditedQuoteNo = it.trim() != nextQuoteNo
+                                },
                                 label = { Text("Quote No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                                 singleLine = true
@@ -2024,7 +2038,12 @@ fun QuotationFormDialog(
                                     createdAt = existingQuotation?.createdAt?.ifBlank { null }
                                         ?: SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
                                 )
-                                onSave(record)
+                                val usedAutoFlag = !hasEditedQuoteNo && existingQuotation == null && quoteNo.trim() == nextQuoteNo
+                                if (onSaveWithAutoFlag != null) {
+                                    onSaveWithAutoFlag(record, usedAutoFlag)
+                                } else {
+                                    onSave(record)
+                                }
                             },
                             enabled = customerName.isNotBlank() && lineItems.any { it.item.name.isNotBlank() },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),

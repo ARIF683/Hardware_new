@@ -29,7 +29,15 @@ data class RemoteStoreProfile(
     val signatureUrl: String? = null,
     val qrCodeUrl: String? = null,
     val festivalConfigJson: String? = null,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val invoicePrefix: String? = null,
+    val invoiceNextNum: Int? = null,
+    val invoicePadDigits: Int? = null,
+    val invoiceIncludeFy: Boolean? = null,
+    val invoiceSeqUpdatedAt: Long? = null,
+    val quotePrefix: String? = null,
+    val quoteNextNum: Int? = null,
+    val quotePadDigits: Int? = null
 )
 
 object StoreProfileSyncCodec {
@@ -40,6 +48,40 @@ object StoreProfileSyncCodec {
         if (!has(key) || isNull(key)) return null
         val value = optString(key)
         return if (value == "null") null else value
+    }
+
+    private fun JSONObject.optPresentInt(key: String): Int? {
+        if (!has(key) || isNull(key)) return null
+        val raw = opt(key) ?: return null
+        return when (raw) {
+            is Number -> raw.toInt()
+            is String -> raw.trim().toIntOrNull()
+            else -> null
+        }
+    }
+
+    private fun JSONObject.optPresentLong(key: String): Long? {
+        if (!has(key) || isNull(key)) return null
+        val raw = opt(key) ?: return null
+        return when (raw) {
+            is Number -> raw.toLong()
+            is String -> raw.trim().toLongOrNull()
+            else -> null
+        }
+    }
+
+    private fun JSONObject.optPresentBoolean(key: String): Boolean? {
+        if (!has(key) || isNull(key)) return null
+        val raw = opt(key) ?: return null
+        return when (raw) {
+            is Boolean -> raw
+            is String -> when (raw.trim().lowercase()) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+            else -> null
+        }
     }
 
     fun parseFromObject(first: JSONObject?): RemoteStoreProfile? {
@@ -62,7 +104,15 @@ object StoreProfileSyncCodec {
             signatureUrl = first.optPresentString("signatureUrl"),
             qrCodeUrl = first.optPresentString("qrCodeUrl"),
             festivalConfigJson = first.optPresentString("festivalConfigJson"),
-            updatedAt = first.optLong("updatedAt", 0L)
+            updatedAt = first.optLong("updatedAt", 0L),
+            invoicePrefix = first.optPresentString("invoicePrefix"),
+            invoiceNextNum = first.optPresentInt("invoiceNextNum"),
+            invoicePadDigits = first.optPresentInt("invoicePadDigits"),
+            invoiceIncludeFy = first.optPresentBoolean("invoiceIncludeFy"),
+            invoiceSeqUpdatedAt = first.optPresentLong("invoiceSeqUpdatedAt"),
+            quotePrefix = first.optPresentString("quotePrefix"),
+            quoteNextNum = first.optPresentInt("quoteNextNum"),
+            quotePadDigits = first.optPresentInt("quotePadDigits")
         )
     }
 
@@ -130,6 +180,14 @@ object StoreProfileSyncCodec {
             profile.signatureUrl?.let { put("signatureUrl", it) }
             profile.qrCodeUrl?.let { put("qrCodeUrl", it) }
             profile.festivalConfigJson?.let { put("festivalConfigJson", it) }
+            profile.invoicePrefix?.let { put("invoicePrefix", it) }
+            profile.invoiceNextNum?.let { put("invoiceNextNum", it) }
+            profile.invoicePadDigits?.let { put("invoicePadDigits", it) }
+            profile.invoiceIncludeFy?.let { put("invoiceIncludeFy", it) }
+            profile.invoiceSeqUpdatedAt?.let { put("invoiceSeqUpdatedAt", it) }
+            profile.quotePrefix?.let { put("quotePrefix", it) }
+            profile.quoteNextNum?.let { put("quoteNextNum", it) }
+            profile.quotePadDigits?.let { put("quotePadDigits", it) }
             put("updatedAt", ts)
         }
     }
@@ -152,6 +210,32 @@ object StoreProfileSyncCodec {
      */
     fun merge(base: RemoteStoreProfile?, override: RemoteStoreProfile): RemoteStoreProfile {
         if (base == null) return override
+        val baseHasSeq = base.invoicePrefix != null || base.invoiceNextNum != null || base.quotePrefix != null || base.quoteNextNum != null
+        val overrideHasSeq = override.invoicePrefix != null || override.invoiceNextNum != null || override.quotePrefix != null || override.quoteNextNum != null
+        val baseSeqTs = base.invoiceSeqUpdatedAt ?: 0L
+        val overSeqTs = override.invoiceSeqUpdatedAt ?: 0L
+        val preferOverrideSeq = overrideHasSeq && (!baseHasSeq || overSeqTs >= baseSeqTs)
+
+        val sameInvoiceFormat = (base.invoicePrefix ?: "") == (override.invoicePrefix ?: "") &&
+            (base.invoicePadDigits ?: 0) == (override.invoicePadDigits ?: 0) &&
+            (base.invoiceIncludeFy ?: false) == (override.invoiceIncludeFy ?: false)
+
+        val mergedInvoiceNextNum = when {
+            !overrideHasSeq -> base.invoiceNextNum
+            !baseHasSeq -> override.invoiceNextNum
+            sameInvoiceFormat && baseSeqTs == overSeqTs -> maxOf(base.invoiceNextNum ?: 1, override.invoiceNextNum ?: 1)
+            preferOverrideSeq -> override.invoiceNextNum ?: base.invoiceNextNum
+            else -> base.invoiceNextNum ?: override.invoiceNextNum
+        }
+        val mergedQuoteNextNum = when {
+            !overrideHasSeq -> base.quoteNextNum
+            !baseHasSeq -> override.quoteNextNum
+            (base.quotePrefix ?: "") == (override.quotePrefix ?: "") && baseSeqTs == overSeqTs ->
+                maxOf(base.quoteNextNum ?: 1, override.quoteNextNum ?: 1)
+            preferOverrideSeq -> override.quoteNextNum ?: base.quoteNextNum
+            else -> base.quoteNextNum ?: override.quoteNextNum
+        }
+
         return RemoteStoreProfile(
             bannerUrl = override.bannerUrl ?: base.bannerUrl,
             logoUrl = override.logoUrl ?: base.logoUrl,
@@ -168,7 +252,15 @@ object StoreProfileSyncCodec {
             signatureUrl = override.signatureUrl ?: base.signatureUrl,
             qrCodeUrl = override.qrCodeUrl ?: base.qrCodeUrl,
             festivalConfigJson = override.festivalConfigJson ?: base.festivalConfigJson,
-            updatedAt = maxOf(base.updatedAt, override.updatedAt)
+            updatedAt = maxOf(base.updatedAt, override.updatedAt),
+            invoicePrefix = if (preferOverrideSeq) (override.invoicePrefix ?: base.invoicePrefix) else (base.invoicePrefix ?: override.invoicePrefix),
+            invoiceNextNum = mergedInvoiceNextNum,
+            invoicePadDigits = if (preferOverrideSeq) (override.invoicePadDigits ?: base.invoicePadDigits) else (base.invoicePadDigits ?: override.invoicePadDigits),
+            invoiceIncludeFy = if (preferOverrideSeq) (override.invoiceIncludeFy ?: base.invoiceIncludeFy) else (base.invoiceIncludeFy ?: override.invoiceIncludeFy),
+            invoiceSeqUpdatedAt = maxOf(baseSeqTs, overSeqTs).takeIf { it > 0L },
+            quotePrefix = if (preferOverrideSeq) (override.quotePrefix ?: base.quotePrefix) else (base.quotePrefix ?: override.quotePrefix),
+            quoteNextNum = mergedQuoteNextNum,
+            quotePadDigits = if (preferOverrideSeq) (override.quotePadDigits ?: base.quotePadDigits) else (base.quotePadDigits ?: override.quotePadDigits)
         )
     }
 }

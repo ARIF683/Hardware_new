@@ -91,6 +91,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     val haptics = rememberAppHaptics()
     val ext = LocalExtendedColors.current
     val allItems by viewModel.allItems.collectAsState()
+    val allGstBills by viewModel.allGstBills.collectAsState()
+    val invoicePrefix by viewModel.invoicePrefix.collectAsState()
+    val nextInvoiceNum by viewModel.nextInvoiceNum.collectAsState()
+    val invoicePadDigits by viewModel.invoicePadDigits.collectAsState()
+    val invoiceIncludeFy by viewModel.invoiceIncludeFy.collectAsState()
     val prefilledQuotation by viewModel.prefilledQuotationForGst.collectAsState()
     var quotationId by remember { mutableStateOf<String?>(null) }
     var quotationNo by remember { mutableStateOf<String?>(null) }
@@ -99,7 +104,11 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var storeGstin by remember { mutableStateOf("27AABCS1234F1Z5") }
     var customerGstin by remember { mutableStateOf("") }
     var customerName by remember { mutableStateOf("") }
-    var invoiceNo by remember { mutableStateOf(viewModel.previewNextInvoiceNo()) }
+    val liveNextInvoiceNo = remember(invoicePrefix, nextInvoiceNum, invoicePadDigits, invoiceIncludeFy, allGstBills) {
+        viewModel.previewNextInvoiceNo()
+    }
+    var invoiceNo by remember { mutableStateOf(liveNextInvoiceNo) }
+    var hasManuallyEditedInvoiceNo by remember { mutableStateOf(false) }
     var hasConsumedSequenceNo by remember { mutableStateOf(false) }
     var deductStockAndCashflow by remember { mutableStateOf(true) }
     var invoiceDate by remember { mutableStateOf(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())) }
@@ -125,6 +134,17 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
     var isGeneratingPdf by remember { mutableStateOf(false) }
     var showInvoicePreviewDialog by remember { mutableStateOf(false) }
 
+    val isDuplicateInvoiceNo = remember(invoiceNo, allGstBills, savedBillId) {
+        val clean = invoiceNo.trim()
+        clean.isNotEmpty() && allGstBills.any { it.id != savedBillId && it.invoiceNo.trim().equals(clean, ignoreCase = true) }
+    }
+
+    LaunchedEffect(liveNextInvoiceNo, hasManuallyEditedInvoiceNo, hasConsumedSequenceNo, savedBillId) {
+        if (!hasManuallyEditedInvoiceNo && !hasConsumedSequenceNo && savedBillId == null) {
+            invoiceNo = liveNextInvoiceNo
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             viewModel.clearPrefilledGstQuotation()
@@ -137,8 +157,9 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
             customerName = q.customerName
             customerPhone = q.customerPhone
             customerAddress = q.customerAddress
-            invoiceNo = "GST-${q.quotationNo}"
-            hasConsumedSequenceNo = true
+            hasManuallyEditedInvoiceNo = false
+            hasConsumedSequenceNo = false
+            invoiceNo = liveNextInvoiceNo
             quotationId = q.id
             quotationNo = q.quotationNo
             defaultTaxRate = q.taxPercent
@@ -296,10 +317,32 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                     )
                                     OutlinedTextField(
                                         value = invoiceNo,
-                                        onValueChange = { invoiceNo = it },
+                                        onValueChange = {
+                                            invoiceNo = it
+                                            hasManuallyEditedInvoiceNo = it.trim() != liveNextInvoiceNo
+                                        },
                                         label = { Text("Invoice No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                        isError = isDuplicateInvoiceNo,
+                                        supportingText = if (isDuplicateInvoiceNo) {
+                                            { Text("Duplicate invoice # — tap Auto", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                        } else null,
+                                        trailingIcon = if (hasManuallyEditedInvoiceNo || isDuplicateInvoiceNo) {
+                                            {
+                                                TextButton(
+                                                    onClick = {
+                                                        hasManuallyEditedInvoiceNo = false
+                                                        hasConsumedSequenceNo = false
+                                                        invoiceNo = liveNextInvoiceNo
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                    modifier = Modifier.testTag("gst_invoice_no_auto_button")
+                                                ) {
+                                                    Text("Auto", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        } else null,
                                         singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().testTag("gst_invoice_no_input")
                                     )
                                     OutlinedTextField(
                                         value = customerPhone,
@@ -356,10 +399,32 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                         )
                                         OutlinedTextField(
                                             value = invoiceNo,
-                                            onValueChange = { invoiceNo = it },
+                                            onValueChange = {
+                                                invoiceNo = it
+                                                hasManuallyEditedInvoiceNo = it.trim() != liveNextInvoiceNo
+                                            },
                                             label = { Text("Invoice No.", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                                            isError = isDuplicateInvoiceNo,
+                                            supportingText = if (isDuplicateInvoiceNo) {
+                                                { Text("Duplicate — tap Auto", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                            } else null,
+                                            trailingIcon = if (hasManuallyEditedInvoiceNo || isDuplicateInvoiceNo) {
+                                                {
+                                                    TextButton(
+                                                        onClick = {
+                                                            hasManuallyEditedInvoiceNo = false
+                                                            hasConsumedSequenceNo = false
+                                                            invoiceNo = liveNextInvoiceNo
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                        modifier = Modifier.testTag("gst_invoice_no_auto_button")
+                                                    ) {
+                                                        Text("Auto", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            } else null,
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp)
+                                            modifier = Modifier.weight(1f).widthIn(min = 0.dp).testTag("gst_invoice_no_input")
                                         )
                                     }
                                     Row(
@@ -1109,6 +1174,30 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                         Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
 
+                    val prepareInvoiceNumberForFinalize = {
+                        val trimmed = invoiceNo.trim()
+                        if (savedBillId != null) {
+                            true
+                        } else if (trimmed.isEmpty()) {
+                            invoiceNo = viewModel.consumeNextInvoiceNo()
+                            hasConsumedSequenceNo = true
+                            hasManuallyEditedInvoiceNo = false
+                            true
+                        } else if (allGstBills.any { it.invoiceNo.trim().equals(trimmed, ignoreCase = true) }) {
+                            haptics.reject()
+                            viewModel.showToast("Invoice #$trimmed already exists — tap Auto or change number")
+                            false
+                        } else if (!hasConsumedSequenceNo && !hasManuallyEditedInvoiceNo) {
+                            invoiceNo = viewModel.consumeNextInvoiceNo()
+                            hasConsumedSequenceNo = true
+                            true
+                        } else {
+                            hasConsumedSequenceNo = true
+                            viewModel.markInvoiceNoUsed(trimmed)
+                            true
+                        }
+                    }
+
                     Button(
                         onClick = {
                             val validRows = rows.filter { it.itemName.isNotBlank() }
@@ -1117,10 +1206,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@Button
                             }
-                            if (!hasConsumedSequenceNo && quotationId == null && invoiceNo == viewModel.previewNextInvoiceNo()) {
-                                invoiceNo = viewModel.consumeNextInvoiceNo()
-                                hasConsumedSequenceNo = true
-                            }
+                            if (!prepareInvoiceNumberForFinalize()) return@Button
                             scope.launch {
                                 isGeneratingPdf = true
                                 try {
@@ -1273,10 +1359,7 @@ fun GstCalculatorScreen(viewModel: StockViewModel) {
                                 viewModel.showToast("Please enter or select at least one item first!")
                                 return@OutlinedButton
                             }
-                            if (!hasConsumedSequenceNo && quotationId == null && invoiceNo == viewModel.previewNextInvoiceNo()) {
-                                invoiceNo = viewModel.consumeNextInvoiceNo()
-                                hasConsumedSequenceNo = true
-                            }
+                            if (!prepareInvoiceNumberForFinalize()) return@OutlinedButton
                             val nowIso = DateTimeHelper.nowIso()
                             val rawValidLines = validRows.map { r ->
                                 val rawTaxable = r.qty * r.rate

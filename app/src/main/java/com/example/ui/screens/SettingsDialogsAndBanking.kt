@@ -16,16 +16,21 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +65,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +74,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,6 +102,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.BuildConfig
 import com.example.data.model.Item
+import com.example.data.pref.AppSettingsManager
 import com.example.data.remote.UpdateStatus
 import com.example.ui.StockViewModel
 import com.example.ui.theme.LocalExtendedColors
@@ -1294,58 +1302,323 @@ fun SettingsProfileEditDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsInvoiceSequenceDialog(
     initialPrefix: String,
     initialNextNum: Int,
-    onSave: (prefix: String, nextNum: Int) -> Unit,
+    initialPadDigits: Int = 0,
+    initialIncludeFy: Boolean = false,
+    initialQuotePrefix: String = AppSettingsManager.DEFAULT_QUOTE_PREFIX,
+    initialNextQuoteNum: Int = AppSettingsManager.DEFAULT_NEXT_QUOTE_NUM,
+    initialQuotePadDigits: Int = 0,
+    existingInvoiceNos: List<String> = emptyList(),
+    onSaveDetailed: ((prefix: String, nextNum: Int, padDigits: Int, includeFy: Boolean, quotePrefix: String, nextQuoteNum: Int, quotePadDigits: Int) -> Unit)? = null,
+    onSave: (prefix: String, nextNum: Int) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
 ) {
+    val ext = LocalExtendedColors.current
     var prefix by remember { mutableStateOf(initialPrefix) }
     var nextNumText by remember { mutableStateOf(initialNextNum.toString()) }
+    var padDigits by remember { mutableStateOf(initialPadDigits) }
+    var includeFy by remember { mutableStateOf(initialIncludeFy) }
 
-    AlertDialog(
+    var quotePrefix by remember { mutableStateOf(initialQuotePrefix) }
+    var nextQuoteNumText by remember { mutableStateOf(initialNextQuoteNum.toString()) }
+    var quotePadDigits by remember { mutableStateOf(initialQuotePadDigits) }
+
+    val parsedNextNum = nextNumText.toIntOrNull()?.coerceAtLeast(1) ?: initialNextNum.coerceAtLeast(1)
+    val parsedQuoteNum = nextQuoteNumText.toIntOrNull()?.coerceAtLeast(1) ?: initialNextQuoteNum.coerceAtLeast(1)
+    val cleanInvPrefix = AppSettingsManager.normalizePrefix(prefix, AppSettingsManager.DEFAULT_INVOICE_PREFIX)
+    val cleanQuotePrefix = AppSettingsManager.normalizePrefix(quotePrefix, AppSettingsManager.DEFAULT_QUOTE_PREFIX)
+
+    val fyToken = remember { AppSettingsManager.currentIndianFyToken() }
+    val previewInvNo = remember(cleanInvPrefix, parsedNextNum, padDigits, includeFy, fyToken) {
+        AppSettingsManager.formatDocumentNo(cleanInvPrefix, parsedNextNum, padDigits, includeFy, AppSettingsManager.DEFAULT_INVOICE_PREFIX, fyToken)
+    }
+    val previewQuoteNo = remember(cleanQuotePrefix, parsedQuoteNum, quotePadDigits) {
+        AppSettingsManager.formatDocumentNo(cleanQuotePrefix, parsedQuoteNum, quotePadDigits, includeFy = false, defaultPrefix = AppSettingsManager.DEFAULT_QUOTE_PREFIX)
+    }
+    val hasCollision = remember(previewInvNo, existingInvoiceNos) {
+        AppSettingsManager.isDuplicateDocNo(previewInvNo, existingInvoiceNos)
+    }
+    val nextAvailableNum = remember(cleanInvPrefix, parsedNextNum, padDigits, includeFy, existingInvoiceNos, fyToken) {
+        AppSettingsManager.computeNextAvailableNumber(
+            startNum = parsedNextNum,
+            prefix = cleanInvPrefix,
+            padDigits = padDigits,
+            includeFy = includeFy,
+            existingNos = existingInvoiceNos,
+            defaultPrefix = AppSettingsManager.DEFAULT_INVOICE_PREFIX,
+            fyToken = fyToken
+        )
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Invoice Sequence", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .widthIn(max = 520.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Invoice & Estimate Sequence", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "Customize default bill prefix and sequence counter.",
+                    "Synced across all devices for GST bills, Quick POS sales & estimates.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedTextField(
-                    value = prefix,
-                    onValueChange = { prefix = it.uppercase() },
-                    label = { Text("Prefix") },
-                    placeholder = { Text("BILL-") },
-                    singleLine = true,
+
+                // Live Preview Banner
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = nextNumText,
-                    onValueChange = { nextNumText = it.filter { ch -> ch.isDigit() } },
-                    label = { Text("Next Number") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val parsedNum = nextNumText.toIntOrNull()?.coerceAtLeast(1) ?: initialNextNum
-                    onSave(prefix.trim().ifBlank { "BILL-" }, parsedNum)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "LIVE PREVIEW",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Next Tax / POS Bill", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = previewInvNo,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.testTag("invoice_seq_preview_text")
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Next Estimate", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = previewQuoteNo,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.testTag("quote_seq_preview_text")
+                                )
+                            }
+                        }
+                    }
                 }
-            ) {
-                Text("Update")
+
+                // Quick Prefix Presets
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Quick Prefix Presets", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("BILL-", "INV-", "GST-", "SAH/").forEach { preset ->
+                            FilterChip(
+                                selected = prefix.trim().equals(preset, ignoreCase = true),
+                                onClick = { prefix = preset },
+                                label = { Text(preset, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = prefix,
+                        onValueChange = { prefix = it.uppercase().take(24) },
+                        label = { Text("Invoice Prefix") },
+                        placeholder = { Text("BILL-") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .testTag("invoice_seq_prefix_input")
+                    )
+                    OutlinedTextField(
+                        value = nextNumText,
+                        onValueChange = { nextNumText = it.filter { ch -> ch.isDigit() }.take(7) },
+                        label = { Text("Next #") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .testTag("invoice_seq_next_input")
+                    )
+                }
+
+                if (hasCollision) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ext.warning.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "$previewInvNo already exists in saved bills.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ext.warning,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { nextNumText = nextAvailableNum.toString() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.testTag("invoice_seq_jump_available")
+                            ) {
+                                Text("Use #$nextAvailableNum", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // Zero Padding & FY Token
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Number Padding", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(0 to "None (1)", 3 to "3 Digits (001)", 4 to "4 Digits (0001)", 5 to "5 Digits (00001)").forEach { (digits, label) ->
+                            FilterChip(
+                                selected = padDigits == digits,
+                                onClick = { padDigits = digits },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.testTag("invoice_seq_pad_$digits")
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { includeFy = !includeFy }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Include Financial Year ($fyToken/)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Inserts GST Financial Year between prefix & bill number",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = includeFy,
+                            onCheckedChange = { includeFy = it },
+                            modifier = Modifier.testTag("invoice_seq_fy_switch")
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+
+                Text("Estimate / Quotation Numbering", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = quotePrefix,
+                        onValueChange = { quotePrefix = it.uppercase().take(24) },
+                        label = { Text("Estimate Prefix") },
+                        placeholder = { Text("EST-") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .testTag("quote_seq_prefix_input")
+                    )
+                    OutlinedTextField(
+                        value = nextQuoteNumText,
+                        onValueChange = { nextQuoteNumText = it.filter { ch -> ch.isDigit() }.take(7) },
+                        label = { Text("Next Quote #") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .testTag("quote_seq_next_input")
+                    )
+                }
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(0 to "Plain (1001)", 4 to "4 Digits (0001)").forEach { (digits, label) ->
+                        FilterChip(
+                            selected = quotePadDigits == digits,
+                            onClick = { quotePadDigits = digits },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (onSaveDetailed != null) {
+                                onSaveDetailed(
+                                    cleanInvPrefix,
+                                    parsedNextNum,
+                                    padDigits,
+                                    includeFy,
+                                    cleanQuotePrefix,
+                                    parsedQuoteNum,
+                                    quotePadDigits
+                                )
+                            } else {
+                                onSave(cleanInvPrefix, parsedNextNum)
+                            }
+                        },
+                        modifier = Modifier.testTag("invoice_seq_save_button")
+                    ) {
+                        Text("Update & Sync")
+                    }
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+    }
 }
 
 @Composable

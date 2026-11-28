@@ -1681,10 +1681,10 @@ fun QuickBillingPosScreen(
                         }
                     }
                     val pickedParty = partyCandidates.firstOrNull { it.id == selectedAccId }
-                    val exceedsPosLimit = pickedParty != null &&
+                    if (pickedParty != null &&
                         pickedParty.creditLimit > 0.0 &&
                         (pickedParty.netBalance + creditBal) > pickedParty.creditLimit
-                    if (exceedsPosLimit && pickedParty != null) {
+                    ) {
                         Surface(
                             color = ext.warning.copy(alpha = 0.14f),
                             border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.45f)),

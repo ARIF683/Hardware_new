@@ -83,19 +83,24 @@ data class StockFlowDayPoint(
 
 class StockViewModel(application: Application) : AndroidViewModel(application) {
     val authManager = AuthManager(application)
-    val repository = StockRepository(application, authManager = authManager)
+    val appSettingsManager = AppSettingsManager(application)
+    val repository = StockRepository(application, authManager = authManager, appSettingsManager = appSettingsManager)
     val appUpdateManager = AppUpdateManager(application)
     val logoPreferenceManager = LogoPreferenceManager(application)
     val bankingPreferenceManager = BankingPreferenceManager(application)
     val storeProfilePreferenceManager = StoreProfilePreferenceManager(application)
     val festivalPreferenceManager = FestivalPreferenceManager(application)
-    val appSettingsManager = AppSettingsManager(application)
     val bankingInfo: StateFlow<BankingInfo> = bankingPreferenceManager.currentBankingInfo
     val storeIdentity: StateFlow<StoreIdentity> = storeProfilePreferenceManager.currentStoreIdentity
     val festivalStudioConfig: StateFlow<FestivalStudioConfig> = festivalPreferenceManager.currentConfig
 
     val invoicePrefix: StateFlow<String> = appSettingsManager.invoicePrefix
     val nextInvoiceNum: StateFlow<Int> = appSettingsManager.nextInvoiceNum
+    val invoicePadDigits: StateFlow<Int> = appSettingsManager.invoicePadDigits
+    val invoiceIncludeFy: StateFlow<Boolean> = appSettingsManager.invoiceIncludeFy
+    val quotePrefix: StateFlow<String> = appSettingsManager.quotePrefix
+    val nextQuoteNum: StateFlow<Int> = appSettingsManager.nextQuoteNum
+    val quotePadDigits: StateFlow<Int> = appSettingsManager.quotePadDigits
     val lowStockAlertsEnabled: StateFlow<Boolean> = appSettingsManager.lowStockAlertsEnabled
     val lowStockDefaultThreshold: StateFlow<Int> = appSettingsManager.lowStockDefaultThreshold
     val instantDispatchSlip: StateFlow<Boolean> = appSettingsManager.instantDispatchSlip
@@ -115,13 +120,64 @@ class StockViewModel(application: Application) : AndroidViewModel(application) {
         showToast(if (enabled) "Instant dispatch prompt enabled" else "Instant dispatch prompt disabled")
     }
 
-    fun setInvoiceSequence(prefix: String, nextNum: Int) {
-        appSettingsManager.setInvoiceSequence(prefix, nextNum)
-        showToast("Invoice numbering set to ${appSettingsManager.previewNextInvoiceNo()}")
+    fun setInvoiceSequence(
+        prefix: String,
+        nextNum: Int,
+        padDigits: Int = invoicePadDigits.value,
+        includeFy: Boolean = invoiceIncludeFy.value,
+        quotePrefix: String = this.quotePrefix.value,
+        nextQuoteNum: Int = this.nextQuoteNum.value,
+        quotePadDigits: Int = this.quotePadDigits.value
+    ) {
+        if (!isAdmin.value) {
+            showToast("Only Admin can update invoice sequence")
+            return
+        }
+        viewModelScope.launch {
+            repository.saveAndSyncInvoiceSequence(
+                prefix = prefix,
+                nextNum = nextNum,
+                padDigits = padDigits,
+                includeFy = includeFy,
+                quotePrefix = quotePrefix,
+                nextQuoteNum = nextQuoteNum,
+                quotePadDigits = quotePadDigits
+            )
+            val previewInv = previewNextInvoiceNo()
+            val previewQuote = previewNextQuoteNo()
+            showToast("Sequence saved · Invoice: $previewInv · Estimate: $previewQuote")
+        }
     }
 
-    fun previewNextInvoiceNo(): String = appSettingsManager.previewNextInvoiceNo()
-    fun consumeNextInvoiceNo(): String = appSettingsManager.consumeNextInvoiceNo()
+    fun previewNextInvoiceNo(): String {
+        val existingNos = allGstBills.value.map { it.invoiceNo }
+        return appSettingsManager.previewNextInvoiceNo(existingNos)
+    }
+
+    fun consumeNextInvoiceNo(): String {
+        val existingNos = allGstBills.value.map { it.invoiceNo }
+        return appSettingsManager.consumeNextInvoiceNo(existingNos)
+    }
+
+    fun markInvoiceNoUsed(invoiceNo: String) {
+        val existingNos = allGstBills.value.map { it.invoiceNo }
+        appSettingsManager.advanceInvoiceCounterIfUsed(invoiceNo, existingNos)
+    }
+
+    fun previewNextQuoteNo(): String {
+        val existingNos = allQuotations.value.map { it.quotationNo }
+        return appSettingsManager.previewNextQuoteNo(existingNos)
+    }
+
+    fun consumeNextQuoteNo(): String {
+        val existingNos = allQuotations.value.map { it.quotationNo }
+        return appSettingsManager.consumeNextQuoteNo(existingNos)
+    }
+
+    fun markQuoteNoUsed(quotationNo: String) {
+        val existingNos = allQuotations.value.map { it.quotationNo }
+        appSettingsManager.advanceQuoteCounterIfUsed(quotationNo, existingNos)
+    }
 
     private val themePrefs = application.getSharedPreferences("theme_prefs", android.content.Context.MODE_PRIVATE)
     private val _customThemeColor = MutableStateFlow(
