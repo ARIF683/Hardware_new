@@ -32,6 +32,7 @@ internal class SecureTokenStore(
         private const val KEY_ENC_TOKEN = "supabase_access_token_enc"
         private const val KEY_LEGACY_PLAINTEXT = "supabase_access_token"
         private const val KEY_ENC_REFRESH_TOKEN = "supabase_refresh_token_enc"
+        private const val KEY_ENC_TOKEN_EXPIRES_AT_MS = "supabase_token_expires_at_ms_enc"
 
         internal fun isRobolectricRuntime(): Boolean =
             Build.FINGERPRINT.equals("robolectric", ignoreCase = true)
@@ -146,11 +147,20 @@ internal class SecureTokenStore(
     fun readRefreshToken(): String =
         decodeSecret(prefs.getString(encRefreshTokenKey, null))
 
-    fun saveSessionTokens(accessToken: String, refreshToken: String): Boolean {
+    fun saveSessionTokens(
+        accessToken: String,
+        refreshToken: String,
+        expiresAtMillis: Long? = null
+    ): Boolean {
         val cleanAccess = accessToken.trim()
         val cleanRefresh = refreshToken.trim()
         val encodedAccess = if (cleanAccess.isNotBlank()) (encodeSecret(cleanAccess) ?: return false) else null
         val encodedRefresh = if (cleanRefresh.isNotBlank()) (encodeSecret(cleanRefresh) ?: return false) else null
+        val encodedExpiry = if (expiresAtMillis != null && expiresAtMillis > 0L) {
+            encodeSecret(expiresAtMillis.toString())
+        } else {
+            null
+        }
 
         val editor = prefs.edit().remove(legacyPlaintextKey)
         if (encodedAccess != null) {
@@ -163,8 +173,24 @@ internal class SecureTokenStore(
         } else if (cleanAccess.isBlank()) {
             editor.remove(encRefreshTokenKey)
         }
+        if (encodedExpiry != null) {
+            editor.putString(KEY_ENC_TOKEN_EXPIRES_AT_MS, encodedExpiry)
+        } else if (cleanAccess.isBlank()) {
+            editor.remove(KEY_ENC_TOKEN_EXPIRES_AT_MS)
+        }
         editor.apply()
         return true
+    }
+
+    fun readTokenExpiresAtMs(): Long =
+        readEncryptedString(KEY_ENC_TOKEN_EXPIRES_AT_MS)?.toLongOrNull() ?: 0L
+
+    fun saveTokenExpiresAtMs(expiresAtMillis: Long): Boolean {
+        if (expiresAtMillis <= 0L) {
+            removeEncryptedKey(KEY_ENC_TOKEN_EXPIRES_AT_MS)
+            return true
+        }
+        return saveEncryptedString(KEY_ENC_TOKEN_EXPIRES_AT_MS, expiresAtMillis.toString())
     }
 
     fun clearToken() {
@@ -172,6 +198,7 @@ internal class SecureTokenStore(
             .remove(encTokenKey)
             .remove(legacyPlaintextKey)
             .remove(encRefreshTokenKey)
+            .remove(KEY_ENC_TOKEN_EXPIRES_AT_MS)
             .apply()
     }
 

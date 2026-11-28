@@ -306,7 +306,7 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                         .build()
 
                     var resp = auth.httpClient.newCall(executeChangeRequest(token)).execute()
-                    if (resp.code == 401 && auth.refreshSessionBlocking()) {
+                    if (resp.code == 401 && auth.refreshSessionBlocking(failedAccessToken = token)) {
                         resp.close()
                         token = auth.activeAccessToken()
                         resp = auth.httpClient.newCall(executeChangeRequest(token)).execute()
@@ -428,7 +428,13 @@ internal class SupabaseAccountOperations(private val auth: AuthManager) {
                             }
 
                             auth.resetAuthFailures()
-                            auth.completeEmailChangeLocally(oldEmail, cleanNew, newToken, newRefreshToken)
+                            auth.completeEmailChangeLocally(
+                                oldEmail = oldEmail,
+                                newEmail = cleanNew,
+                                newAccessToken = newToken,
+                                newRefreshToken = newRefreshToken,
+                                expiresAtMillis = AuthManager.resolveExpiryMillis(obj, newToken, auth.wallClockNowMs()).takeIf { it > 0L }
+                            )
                             withContext(Dispatchers.Main) {
                                 callback(true, "Email address updated to $cleanNew.")
                             }

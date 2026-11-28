@@ -130,12 +130,17 @@ class SupabaseClient(
     @Volatile
     private var onRefreshSession: (() -> Boolean)? = null
 
+    @Volatile
+    private var onRefreshSessionWithToken: ((String) -> Boolean)? = null
+
     fun configureAuth(
         accessTokenProvider: () -> String,
-        onRefreshSession: (() -> Boolean)? = null
+        onRefreshSession: (() -> Boolean)? = null,
+        onRefreshSessionWithToken: ((String) -> Boolean)? = null
     ) {
         this.accessTokenProvider = accessTokenProvider
         this.onRefreshSession = onRefreshSession
+        this.onRefreshSessionWithToken = onRefreshSessionWithToken
     }
 
     private fun activeBearerToken(): String {
@@ -147,16 +152,22 @@ class SupabaseClient(
     }
 
     private fun executeSupabaseCall(request: Request): Response {
+        val sentToken = request.header("Authorization").orEmpty().removePrefix("Bearer ").trim()
         val firstResp = okHttpClient.newCall(request).execute()
-        if (firstResp.code == 401 &&
-            !accessTokenProvider?.invoke()?.trim().isNullOrBlank() &&
-            onRefreshSession?.invoke() == true
-        ) {
-            firstResp.close()
-            val refreshedReq = request.newBuilder()
-                .header("Authorization", "Bearer ${activeBearerToken()}")
-                .build()
-            return okHttpClient.newCall(refreshedReq).execute()
+        if (firstResp.code == 401 && sentToken.isNotBlank()) {
+            val latestToken = accessTokenProvider?.invoke()?.trim().orEmpty()
+            val refreshedOk = when {
+                latestToken.isNotBlank() && latestToken != sentToken -> true
+                onRefreshSessionWithToken != null -> onRefreshSessionWithToken?.invoke(sentToken) == true
+                else -> onRefreshSession?.invoke() == true
+            }
+            if (refreshedOk) {
+                firstResp.close()
+                val refreshedReq = request.newBuilder()
+                    .header("Authorization", "Bearer ${activeBearerToken()}")
+                    .build()
+                return okHttpClient.newCall(refreshedReq).execute()
+            }
         }
         return firstResp
     }

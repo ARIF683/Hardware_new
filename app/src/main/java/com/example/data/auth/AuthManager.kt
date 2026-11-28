@@ -153,11 +153,51 @@ class AuthManager(context: Context) {
             }
         }
 
+        internal const val PROACTIVE_REFRESH_LEEWAY_MS = 5 * 60 * 1000L
+        private val SESSION_REFRESH_LOCK = Any()
+
         internal fun isMetadataAdmin(userObj: JSONObject?): Boolean {
             if (userObj == null) return false
             val appMeta = userObj.optJSONObject("app_metadata")
             return appMeta?.optBoolean("is_admin", false) == true ||
                 appMeta?.optString("role").equals("admin", ignoreCase = true)
+        }
+
+        internal fun parseJwtExpiryMillis(jwt: String): Long {
+            val clean = jwt.trim()
+            if (clean.isBlank()) return 0L
+            return try {
+                val parts = clean.split('.')
+                if (parts.size < 2) return 0L
+                val payloadB64 = parts[1]
+                val decoded = android.util.Base64.decode(
+                    payloadB64,
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+                )
+                val json = JSONObject(String(decoded, Charsets.UTF_8))
+                val expSec = json.optLong("exp", 0L)
+                if (expSec > 0L) expSec * 1000L else 0L
+            } catch (_: Throwable) {
+                0L
+            }
+        }
+
+        internal fun resolveExpiryMillis(
+            obj: JSONObject?,
+            accessToken: String,
+            nowMs: Long = System.currentTimeMillis()
+        ): Long {
+            if (obj != null) {
+                val expiresInSec = obj.optLong("expires_in", 0L)
+                if (expiresInSec > 0L) {
+                    return nowMs + expiresInSec * 1000L
+                }
+                val rawExpiresAt = obj.optLong("expires_at", 0L)
+                if (rawExpiresAt > 0L) {
+                    return if (rawExpiresAt < 10_000_000_000L) rawExpiresAt * 1000L else rawExpiresAt
+                }
+            }
+            return parseJwtExpiryMillis(accessToken)
         }
     }
 
@@ -263,7 +303,6 @@ class AuthManager(context: Context) {
     private var otpTickerJob: Job? = null
     private var resendTickerJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
-    private val refreshLock = Any()
 
     internal var httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -791,14 +830,19 @@ class AuthManager(context: Context) {
     }
 
     @androidx.annotation.VisibleForTesting
+    internal var supabaseConfigOverrideForTests: Pair<String, String>? = null
+
+    @androidx.annotation.VisibleForTesting
     internal fun seedTestSession(
         email: String,
         isAdmin: Boolean = false,
         accessToken: String = "robolectric-test-jwt",
-        refreshToken: String = "robolectric-test-refresh"
+        refreshToken: String = "robolectric-test-refresh",
+        expiresAtMillis: Long? = null
     ) {
         val clean = email.trim().lowercase()
-        tokenStore.saveSessionTokens(accessToken, refreshToken)
+        val resolvedExp = (expiresAtMillis ?: parseJwtExpiryMillis(accessToken)).takeIf { it > 0L }
+        tokenStore.saveSessionTokens(accessToken, refreshToken, resolvedExp)
         tokenStore.saveEncryptedBoolean(KEY_ENC_AUTHED, true)
         tokenStore.saveEncryptedBoolean(KEY_ENC_ADMIN, isAdmin)
         tokenStore.saveEncryptedString(KEY_ENC_CURRENT_USER_EMAIL, clean)
@@ -995,9 +1039,17 @@ class AuthManager(context: Context) {
         upsertUser(email, isAdmin)
     }
 
+    private fun resolvedSupabaseBaseUrl(): String =
+        (supabaseConfigOverrideForTests?.first ?: com.example.BuildConfig.SUPABASE_URL)
+            .trim().trim('"').trimEnd('/')
+
+    private fun resolvedSupabaseApiKey(): String =
+        (supabaseConfigOverrideForTests?.second ?: com.example.BuildConfig.SUPABASE_KEY)
+            .trim().trim('"')
+
     internal fun isSupabaseConfigured(): Boolean {
-        val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-        val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+        val baseUrl = resolvedSupabaseBaseUrl()
+        val apiKey = resolvedSupabaseApiKey()
         val isHttpsOrLocal = baseUrl.startsWith("https://", ignoreCase = true) ||
             baseUrl.startsWith("http://localhost", ignoreCase = true) ||
             baseUrl.startsWith("http://127.0.0.1", ignoreCase = true)
@@ -1019,14 +1071,63 @@ class AuthManager(context: Context) {
 
     internal fun activeRefreshToken(): String = tokenStore.readRefreshToken()
 
-    internal fun refreshSessionBlocking(): Boolean {
+    internal fun activeTokenExpiresAtMs(): Long = tokenStore.readTokenExpiresAtMs()
+
+    /**
+     * Proactively refreshes the access token before expiry so foreground/resume requests
+     * share one clean token instead of triggering parallel 401 refresh races.
+     */
+    internal fun ensureValidSessionBlocking(leewayMs: Long = PROACTIVE_REFRESH_LEEWAY_MS): Boolean {
+        val currentToken = activeAccessToken()
+        val currentRefresh = activeRefreshToken()
+        if (currentToken.isBlank() && currentRefresh.isBlank()) return false
+        if (!isSupabaseConfigured()) return currentToken.isNotBlank() || _isAuthed.value
+
+        synchronized(SESSION_REFRESH_LOCK) {
+            val token = activeAccessToken()
+            val refresh = activeRefreshToken()
+            if (token.isBlank() && refresh.isBlank()) return false
+
+            var expiresAt = tokenStore.readTokenExpiresAtMs()
+            if (expiresAt <= 0L && token.isNotBlank()) {
+                val parsed = parseJwtExpiryMillis(token)
+                if (parsed > 0L) {
+                    tokenStore.saveTokenExpiresAtMs(parsed)
+                    expiresAt = parsed
+                }
+            }
+            if (token.isNotBlank() && (expiresAt <= 0L || wallClockNowMs() + leewayMs < expiresAt)) {
+                return true
+            }
+            return refreshSessionBlocking(failedAccessToken = token.takeIf { it.isNotBlank() })
+        }
+    }
+
+    internal fun refreshSessionBlocking(failedAccessToken: String? = null): Boolean {
         if (!isSupabaseConfigured()) return false
-        synchronized(refreshLock) {
+        synchronized(SESSION_REFRESH_LOCK) {
+            val currentAccess = activeAccessToken()
             val currentRefresh = activeRefreshToken()
+
+            // Deduplicate concurrent 401 retries: if another coroutine/worker already rotated
+            // failedAccessToken -> currentAccess while we waited on SESSION_REFRESH_LOCK, reuse it!
+            val cleanFailed = failedAccessToken?.trim().orEmpty()
+            if (cleanFailed.isNotBlank() && currentAccess.isNotBlank() && currentAccess != cleanFailed) {
+                return true
+            }
+
+            // If called proactively (failedAccessToken == null) and token is still fresh, skip network call.
+            if (cleanFailed.isBlank() && currentAccess.isNotBlank()) {
+                val storedExpiry = tokenStore.readTokenExpiresAtMs()
+                if (storedExpiry > 0L && wallClockNowMs() + PROACTIVE_REFRESH_LEEWAY_MS < storedExpiry) {
+                    return true
+                }
+            }
+
             if (currentRefresh.isBlank()) return false
             return try {
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                val baseUrl = resolvedSupabaseBaseUrl()
+                val apiKey = resolvedSupabaseApiKey()
                 val payload = JSONObject().put("refresh_token", currentRefresh).toString()
                 val req = Request.Builder()
                     .url("$baseUrl/auth/v1/token?grant_type=refresh_token")
@@ -1042,7 +1143,8 @@ class AuthManager(context: Context) {
                         val newAccess = obj?.optString("access_token").orEmpty()
                         val newRefresh = obj?.optString("refresh_token").orEmpty().ifBlank { currentRefresh }
                         if (newAccess.isNotBlank()) {
-                            tokenStore.saveSessionTokens(newAccess, newRefresh)
+                            val newExpiry = resolveExpiryMillis(obj, newAccess, wallClockNowMs())
+                            tokenStore.saveSessionTokens(newAccess, newRefresh, newExpiry.takeIf { it > 0L })
                             val userObj = obj?.optJSONObject("user")
                             if (userObj != null && isMetadataAdmin(userObj) && !_isAdmin.value) {
                                 scope.launch {
@@ -1055,6 +1157,10 @@ class AuthManager(context: Context) {
                             false
                         }
                     } else if (resp.code == 400 || resp.code == 401 || resp.code == 403) {
+                        val latestAccess = activeAccessToken()
+                        if (latestAccess.isNotBlank() && latestAccess != currentAccess) {
+                            return true
+                        }
                         forceSessionExpiredSignOut("Your session has expired. Please sign in again.")
                         false
                     } else {
@@ -1076,7 +1182,8 @@ class AuthManager(context: Context) {
         oldEmail: String?,
         newEmail: String,
         newAccessToken: String,
-        newRefreshToken: String = ""
+        newRefreshToken: String = "",
+        expiresAtMillis: Long? = null
     ) {
         val cleanNew = newEmail.trim().lowercase()
         val cleanOld = oldEmail?.trim()?.lowercase()
@@ -1093,7 +1200,8 @@ class AuthManager(context: Context) {
             saveUsersLocally(updatedList, now)
             onRolesChangedListener?.invoke(serializeUsers(updatedList), now)
             if (newAccessToken.isNotBlank()) {
-                tokenStore.saveSessionTokens(newAccessToken, newRefreshToken)
+                val resolvedExp = (expiresAtMillis ?: parseJwtExpiryMillis(newAccessToken)).takeIf { it > 0L }
+                tokenStore.saveSessionTokens(newAccessToken, newRefreshToken, resolvedExp)
             }
             tokenStore.saveEncryptedString(KEY_ENC_CURRENT_USER_EMAIL, cleanNew)
             tokenStore.saveEncryptedString(KEY_ENC_LAST_EMAIL, cleanNew)
@@ -1241,9 +1349,14 @@ class AuthManager(context: Context) {
             var token = activeAccessToken()
             var sessionRevoked = false
 
+            if (isSupabaseConfigured()) {
+                ensureValidSessionBlocking()
+                token = activeAccessToken()
+            }
+
             if (isSupabaseConfigured() && token.isNotBlank()) {
-                val baseUrl = com.example.BuildConfig.SUPABASE_URL.trim().trim('"').trimEnd('/')
-                val apiKey = com.example.BuildConfig.SUPABASE_KEY.trim().trim('"')
+                val baseUrl = resolvedSupabaseBaseUrl()
+                val apiKey = resolvedSupabaseApiKey()
 
                 fun fetchUserInfo(bearer: String): Pair<Int, JSONObject?> {
                     return try {
@@ -1268,7 +1381,9 @@ class AuthManager(context: Context) {
                 }
 
                 var (statusCode, userObj) = fetchUserInfo(token)
-                if (statusCode == 401 && refreshSessionBlocking()) {
+                var refreshSucceeded = false
+                if (statusCode == 401 && refreshSessionBlocking(failedAccessToken = token)) {
+                    refreshSucceeded = true
                     token = activeAccessToken()
                     if (token.isNotBlank()) {
                         val retried = fetchUserInfo(token)
@@ -1277,11 +1392,15 @@ class AuthManager(context: Context) {
                     }
                 }
 
-                when (statusCode) {
-                    in 200..299 -> {
+                when {
+                    statusCode in 200..299 -> {
                         metadataAdmin = isMetadataAdmin(userObj)
                     }
-                    401, 403, 404 -> {
+                    statusCode == 403 || statusCode == 404 -> {
+                        sessionRevoked = true
+                    }
+                    statusCode == 401 && refreshSucceeded -> {
+                        // A freshly rotated access token was still rejected by /auth/v1/user
                         sessionRevoked = true
                     }
                 }
@@ -1319,7 +1438,8 @@ class AuthManager(context: Context) {
         email: String,
         accessToken: String = "",
         refreshToken: String = "",
-        metadataIsAdmin: Boolean = false
+        metadataIsAdmin: Boolean = false,
+        expiresAtMillis: Long? = null
     ) {
         val clean = email.trim().lowercase()
         val previousEmail = _currentUserEmail.value?.trim()?.lowercase()
@@ -1381,7 +1501,8 @@ class AuthManager(context: Context) {
             onRolesChangedListener?.invoke(serializeUsers(updatedUsers), now)
 
             if (effectiveAccessToken.isNotBlank() || effectiveRefreshToken.isNotBlank()) {
-                tokenStore.saveSessionTokens(effectiveAccessToken, effectiveRefreshToken)
+                val resolvedExp = (expiresAtMillis ?: parseJwtExpiryMillis(effectiveAccessToken)).takeIf { it > 0L }
+                tokenStore.saveSessionTokens(effectiveAccessToken, effectiveRefreshToken, resolvedExp)
             }
             tokenStore.saveEncryptedBoolean(KEY_ENC_AUTHED, true)
             tokenStore.saveEncryptedBoolean(KEY_ENC_ADMIN, resolvedAdmin)
@@ -1403,9 +1524,10 @@ class AuthManager(context: Context) {
         email: String,
         accessToken: String = "",
         refreshToken: String = "",
-        metadataIsAdmin: Boolean = false
+        metadataIsAdmin: Boolean = false,
+        expiresAtMillis: Long? = null
     ) {
-        resolveAndCompleteSessionBlocking(email, accessToken, refreshToken, metadataIsAdmin)
+        resolveAndCompleteSessionBlocking(email, accessToken, refreshToken, metadataIsAdmin, expiresAtMillis)
     }
 
     fun signUpEmailPassword(
@@ -1490,7 +1612,8 @@ class AuthManager(context: Context) {
                                         email = clean,
                                         accessToken = accessToken,
                                         refreshToken = refreshToken,
-                                        metadataIsAdmin = isMetadataAdmin(userObj)
+                                        metadataIsAdmin = isMetadataAdmin(userObj),
+                                        expiresAtMillis = resolveExpiryMillis(obj, accessToken, wallClockNowMs()).takeIf { it > 0L }
                                     )
                                     withContext(Dispatchers.Main) {
                                         callback(true, "Account created & signed in!")
@@ -1618,7 +1741,8 @@ class AuthManager(context: Context) {
                                 email = clean,
                                 accessToken = accessToken,
                                 refreshToken = refreshToken,
-                                metadataIsAdmin = isMetadataAdmin(userObj)
+                                metadataIsAdmin = isMetadataAdmin(userObj),
+                                expiresAtMillis = resolveExpiryMillis(obj, accessToken, wallClockNowMs()).takeIf { it > 0L }
                             )
                             withContext(Dispatchers.Main) {
                                 callback(true, "Email verified! Welcome to Stock.")
@@ -1841,7 +1965,8 @@ class AuthManager(context: Context) {
                                         email = confirmedEmail,
                                         accessToken = verifiedToken,
                                         refreshToken = verifiedRefreshToken,
-                                        metadataIsAdmin = isMetadataAdmin(userObj)
+                                        metadataIsAdmin = isMetadataAdmin(userObj),
+                                        expiresAtMillis = resolveExpiryMillis(obj, verifiedToken, wallClockNowMs()).takeIf { it > 0L }
                                     )
                                     withContext(Dispatchers.Main) {
                                         _authDeepLinkMessage.value = "Email verified! Welcome to Stock."
@@ -1956,7 +2081,8 @@ class AuthManager(context: Context) {
                                 email = clean,
                                 accessToken = accessToken,
                                 refreshToken = refreshToken,
-                                metadataIsAdmin = isMetadataAdmin(userObj)
+                                metadataIsAdmin = isMetadataAdmin(userObj),
+                                expiresAtMillis = resolveExpiryMillis(obj, accessToken, wallClockNowMs()).takeIf { it > 0L }
                             )
                             withContext(Dispatchers.Main) {
                                 callback(true, null)

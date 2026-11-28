@@ -97,7 +97,8 @@ class StockRepository(
     init {
         supabaseClient.configureAuth(
             accessTokenProvider = { authManager.activeAccessToken() },
-            onRefreshSession = { authManager.refreshSessionBlocking() }
+            onRefreshSession = { authManager.refreshSessionBlocking() },
+            onRefreshSessionWithToken = { failed -> authManager.refreshSessionBlocking(failed) }
         )
         authManager.onSessionClearedListener = {
             pauseBackgroundWork()
@@ -476,6 +477,7 @@ class StockRepository(
         autoSyncJob = repositoryScope.launch {
             while (isActive && !isPausedForBackground) {
                 if (isOnline() && supabaseClient.isConfigured()) {
+                    authManager.ensureValidSessionBlocking()
                     flushQueue()
                 }
                 delay(15_000)
@@ -503,7 +505,14 @@ class StockRepository(
     fun resumeBackgroundWork() {
         isPausedForBackground = false
         startPeriodicSync()
-        initRealtime(force = false)
+        repositoryScope.launch {
+            if (isOnline() && supabaseClient.isConfigured()) {
+                authManager.ensureValidSessionBlocking()
+            }
+            if (!isPausedForBackground) {
+                initRealtime(force = false)
+            }
+        }
     }
 
     private fun parsePendingIds(payloadJson: String): List<String> {
@@ -554,6 +563,7 @@ class StockRepository(
         _syncStatus.value = "Loading…"
         try {
             if (isOnline()) {
+                authManager.ensureValidSessionBlocking()
                 flushQueue()
             }
 

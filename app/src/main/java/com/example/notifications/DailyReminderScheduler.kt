@@ -391,10 +391,12 @@ object DailyReminderScheduler {
         if (isNetworkAvailable(appContext)) {
             try {
                 val authManager = AuthManager(appContext)
+                authManager.ensureValidSessionBlocking()
                 val client = SupabaseClient(okHttpClient = quickSyncOkHttp).apply {
                     configureAuth(
                         accessTokenProvider = { authManager.activeAccessToken() },
-                        onRefreshSession = { authManager.refreshSessionBlocking() }
+                        onRefreshSession = { authManager.refreshSessionBlocking() },
+                        onRefreshSessionWithToken = { failed -> authManager.refreshSessionBlocking(failed) }
                     )
                 }
                 if (client.isConfigured()) {
