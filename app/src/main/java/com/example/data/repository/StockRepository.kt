@@ -2106,6 +2106,9 @@ class StockRepository(
             )
             database.ledgerDao().insertAccount(updated)
             enqueueOp("upsertLedgerAcc", ledgerAccountListAdapter.toJson(listOf(updated)))
+            if (!existing.type.equals(updated.type, ignoreCase = true)) {
+                recalculateAccountBalanceInternal(updated.id)
+            }
             recordAudit("EDIT_KHATA_ACCOUNT", "Updated Khata account: ${updated.name} (${updated.type})")
         }
         flushQueue()
@@ -2249,6 +2252,12 @@ class StockRepository(
     }
 
     suspend fun deleteLedgerEntry(entryId: String, accountId: String) = withContext(Dispatchers.IO) {
+        val targetEntry = database.ledgerDao().getEntriesForAccountOnce(accountId).firstOrNull { it.id == entryId }
+        val linkedCfId = targetEntry?.let { KhataMetaCodec.parseEntryMeta(it.description).syncedCashflowId }.orEmpty()
+        if (linkedCfId.isNotBlank()) {
+            database.dailyCashflowDao().deleteById(linkedCfId)
+            enqueueOp("deleteCashflow", linkedCfId)
+        }
         database.ledgerDao().deleteEntryById(entryId)
         enqueueOp("deleteLedgerEntry", entryId)
         recordAudit("DELETE_KHATA_ENTRY", "Deleted entry ${entryId.take(8)} from account ${accountId.take(8)}")
@@ -2335,6 +2344,7 @@ class StockRepository(
                     { DateTimeHelper.normalizeDateToIso(it.date, it.date) },
                     { if (KhataMetaCodec.parseEntryMeta(it.description).isOpeningBalance) 0 else 1 },
                     { it.createdAt },
+                    { if (KhataBalanceHelper.isCreditEntryType(account.type, it.type)) 0 else 1 },
                     { it.id }
                 )
             )

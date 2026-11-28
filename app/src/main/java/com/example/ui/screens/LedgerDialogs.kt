@@ -65,6 +65,7 @@ import java.util.UUID
 @Composable
 fun AddAccountDialog(
     defaultType: String,
+    existingAccounts: List<LedgerAccount> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (LedgerAccount) -> Unit
 ) {
@@ -79,6 +80,19 @@ fun AddAccountDialog(
     var notes by remember { mutableStateOf("") }
     var initialBalanceText by remember { mutableStateOf("") }
     var openingIsAdvance by remember { mutableStateOf(false) }
+
+    val ext = LocalExtendedColors.current
+    val duplicateMatch = remember(name, phone, type, existingAccounts) {
+        val trimName = name.trim()
+        val trimPhone = phone.trim()
+        existingAccounts.firstOrNull { acc ->
+            val sameGroup = acc.type.equals("SUPPLIER", ignoreCase = true) == type.equals("SUPPLIER", ignoreCase = true)
+            sameGroup && (
+                (trimName.isNotBlank() && acc.name.trim().equals(trimName, ignoreCase = true)) ||
+                    (trimPhone.length >= 6 && acc.phone.trim() == trimPhone)
+                )
+        }
+    }
 
     val todayStr = remember { DateTimeHelper.nowIso() }
 
@@ -112,6 +126,25 @@ fun AddAccountDialog(
                     modifier = Modifier.fillMaxWidth().testTag("khata_account_name_input"),
                     singleLine = true
                 )
+                if (duplicateMatch != null) {
+                    Surface(
+                        color = ext.warning.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.45f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = ext.warning, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Existing Khata found: ${duplicateMatch.name} (${duplicateMatch.type}, Bal: ₹${KhataMath.formatAmount(duplicateMatch.netBalance)})",
+                                fontSize = 11.sp,
+                                color = ext.warning,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = phone,

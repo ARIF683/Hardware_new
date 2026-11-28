@@ -183,13 +183,22 @@ fun GstBillsTabContent(
     val totalTax = remember(allBills) { allBills.sumOf { it.totalTaxAmount } }
 
     val customerCreditDue = remember(ledgerAccounts) {
-        ledgerAccounts.filter { it.type != "SUPPLIER" && it.netBalance > 0 }.sumOf { it.netBalance }
+        ledgerAccounts.filter {
+            !it.type.equals("SUPPLIER", ignoreCase = true) &&
+                !com.example.util.KhataMetaCodec.parseAccountMeta(it.notes).archived &&
+                it.netBalance > 0.005
+        }.sumOf { it.netBalance }
     }
     val dueCustomersCount = remember(ledgerAccounts) {
-        ledgerAccounts.count { it.type != "SUPPLIER" && it.netBalance > 0 }
+        ledgerAccounts.count {
+            !it.type.equals("SUPPLIER", ignoreCase = true) &&
+                !com.example.util.KhataMetaCodec.parseAccountMeta(it.notes).archived &&
+                it.netBalance > 0.005
+        }
     }
     val pendingBillsTotal = remember(allBills) {
-        allBills.filter { isBillPending(it) }.sumOf { it.grandTotal }
+        allBills.filter { isBillPending(it) && !it.status.contains("khata", ignoreCase = true) }
+            .sumOf { it.grandTotal }
     }
     val totalReceivables = customerCreditDue + pendingBillsTotal
 

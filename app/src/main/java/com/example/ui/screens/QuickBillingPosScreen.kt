@@ -1680,13 +1680,37 @@ fun QuickBillingPosScreen(
                             }
                         }
                     }
+                    val pickedParty = partyCandidates.firstOrNull { it.id == selectedAccId }
+                    val exceedsPosLimit = pickedParty != null &&
+                        pickedParty.creditLimit > 0.0 &&
+                        (pickedParty.netBalance + creditBal) > pickedParty.creditLimit
+                    if (exceedsPosLimit && pickedParty != null) {
+                        Surface(
+                            color = ext.warning.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, ext.warning.copy(alpha = 0.45f)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Limit Warning: New balance ₹${String.format(Locale.US, "%.2f", pickedParty.netBalance + creditBal)} exceeds limit ₹${String.format(Locale.US, "%.2f", pickedParty.creditLimit)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ext.warning,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
                     Surface(
                         color = ext.danger.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Posting ₹${String.format(Locale.US, "%.2f", creditBal)} to Customer Khata",
+                            text = if (creditBal > 0.005) {
+                                "Posting ₹${String.format(Locale.US, "%.2f", creditBal)} to Customer Khata"
+                            } else {
+                                "Full ₹${String.format(Locale.US, "%.2f", paidNowAmt)} paid via $paidNowMode (₹0.00 Khata)"
+                            },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = ext.danger,
@@ -1749,7 +1773,8 @@ fun QuickBillingPosScreen(
                 ) {
                     Column {
                         Text("Invoice #${bill.invoiceNo}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("Amount Paid: ₹${String.format(Locale.US, "%.2f", bill.grandTotal)} (${bill.status})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        val amtLabel = if (bill.status.contains("khata", ignoreCase = true)) "Bill Total" else "Amount Paid"
+                        Text("$amtLabel: ₹${String.format(Locale.US, "%.2f", bill.grandTotal)} (${bill.status})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                         Text("Customer: ${bill.customerName}", fontSize = 12.sp)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Inventory stock levels have been automatically updated.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

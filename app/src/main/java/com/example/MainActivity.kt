@@ -486,6 +486,7 @@ fun MainAppRoot(viewModel: StockViewModel) {
                         com.example.ui.screens.LedgerAccountDetailScreen(
                             account = targetAcc,
                             viewModel = viewModel,
+                            isAdmin = isAdmin,
                             onBack = { viewModel.navigateToKhata() }
                         )
                     } else {

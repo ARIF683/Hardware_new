@@ -653,6 +653,7 @@ fun LedgerScreen(viewModel: StockViewModel) {
         }
         AddAccountDialog(
             defaultType = defaultType,
+            existingAccounts = accounts,
             onDismiss = { showAddAccountDialog = false },
             onSave = { acc ->
                 haptics.confirm()

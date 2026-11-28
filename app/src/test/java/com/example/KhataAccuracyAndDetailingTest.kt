@@ -170,6 +170,10 @@ class KhataAccuracyAndDetailingTest {
             assertEquals(0.0, supplierCash.netBalance, 0.001)
             val supplierCashEntries = db.ledgerDao().getEntriesForAccountOnce(supplierCash.id)
             assertEquals(2, supplierCashEntries.size) // 1 GOT purchase + 1 GAVE cash settlement
+            assertEquals("GOT", supplierCashEntries.first().type)
+            assertEquals(1000.0, supplierCashEntries.first().balanceAfter, 0.001)
+            assertEquals("GAVE", supplierCashEntries.last().type)
+            assertEquals(0.0, supplierCashEntries.last().balanceAfter, 0.001)
             val cashflows = db.dailyCashflowDao().getAllCashflow().first()
             assertEquals(1, cashflows.size)
             assertEquals(1000.0, cashflows[0].amount, 0.001)
@@ -297,6 +301,7 @@ class KhataAccuracyAndDetailingTest {
 
             val entry = db.ledgerDao().getEntriesForAccountOnce("c2").first { it.type == "GOT" }
             repo.deleteLedgerEntry(entry.id, "c2")
+            assertTrue(db.dailyCashflowDao().getAllCashflow().first().isEmpty())
             val audits = db.auditLogDao().getAllAuditLogs().first()
             assertTrue(audits.any { it.action == "DELETE_KHATA_ENTRY" })
         } finally {
@@ -323,6 +328,12 @@ class KhataAccuracyAndDetailingTest {
                 val updated = db.ledgerDao().getAccountById("c3")!!
                 assertEquals(750.0, updated.netBalance, 0.001)
                 assertEquals(3000.0, updated.creditLimit, 0.001)
+                // Changing type CONTRACTOR -> SUPPLIER recalculates running balance under supplier convention
+                adminRepo.saveLedgerAccount(updated.copy(type = "SUPPLIER"))
+                val asSupplier = db.ledgerDao().getAccountById("c3")!!
+                assertEquals(-750.0, asSupplier.netBalance, 0.001)
+                adminRepo.saveLedgerAccount(asSupplier.copy(type = "CONTRACTOR"))
+                assertEquals(750.0, db.ledgerDao().getAccountById("c3")!!.netBalance, 0.001)
             }
 
             // Non-admin ViewModel attempt to delete must be blocked
